@@ -110,17 +110,50 @@
     });
     return copy;
   }
+  /* 큐 항목에만 붙는 로컬 메타(서버로 보내지 않는다) — 새 키를 추가하면 반드시 여기에도 넣어라 */
+  var QUEUE_META_KEYS = ['state', 'reason', 'reason_message'];
   function stripQueueMeta(item) {
     var copy = {};
-    Object.keys(item).forEach(function (k) { if (k !== 'state' && k !== 'reason') copy[k] = item[k]; });
+    Object.keys(item).forEach(function (k) { if (QUEUE_META_KEYS.indexOf(k) === -1) copy[k] = item[k]; });
     return copy;
+  }
+  /* 큐 행 '상세'에 보여줄 payload — PIN 은 화면에 그대로 띄우지 않는다(내용 확인에 불필요) */
+  function queuePayloadPreview(item) {
+    var view = stripQueueMeta(item);
+    if (Object.prototype.hasOwnProperty.call(view, 'pin')) view.pin = '****';
+    return JSON.stringify(view, null, 2);
+  }
+  /* 오류 코드 분류(계약 C1):
+       영구(permanent) = AUTH·VALIDATION — 같은 payload 를 다시 보내도 절대 성공하지 않는다 → 자동 재시도 금지
+       일시(retryable) = NETWORK·LOCK_TIMEOUT·SERVER(그 외 전부) — 재시도로 성공할 수 있다 */
+  var PERMANENT_ERROR_CODES = ['AUTH', 'VALIDATION'];
+  function isPermanentError(code) {
+    return PERMANENT_ERROR_CODES.indexOf(String(code || '').toUpperCase()) !== -1;
+  }
+  function normalizeError(error) {
+    return {
+      code: (error && error.code) || 'SERVER',
+      message: (error && error.message) || '알 수 없는 오류'
+    };
+  }
+  /* FAILED 는 code(reason)만 남긴다 — 사람이 읽을 message 까지 큐 행에 보존한다. */
+  function markQueueFailure(id, error) {
+    state.queue = SafetyLogic.queueReducer(state.queue, { type: 'FAILED', id: id, reason: error.code });
+    state.queue = state.queue.map(function (q) {
+      if (q.submission_id !== id) return q;
+      var updated = {};
+      Object.keys(q).forEach(function (k) { updated[k] = q[k]; });
+      updated.reason_message = error.message || '';
+      return updated;
+    });
   }
   function persistDraft() {
     if (state.draft) state.storage.saveDraft(state.draft);
   }
   function invalidateAck() {
-    /* Step2 응답(Y/N/NA·내용)이 검토 확인 이후 바뀌면 이전 확인은 무효 —
-       재확인을 강제해 "확인 시점 ≠ 실제 제출 내용" 무결성 갭을 막는다. */
+    /* 제출 내용(1단계 기본정보 + 2단계 응답) 중 무엇이든 검토 확인 이후 바뀌면 이전 확인은 무효 —
+       재확인을 강제해 "확인 시점 ≠ 실제 제출 내용" 무결성 갭을 막는다.
+       특히 수검자·점검자가 바뀌면 "누가 무엇을 확인했는가" 자체가 달라진다. */
     if (!state.draft) return;
     state.draft.auditee_ack = false;
     state.draft.auditee_ack_at = '';
@@ -295,12 +328,39 @@
       node.querySelector('.queue-sub').textContent = companyName(q.company_id) + ' · ' + (q.project_name || projectName(q.project_key));
       var stateEl = node.querySelector('.queue-state');
       if (q.state === 'failed') {
-        stateEl.textContent = '재전송 대기 — 실패(' + (q.reason || '') + ')';
+        var detail = (q.reason || '') + (q.reason_message ? ' — ' + q.reason_message : '');
+        /* 영구 실패는 자동 재시도 대상이 아니다 — "언젠간 전송되겠지"라는 오해를 문구로 끊는다 */
+        stateEl.textContent = isPermanentError(q.reason)
+          ? ('전송 불가 (자동 재시도 안 함) — ' + detail)
+          : ('재전송 대기 — 실패(' + detail + ')');
         stateEl.classList.add('text-danger');
       } else {
         stateEl.textContent = '전송 대기 중';
         stateEl.classList.add('text-neutral');
       }
+
+      /* 상세: 갇힌 항목의 내용을 읽을 수 있게 (textContent 로만 — innerHTML 금지) */
+      var detailBtn = node.querySelector('.queue-btn-detail');
+      var payloadEl = node.querySelector('.queue-payload');
+      payloadEl.textContent = queuePayloadPreview(q);
+      detailBtn.addEventListener('click', function () {
+        var willShow = payloadEl.hidden;
+        payloadEl.hidden = !willShow;
+        detailBtn.setAttribute('aria-expanded', willShow ? 'true' : 'false');
+        detailBtn.textContent = willShow ? '상세 닫기' : '상세';
+      });
+
+      /* 삭제: 큐에 갇힌 항목의 유일한 탈출구. 전송 중에는 경합을 피해 잠근다. */
+      var deleteBtn = node.querySelector('.queue-btn-delete');
+      deleteBtn.disabled = state.syncing;
+      deleteBtn.addEventListener('click', function () {
+        var ok = window.confirm('이 미전송 항목을 큐에서 삭제합니다. 삭제하면 복구할 수 없고 서버에도 전송되지 않습니다. 계속할까요?');
+        if (!ok) return;
+        state.queue = state.queue.filter(function (x) { return x.submission_id !== q.submission_id; });
+        state.storage.saveQueue(state.queue);
+        renderHome();
+      });
+
       wrap.appendChild(node);
     });
   }
@@ -323,7 +383,12 @@
   }
   function flushQueue() {
     if (state.syncing) return Promise.resolve();
-    var targets = state.queue.filter(function (q) { return q.state === 'pending' || q.state === 'failed'; });
+    /* 영구 실패(AUTH·VALIDATION)는 재전송해도 같은 결과다 — 무한 재시도를 여기서 끊는다.
+       사용자는 큐 행의 '상세'로 내용을 확인하고 '삭제'로 정리한다. */
+    var targets = state.queue.filter(function (q) {
+      if (q.state === 'pending') return true;
+      return q.state === 'failed' && !isPermanentError(q.reason);
+    });
     if (!targets.length) return Promise.resolve();
     state.syncing = true;
     renderHome();
@@ -335,7 +400,7 @@
           if (result.ok) {
             state.queue = SafetyLogic.queueReducer(state.queue, { type: 'SENT', id: payload.submission_id });
           } else {
-            state.queue = SafetyLogic.queueReducer(state.queue, { type: 'FAILED', id: payload.submission_id, reason: result.error.code });
+            markQueueFailure(payload.submission_id, normalizeError(result.error));
           }
           state.storage.saveQueue(state.queue);
         });
@@ -443,12 +508,15 @@
       });
   }
 
+  /* 1단계 기본정보 변경도 2단계 응답과 똑같이 확인(ack)을 무효화한다 —
+     검토에서 확인한 뒤 되돌아와 수검자·점검자를 바꾸면 옛 확인 시각이 그대로 붙어 기록이 왜곡된다. */
   function onCompanyChange(e) {
     state.draft.company_id = e.target.value;
     state.draft.project_key = '';
     state.draft.project_name = '';
     populateProjectSelect(e.target.value);
     $('f-project-tmp-wrap').hidden = true;
+    invalidateAck();
     persistDraft();
   }
   function onProjectChange(e) {
@@ -463,33 +531,40 @@
       state.draft.project_key = v;
       state.draft.project_name = projectName(v);
     }
+    invalidateAck();
     persistDraft();
   }
   function onProjectTmpInput(e) {
     state.draft.project_name = e.target.value;
+    invalidateAck();
     persistDraft();
   }
   function onTeamChange(e) {
     populateInspectorSelect(e.target.value);
     state.draft.inspector_id = '';
+    invalidateAck();
     persistDraft();
   }
   function onInspectorChange(e) {
     state.draft.inspector_id = e.target.value;
+    invalidateAck();
     persistDraft();
   }
   function onPinInput(e) {
     var digits = e.target.value.replace(/\D/g, '').slice(0, 4);
     e.target.value = digits;
     state.draft.pin = digits;
+    invalidateAck();
     persistDraft();
   }
   function onDateChange(e) {
     state.draft.inspect_date = e.target.value;
+    invalidateAck();
     persistDraft();
   }
   function onAuditeeInput(e) {
     state.draft.auditee = e.target.value;
+    invalidateAck();
     persistDraft();
   }
   function onStep1Next() {
@@ -731,14 +806,28 @@
         state.storage.clearDraft();
         state.draft = null;
         showBanner('success', (result.data && result.data.dup) ? '이미 처리된 제출입니다(중복 확인됨).' : '제출 완료.');
-      } else {
-        state.queue = SafetyLogic.queueReducer(state.queue, { type: 'ENQUEUE', item: payload });
-        state.queue = SafetyLogic.queueReducer(state.queue, { type: 'FAILED', id: payload.submission_id, reason: result.error.code });
-        state.storage.saveQueue(state.queue);
-        state.storage.clearDraft();
-        state.draft = null;
-        showBanner('error', '전송 실패 — 큐에 보관됨: ' + result.error.message + ' (' + result.error.code + ')');
+        show('home');
+        return;
       }
+      var err = normalizeError(result.error);
+      if (isPermanentError(err.code)) {
+        /* 영구 오류(AUTH·VALIDATION): 같은 payload 는 몇 번을 보내도 거절된다.
+           큐에 넣으면 무한 재시도가 되고, clearDraft 하면 유일한 작성본이 사라진다.
+           → draft 를 그대로 둔 채 검토 화면에 머물러 사용자가 PIN·날짜 등을 고쳐 재제출하게 한다.
+           (클라 사전검증은 withInjectedPin 때문에 PIN 오타를 구조적으로 못 잡는다 — 여기가 유일한 방어선) */
+        renderReview();
+        showBanner('error', '서버가 제출을 거절했습니다 — 자동 재시도하지 않습니다. 내용을 고쳐 다시 제출하세요: '
+          + err.message + ' (' + err.code + ')');
+        window.scrollTo(0, 0); /* 배너는 화면 최상단이다 — 스크롤된 상태면 거절 사실을 못 본다 */
+        return;
+      }
+      /* 일시 오류·네트워크·비JSON: 지금까지대로 큐 적재 후 홈으로 */
+      state.queue = SafetyLogic.queueReducer(state.queue, { type: 'ENQUEUE', item: payload });
+      markQueueFailure(payload.submission_id, err);
+      state.storage.saveQueue(state.queue);
+      state.storage.clearDraft();
+      state.draft = null;
+      showBanner('error', '전송 실패 — 큐에 보관됨: ' + err.message + ' (' + err.code + ')');
       show('home');
     });
   }

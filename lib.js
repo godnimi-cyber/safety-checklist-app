@@ -29,8 +29,14 @@ var SafetyLib = (function () {
       .map(function (r) { return { item_id: r.i, note: r.n || '' }; });
   }
   function diffIds(expected, existing) {
-    var set = {}; (existing || []).forEach(function (id) { set[id] = 1; });
+    // Object.create(null): id 가 'constructor'/'toString'/'__proto__' 여도 프로토타입 오염 오판 없음
+    var set = Object.create(null); (existing || []).forEach(function (id) { set[id] = 1; });
     return (expected || []).filter(function (id) { return !set[id]; });
+  }
+  /* 제출 ID = UUID v4 만 허용. 서버 입력 계약(멱등 키·finding_id 접두사)의 유일한 관문. */
+  var SUBMISSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  function isValidSubmissionId(s) {
+    return typeof s === 'string' && SUBMISSION_ID_RE.test(s);
   }
   function fnv1a(str) {
     var h = 0x811c9dc5;
@@ -39,8 +45,11 @@ var SafetyLib = (function () {
   }
   function validateSubmission(p, masters, todayStr) {
     var errors = [], stale = false;
+    if (!isValidSubmissionId(p.submission_id))
+      return { ok: false, errors: [{ code: 'SUBMISSION_ID_INVALID', msg: '제출 ID 형식 오류' }], stale: false, snapshots: null };
     var insp = (masters.inspectors || []).filter(function (x) { return x.inspector_id === p.inspector_id; })[0];
-    if (!insp || String(insp.pin) !== String(p.pin))
+    // 마스터 PIN 이 공란이면 대조할 값이 없다 → 인증 불성립(빈 PIN 우회 차단)
+    if (!insp || !String(insp.pin).length || String(insp.pin) !== String(p.pin))
       return { ok: false, errors: [{ code: 'PIN_MISMATCH', msg: '점검자 PIN 불일치' }], stale: false, snapshots: null };
     if (insp.active === false) stale = true;
     var vd = validateDate(p.inspect_date, todayStr);
@@ -49,10 +58,15 @@ var SafetyLib = (function () {
       return t.template_id === p.template_id && Number(t.ver) === Number(p.template_ver); })[0];
     if (!tpl) errors.push({ code: 'ITEMS_MISMATCH', msg: '템플릿/버전 없음' });
     else {
-      var expect = tpl.items.filter(function (it) { return it.type === 'group' || it.type === 'item'; })
-        .map(function (it) { return it.item_id; }).sort().join(',');
-      var got = (p.results || []).map(function (r) { return r.i; }).sort().join(',');
-      if (expect !== got) errors.push({ code: 'ITEMS_MISMATCH', msg: '응답 항목 불일치' });
+      // 개정으로 비활성이 된 (id,ver) 은 거절이 아니라 관용 수락 (설계 §7.1-5)
+      if (tpl.active === false) stale = true;
+      var expectIds = (tpl.items || []).filter(function (it) { return it.type === 'group' || it.type === 'item'; })
+        .map(function (it) { return it.item_id; }).sort();
+      if (!expectIds.length) errors.push({ code: 'MASTER_EMPTY_ITEMS', msg: '해당 버전 항목 없음' });
+      else {
+        var got = (p.results || []).map(function (r) { return r.i; }).sort().join(',');
+        if (expectIds.join(',') !== got) errors.push({ code: 'ITEMS_MISMATCH', msg: '응답 항목 불일치' });
+      }
     }
     (p.results || []).forEach(function (r) {
       if (r.r !== 'Y' && r.r !== 'N' && r.r !== 'NA') errors.push({ code: 'RESULT_INVALID', msg: r.i + ' 응답값 오류' });
@@ -72,8 +86,21 @@ var SafetyLib = (function () {
         if (proj.status && proj.status !== '진행') stale = true;
       }
     }
-    if (p.auditee_ack !== true || !(p.auditee && String(p.auditee).trim()))
+    if (p.auditee_ack !== true || !(p.auditee && String(p.auditee).trim())) {
       errors.push({ code: 'ACK_REQUIRED', msg: '수검자 확인 필요' });
+    } else {
+      // §7.1-6 / §14-4: 서버 시각으로 덮어쓰지 않고 정합만 검증한다.
+      var ackAt = p.auditee_ack_at;
+      var ackMs = (typeof ackAt === 'string' && ackAt.length) ? new Date(ackAt).getTime() : NaN;
+      if (isNaN(ackMs)) {
+        errors.push({ code: 'ACK_AT_INVALID', msg: '수검자 확인 시각 오류' });
+      } else if (vd.ok) {   // 점검일이 이미 틀렸으면 대조 기준이 없다(중복 보고 방지)
+        var ackLo = new Date(p.inspect_date + 'T00:00:00').getTime();
+        var ackHi = new Date(todayStr + 'T23:59:59').getTime();
+        if (isNaN(ackLo) || isNaN(ackHi) || ackMs < ackLo || ackMs > ackHi)
+          errors.push({ code: 'ACK_AT_INVALID', msg: '수검자 확인 시각 오류' });
+      }
+    }
     if (errors.length) return { ok: false, errors: errors, stale: stale, snapshots: null };
     return { ok: true, errors: [], stale: stale, snapshots: {
       company_name: comp ? comp.name : '',
@@ -82,6 +109,6 @@ var SafetyLib = (function () {
   }
   return { validateDate: validateDate, sanitizeCell: sanitizeCell, deriveCounts: deriveCounts,
            extractFindings: extractFindings, diffIds: diffIds, fnv1a: fnv1a,
-           validateSubmission: validateSubmission };
+           isValidSubmissionId: isValidSubmissionId, validateSubmission: validateSubmission };
 })();
 if (typeof module !== 'undefined') module.exports = SafetyLib;

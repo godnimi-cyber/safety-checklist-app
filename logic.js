@@ -105,24 +105,80 @@ var SafetyLogic = (function () {
     return queue;
   }
 
+  /* storage(win)
+     - 어떤 경로에서도 예외를 던지지 않는다. localStorage 접근 자체가 SecurityError 를 던지는
+       환경(iOS Safari '모든 쿠키 차단')에서도 앱이 죽지 않고 세션 한정 메모리 저장으로 동작한다.
+     - available: 진짜 localStorage 를 쓰는지 여부(false 면 새로고침 시 소실됨을 호출자가 고지해야 한다).
+     - save 계열 반환값: 성공 true / 실패 false (실패해도 던지지 않는다).
+     - lastError: 직전 호출의 실패 정보({op, key, message, ...}) — 성공한 호출은 null 로 초기화한다.
+       JSON 파싱 실패 시 op:'parse' + 손상 원본을 '<key>_corrupt_backup' 에 백업(backup_saved 로 결과 표시). */
   function storage(win) {
-    var ls = win.localStorage;
+    var CORRUPT_SUFFIX = '_corrupt_backup';
+    var mem = {};   /* localStorage 를 못 쓸 때의 세션 한정 폴백 저장소 */
+    var ls = null;
+    try {
+      ls = (win && win.localStorage) || null;
+      if (ls) ls.getItem(DRAFT_KEY);   /* 접근/읽기 자체가 던지는 환경을 여기서 탐지 */
+    } catch (e) {
+      ls = null;
+    }
+    var api = { available: !!ls, lastError: null };
+
+    function msgOf(e) { return (e && e.message) ? e.message : String(e); }
+    function fail(op, key, e) {
+      api.lastError = { op: op, key: key, message: msgOf(e) };
+      return false;
+    }
+    /* mem 은 '영속되지 못한 값'의 오버레이다 — 있으면 항상 우선한다.
+       실제 저장이 성공하면 오버레이를 지워 낡은 값이 남지 않게 한다. */
+    function rawGet(key) {
+      if (Object.prototype.hasOwnProperty.call(mem, key)) return mem[key];
+      if (ls) {
+        try { return ls.getItem(key); } catch (e) { fail('get', key, e); }
+      }
+      return null;
+    }
+    function rawSet(key, str) {
+      if (ls) {
+        try { ls.setItem(key, str); delete mem[key]; return true; }
+        catch (e) { mem[key] = str; return fail('set', key, e); }   /* 세션 한정으로라도 보존 */
+      }
+      mem[key] = str;
+      return true;   /* 폴백 저장소는 정상 동작 — 소실 위험은 available:false 로 이미 고지됨 */
+    }
+    function rawRemove(key) {
+      var ok = true;
+      if (ls) {
+        try { ls.removeItem(key); } catch (e) { ok = fail('remove', key, e); }
+      }
+      delete mem[key];
+      return ok;
+    }
+    function saveJSON(key, value) {
+      var str;
+      try { str = JSON.stringify(value); } catch (e) { return fail('stringify', key, e); }
+      return rawSet(key, str);
+    }
     function loadJSON(key, fallback) {
-      var raw = ls.getItem(key);
+      var raw = rawGet(key);
       if (raw === null || raw === undefined) return fallback;
       try {
         return JSON.parse(raw);
       } catch (e) {
+        /* 손상 원본을 백업해 둔다 — 다음 save 가 덮어써도 복구 기회가 남는다 */
+        var bkey = key + CORRUPT_SUFFIX;
+        var saved = rawSet(bkey, raw);
+        api.lastError = { op: 'parse', key: key, backup_key: bkey, backup_saved: saved, message: msgOf(e) };
         return fallback;
       }
     }
-    return {
-      saveDraft: function (draft) { ls.setItem(DRAFT_KEY, JSON.stringify(draft)); },
-      loadDraft: function () { return loadJSON(DRAFT_KEY, null); },
-      clearDraft: function () { ls.removeItem(DRAFT_KEY); },
-      saveQueue: function (queue) { ls.setItem(QUEUE_KEY, JSON.stringify(queue)); },
-      loadQueue: function () { return loadJSON(QUEUE_KEY, []); }
-    };
+
+    api.saveDraft = function (draft) { api.lastError = null; return saveJSON(DRAFT_KEY, draft); };
+    api.loadDraft = function () { api.lastError = null; return loadJSON(DRAFT_KEY, null); };
+    api.clearDraft = function () { api.lastError = null; return rawRemove(DRAFT_KEY); };
+    api.saveQueue = function (queue) { api.lastError = null; return saveJSON(QUEUE_KEY, queue); };
+    api.loadQueue = function () { api.lastError = null; return loadJSON(QUEUE_KEY, []); };
+    return api;
   }
 
   return {

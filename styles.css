@@ -38,6 +38,11 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", "Malgun Gothic", Roboto, Helvetica, Arial, sans-serif;
 }
 
+/* [hidden] 전역 가드 — 반드시 저자 오리진에 있어야 한다.
+   UA 의 `[hidden]{display:none}` 은 UA 오리진이라 저자의 `.action-bar{display:flex}` 에 항상 진다.
+   이 한 줄이 없으면 hidden 이 무시되어 position:fixed 액션바 2개가 겹쳐 그려지고 조작이 막힌다. */
+[hidden] { display: none !important; }
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -64,7 +69,7 @@ button, input, select, textarea {
 
 a { color: var(--color-primary); }
 
-/* 클릭 가능 요소 커서 (실제 클릭 핸들러가 있는 요소만 — queue-row는 표시 전용이라 제외) */
+/* 클릭 가능 요소 커서 (실제 클릭 핸들러가 있는 요소만) */
 button, select, input[type="checkbox"], summary, label.ack-label { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
@@ -113,11 +118,12 @@ button, .seg-btn, .banner, details > summary .chevron, .progress-fill {
   font-weight: 700;
   flex: 1;
   text-align: center;
-  margin-right: 40px; /* 뒤로가기 버튼 폭 보정, 제목 중앙 정렬 */
+  margin-right: 48px; /* 뒤로가기 버튼 폭 보정, 제목 중앙 정렬 */
 }
 #btn-back {
-  width: 40px;
-  height: 40px;
+  /* 아이콘 전용이지만 장갑 낀 현장 사용을 전제로 48px 터치 타깃 (Apple HIG 하한 44px 상회) */
+  width: 48px;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -148,13 +154,22 @@ button, .seg-btn, .banner, details > summary .chevron, .progress-fill {
 }
 .banner-text { flex: 1; word-break: keep-all; }
 .banner-close {
+  /* 아이콘 16px + 44px 터치 타깃(Apple HIG 하한). 배너가 과하게 두꺼워지지 않도록 48px 대신 44px */
+  width: 44px;
+  height: 44px;
+  margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
-  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  padding: 0;
   color: inherit;
   line-height: 0;
   flex-shrink: 0;
 }
+.banner-close:hover { background: rgba(0, 0, 0, 0.06); }
 .banner-info { background: var(--tint-primary); border-color: var(--tint-primary-strong); color: var(--color-primary); }
 .banner-success { background: var(--tint-success); border-color: var(--tint-success-strong); color: var(--color-success); }
 .banner-warn { background: var(--tint-neutral); border-color: var(--tint-neutral-strong); color: var(--color-text); }
@@ -265,6 +280,7 @@ select.input {
   gap: var(--space-3);
 }
 .queue-header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+#btn-sync-now { padding: 0 var(--space-3); }
 .queue-header-left { display: flex; align-items: center; gap: var(--space-2); }
 .badge {
   min-width: 22px;
@@ -296,8 +312,30 @@ select.input {
 .text-danger { color: var(--color-danger); font-weight: 600; }
 .text-neutral { color: var(--color-neutral); }
 
+/* 큐 행 조작(상세·삭제) — 갇힌 항목의 탈출구 */
+.queue-actions { display: flex; gap: var(--space-2); margin-top: var(--space-1); }
+.queue-actions .btn { flex: 1; font-size: 14px; padding: 0 var(--space-3); }
+.queue-btn-delete { color: var(--color-danger); border-color: var(--tint-danger-strong); }
+.queue-btn-delete:hover:not(:disabled) { background: var(--tint-danger); }
+.queue-btn-delete:active:not(:disabled) { background: var(--tint-danger-strong); }
+.queue-payload {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2);
+  max-height: 240px;
+  overflow: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--tint-neutral-strong);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* ---------- 작성: step1 ---------- */
 #write-step1[hidden], #write-step2[hidden] { display: none; }
+.tmp-project-wrap { display: flex; flex-direction: column; gap: var(--space-2); }
 .tmp-project-wrap[hidden] { display: none; }
 
 /* ---------- 작성: 진행률 바(상단 고정) ---------- */
@@ -323,8 +361,13 @@ select.input {
 .progress-fill { height: 100%; background: var(--color-cta); width: 0%; border-radius: 999px; }
 #progress-text { font-size: 13px; font-weight: 700; white-space: nowrap; }
 #btn-jump-unanswered {
-  width: 40px;
-  height: 40px;
+  /* 아이콘 전용이지만 장갑 착용 조작을 전제로 48px 터치 타깃 */
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   padding: 0;
   border-radius: 999px;
   background: var(--tint-primary);
@@ -379,7 +422,16 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
 .item-card.is-invalid { border-left-color: var(--color-danger); background: var(--tint-danger); }
 .item-text { font-size: 15px; font-weight: 600; line-height: 1.5; }
 .item-criteria { font-size: 13px; }
-.item-criteria summary { list-style: none; color: var(--color-primary); font-weight: 600; padding: var(--space-1) 0; }
+/* 접이식 '점검기준' — 텍스트 높이(약 26px)로는 터치 타깃이 부족해 44px 하한을 강제 */
+.item-criteria summary {
+  list-style: none;
+  color: var(--color-primary);
+  font-weight: 600;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: var(--space-1) 0;
+}
 .item-criteria summary::-webkit-details-marker { display: none; }
 .criteria-body { color: var(--color-neutral); padding-top: var(--space-1); line-height: 1.5; }
 
