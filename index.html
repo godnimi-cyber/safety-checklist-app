@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1E40AF">
+<meta name="description" content="현장 안전점검 체크리스트 — 협력회사 안전점검 모바일 앱">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<link rel="stylesheet" href="./styles.css">
+<title>현장 안전점검</title>
+</head>
+<body>
+<noscript>이 앱은 JavaScript가 필요합니다. 브라우저 설정에서 JavaScript를 켜주세요.</noscript>
+
+<div class="app-shell" id="app">
+  <header class="topbar">
+    <button type="button" id="btn-back" hidden aria-label="뒤로">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <h1 id="topbar-title">안전점검</h1>
+  </header>
+
+  <div id="banner-region" aria-live="polite"></div>
+
+  <main>
+    <!-- ① 홈 -->
+    <section class="screen" id="screen-home" data-screen="home">
+      <div class="screen-body">
+        <p class="sync-line" id="home-sync-line">마스터 동기화 안 됨</p>
+        <div id="home-master-banner" class="banner" hidden></div>
+
+        <div>
+          <h2 class="section-title">새 점검</h2>
+          <div class="template-list" id="home-template-list"></div>
+        </div>
+
+        <div class="continue-card" id="home-continue-wrap" hidden>
+          <p id="home-continue-label" class="muted"></p>
+          <button type="button" class="btn btn-outline btn-block" id="btn-continue-draft">이어쓰기</button>
+        </div>
+
+        <div class="queue-card">
+          <div class="queue-header">
+            <div class="queue-header-left">
+              <h2 class="section-title" style="margin-bottom:0">미전송 큐</h2>
+              <span class="badge" id="home-queue-badge" hidden>0</span>
+            </div>
+            <button type="button" class="btn btn-outline" id="btn-sync-now" style="height:40px;padding:0 14px;">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4M3 4v5h5M21 20v-5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              지금 동기화
+            </button>
+          </div>
+          <p class="muted" id="home-queue-empty">미전송 항목이 없습니다.</p>
+          <div class="queue-list" id="home-queue-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ② 작성 -->
+    <section class="screen" id="screen-write" data-screen="write" hidden>
+      <div class="progress-bar" id="write-progress-bar" hidden>
+        <span id="progress-text">0/0</span>
+        <span class="progress-track"><span class="progress-fill" id="progress-fill"></span></span>
+        <button type="button" id="btn-jump-unanswered" aria-label="미응답 항목으로 이동">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 4v14m0 0l-5-5m5 5l5-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+
+      <div class="screen-body" id="write-step1">
+        <div class="field">
+          <label class="field-label" for="f-date">점검일</label>
+          <input class="input" type="date" id="f-date">
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-company">협력회사</label>
+          <select class="input" id="f-company"></select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-project">공사</label>
+          <select class="input" id="f-project" disabled></select>
+          <div class="tmp-project-wrap" id="f-project-tmp-wrap" hidden>
+            <input class="input" type="text" id="f-project-tmp" placeholder="공사명을 입력하세요" maxlength="80">
+            <p class="field-hint">미등록 공사는 관리자가 추후 정식 공사로 매핑합니다.</p>
+          </div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-team">점검자 · 소속팀</label>
+          <select class="input" id="f-team"></select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-inspector">점검자 · 표시명</label>
+          <select class="input" id="f-inspector" disabled></select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-pin">PIN (4자리)</label>
+          <input class="input" type="tel" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" id="f-pin" autocomplete="off">
+        </div>
+        <div class="field">
+          <label class="field-label" for="f-auditee">수검자</label>
+          <input class="input" type="text" id="f-auditee" placeholder="협력회사 담당자 성명" maxlength="40">
+        </div>
+      </div>
+
+      <div class="screen-body" id="write-step2" hidden>
+        <div id="accordion-root"></div>
+      </div>
+
+      <footer class="action-bar" id="write-step1-actions">
+        <button type="button" class="btn btn-primary" id="btn-step1-next">다음</button>
+      </footer>
+      <footer class="action-bar" id="write-step2-actions" hidden>
+        <button type="button" class="btn btn-outline" id="btn-step2-back">이전</button>
+        <button type="button" class="btn btn-primary" id="btn-step2-review">검토</button>
+      </footer>
+    </section>
+
+    <!-- ③ 검토 -->
+    <section class="screen" id="screen-review" data-screen="review" hidden>
+      <div class="screen-body">
+        <dl class="summary-card">
+          <dt>점검일</dt><dd id="review-date"></dd>
+          <dt>협력회사</dt><dd id="review-company"></dd>
+          <dt>공사</dt><dd id="review-project"></dd>
+          <dt>점검자</dt><dd id="review-inspector"></dd>
+          <dt>수검자</dt><dd id="review-auditee-name"></dd>
+        </dl>
+
+        <div>
+          <h2 class="section-title">부적합 항목</h2>
+          <div id="review-findings"></div>
+        </div>
+
+        <label class="ack-label" for="chk-ack">
+          <input type="checkbox" id="chk-ack">
+          <span>상기 점검 결과를 확인함 — 서명이 아닌 확인 기록</span>
+        </label>
+      </div>
+
+      <footer class="action-bar">
+        <button type="button" class="btn btn-outline" id="btn-review-back">이전</button>
+        <button type="button" class="btn btn-primary" id="btn-submit" disabled>제출</button>
+      </footer>
+    </section>
+  </main>
+</div>
+
+<!-- ---------- 템플릿 요소 ---------- -->
+<template id="tpl-item-card">
+  <article class="item-card">
+    <p class="item-text"></p>
+    <details class="item-criteria">
+      <summary>점검기준</summary>
+      <p class="criteria-body"></p>
+    </details>
+    <div class="seg" role="group">
+      <button type="button" class="seg-btn seg-y" data-r="Y" aria-pressed="false">적합</button>
+      <button type="button" class="seg-btn seg-n" data-r="N" aria-pressed="false">부적합</button>
+      <button type="button" class="seg-btn seg-na" data-r="NA" aria-pressed="false">해당없음</button>
+    </div>
+    <div class="note-wrap" hidden>
+      <label class="field-label">내용 (필수)</label>
+      <textarea class="input note-input" maxlength="300" placeholder="부적합 내용을 입력하세요"></textarea>
+      <span class="note-counter">0/300</span>
+    </div>
+  </article>
+</template>
+
+<template id="tpl-note-box">
+  <div class="note-box">
+    <span class="note-box-label">안내</span>
+    <p class="note-box-text"></p>
+  </div>
+</template>
+
+<template id="tpl-finding-card">
+  <div class="finding-card">
+    <span class="finding-category"></span>
+    <p class="finding-text"></p>
+    <p class="finding-note"></p>
+  </div>
+</template>
+
+<template id="tpl-queue-row">
+  <div class="queue-row">
+    <span class="queue-title"></span>
+    <span class="queue-sub"></span>
+    <span class="queue-state"></span>
+  </div>
+</template>
+
+<script src="./config.js"></script>
+<script src="./lib.js"></script>
+<script src="./logic.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
