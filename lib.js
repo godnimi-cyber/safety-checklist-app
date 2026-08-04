@@ -55,6 +55,7 @@ var SafetyLib = (function () {
       if (expect !== got) errors.push({ code: 'ITEMS_MISMATCH', msg: '응답 항목 불일치' });
     }
     (p.results || []).forEach(function (r) {
+      if (r.r !== 'Y' && r.r !== 'N' && r.r !== 'NA') errors.push({ code: 'RESULT_INVALID', msg: r.i + ' 응답값 오류' });
       if (r.r === 'N' && !(r.n && String(r.n).trim())) errors.push({ code: 'NOTE_REQUIRED', msg: r.i + ' 내용 필수' });
       if (r.n && String(r.n).length > 300) errors.push({ code: 'NOTE_TOO_LONG', msg: r.i + ' 내용 300자 초과' });
     });
@@ -65,7 +66,7 @@ var SafetyLib = (function () {
     else if (comp.active === false) stale = true;
     if (!isTmp) {
       proj = (masters.projects || []).filter(function (x) { return x.project_id === p.project_key; })[0];
-      if (!proj) errors.push({ code: 'COMPANY_UNKNOWN', msg: '공사 없음' });
+      if (!proj) errors.push({ code: 'PROJECT_UNKNOWN', msg: '공사 없음' });
       else {
         if (proj.company_id !== p.company_id) errors.push({ code: 'PROJECT_COMPANY_MISMATCH', msg: '타사 공사' });
         if (proj.status && proj.status !== '진행') stale = true;
