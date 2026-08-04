@@ -17,14 +17,19 @@ var SafetyLib = (function () {
            ('00' + (k.getUTCMonth() + 1)).slice(-2) + '-' +
            ('00' + k.getUTCDate()).slice(-2);
   }
-  function validateDate(dateStr, todayStr) {
+  function validateDate(dateStr, todayStr, pastDays, futureDays) {
+    pastDays = (pastDays == null) ? 31 : pastDays;
+    futureDays = (futureDays == null) ? 0 : futureDays;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr || '')) return { ok: false, error: 'DATE_INVALID' };
     var d = kstAt(dateStr, '00:00:00'), t = kstAt(todayStr, '00:00:00');
     if (isNaN(d)) return { ok: false, error: 'DATE_INVALID' };
     // 비실존 날짜(2026-02-30 등)를 롤오버시키는 엔진 대비 — KST 벽시계 성분으로 되짚어 대조
     if (dateStr !== kstDateStr(d)) return { ok: false, error: 'DATE_INVALID' };
-    if (d > t) return { ok: false, error: 'DATE_FUTURE' };
-    if ((t - d) / 86400000 > 31) return { ok: false, error: 'DATE_TOO_OLD' };
+    if (d > t) {
+      if ((d - t) / 86400000 > futureDays) return { ok: false, error: 'DATE_FUTURE' };
+    } else if ((t - d) / 86400000 > pastDays) {
+      return { ok: false, error: 'DATE_TOO_OLD' };
+    }
     return { ok: true };
   }
   /* 수검자 확인 시각은 '절대시각'이어야 점검일 경계와 비교가 성립한다.
@@ -132,8 +137,50 @@ var SafetyLib = (function () {
       project_name: isTmp ? String(p.project_name || '') : (proj ? proj.name : ''),
       inspector_team: insp.team, inspector_name: insp.name } };
   }
+  /* 사전등록(점검계획) 검증.
+     제출과 달리 '관용 수락'이 없다 — 계획은 통신이 되는 상황에서 하는 행위라
+     잘못된 참조는 그 자리에서 고치게 하는 편이 데이터가 깨끗하다. */
+  function validatePlan(p, masters, todayStr) {
+    p = p || {};
+    masters = masters || {};
+    var errors = [];
+    var insp = (masters.inspectors || []).filter(function (x) { return x.inspector_id === p.inspector_id; })[0];
+    if (!insp || !String(insp.pin).length || String(insp.pin) !== String(p.pin))
+      return { ok: false, errors: [{ code: 'PIN_MISMATCH', msg: '점검자 PIN 불일치' }], snapshots: null };
+    if (!isValidSubmissionId(p.plan_id))
+      return { ok: false, errors: [{ code: 'PLAN_ID_INVALID', msg: '계획 ID 형식 오류' }], snapshots: null };
+
+    if (!validateDate(p.planned_date, todayStr, 365, 365).ok)
+      errors.push({ code: 'PLAN_DATE_INVALID', msg: '점검예정일 오류(오늘 기준 ±1년)' });
+
+    var comp = (masters.companies || []).filter(function (c) {
+      return c.company_id === p.company_id && c.active !== false; })[0];
+    if (!comp) errors.push({ code: 'COMPANY_UNKNOWN', msg: '협력회사 없음' });
+
+    var hasKey = !!(p.project_key && String(p.project_key).length);
+    var rawName = (p.new_project_name == null) ? '' : String(p.new_project_name).replace(/\s+/g, ' ').trim();
+    var proj = null;
+    if (hasKey && rawName) {
+      errors.push({ code: 'PROJECT_NAME_INVALID', msg: '기존 공사와 새 공사를 동시에 지정했다' });
+    } else if (hasKey) {
+      proj = (masters.projects || []).filter(function (x) { return x.project_id === p.project_key; })[0];
+      if (!proj) errors.push({ code: 'PROJECT_UNKNOWN', msg: '공사 없음' });
+      else if (proj.company_id !== p.company_id) errors.push({ code: 'PROJECT_COMPANY_MISMATCH', msg: '타사 공사' });
+    } else if (!rawName || rawName.length > 60) {
+      errors.push({ code: 'PROJECT_NAME_INVALID', msg: '공사명은 1~60자' });
+    }
+
+    var tpl = (masters.templates || []).filter(function (t) {
+      return t.template_id === p.template_id && Number(t.ver) === Number(p.template_ver); })[0];
+    if (!tpl) errors.push({ code: 'ITEMS_MISMATCH', msg: '양식/버전 없음' });
+
+    if (errors.length) return { ok: false, errors: errors, snapshots: null };
+    return { ok: true, errors: [], snapshots: {
+      company_name: comp.name,
+      project_name: proj ? proj.name : rawName } };
+  }
   return { validateDate: validateDate, sanitizeCell: sanitizeCell, deriveCounts: deriveCounts,
            extractFindings: extractFindings, diffIds: diffIds, fnv1a: fnv1a,
-           isValidSubmissionId: isValidSubmissionId, validateSubmission: validateSubmission };
+           isValidSubmissionId: isValidSubmissionId, validateSubmission: validateSubmission, validatePlan: validatePlan };
 })();
 if (typeof module !== 'undefined') module.exports = SafetyLib;
