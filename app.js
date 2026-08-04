@@ -21,7 +21,7 @@
       { inspector_id: 'MI2', team: '시설팀', name: '한도윤', display: '한도윤(시설팀)', active: true }
     ],
     templates: [{
-      template_id: 'MOCK', name: '모바일 데모 점검표', ver: 1,
+      template_id: 'MOCK', name: '모바일 데모 점검표', ver: 1, active: true,
       items: [
         { item_id: 'MOCK-001', type: 'group', seq: 1, category: '안전보호구', text: '안전보호구를 반드시 착용한다.', criteria: '안전모·안전화·안전대 착용 여부 확인' },
         { item_id: 'MOCK-002', type: 'item', seq: 2, category: '안전보호구', text: '보호구 상태 확인', criteria: '파손·노후 여부 육안 점검' },
@@ -117,6 +117,13 @@
   }
   function persistDraft() {
     if (state.draft) state.storage.saveDraft(state.draft);
+  }
+  function invalidateAck() {
+    /* Step2 응답(Y/N/NA·내용)이 검토 확인 이후 바뀌면 이전 확인은 무효 —
+       재확인을 강제해 "확인 시점 ≠ 실제 제출 내용" 무결성 갭을 막는다. */
+    if (!state.draft) return;
+    state.draft.auditee_ack = false;
+    state.draft.auditee_ack_at = '';
   }
 
   /* ---------- 네트워크 (fetch 규약 verbatim, 설계 §5.2) ---------- */
@@ -242,7 +249,9 @@
 
     var list = $('home-template-list');
     list.innerHTML = '';
-    var templates = (state.masters && state.masters.templates) || [];
+    /* companies/inspectors와 동일한 방어적 대칭 — 서버(gas/main.gs loadMasters_)는 이미
+       active=TRUE 템플릿만 내려보내지만, MOCK 경로는 서버를 거치지 않으므로 클라에서도 필터링한다. */
+    var templates = ((state.masters && state.masters.templates) || []).filter(function (t) { return t.active !== false; });
     if (!templates.length) {
       var p = document.createElement('p');
       p.className = 'muted';
@@ -579,6 +588,7 @@
         var prev = state.draft.results[it.item_id];
         var prevNote = (prev && prev.n) || '';
         state.draft.results[it.item_id] = (r === 'N') ? { r: r, n: prevNote } : { r: r };
+        invalidateAck();
         paint();
         if (r === 'N') {
           textarea.value = prevNote;
@@ -594,6 +604,7 @@
       var v = textarea.value.slice(0, 300);
       if (v !== textarea.value) textarea.value = v;
       state.draft.results[it.item_id] = { r: 'N', n: v };
+      invalidateAck();
       counter.textContent = v.length + '/300';
       node.classList.toggle('is-invalid', !v.trim());
       persistDraft();
