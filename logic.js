@@ -111,9 +111,13 @@ var SafetyLogic = (function () {
      - available: 진짜 localStorage 를 쓰는지 여부(false 면 새로고침 시 소실됨을 호출자가 고지해야 한다).
      - save 계열 반환값: 성공 true / 실패 false (실패해도 던지지 않는다).
      - lastError: 직전 호출의 실패 정보({op, key, message, ...}) — 성공한 호출은 null 로 초기화한다.
-       JSON 파싱 실패 시 op:'parse' + 손상 원본을 '<key>_corrupt_backup' 에 백업(backup_saved 로 결과 표시). */
+       JSON 파싱 실패 시 op:'parse' + 손상 원본을 '<key>_corrupt_backup' 에 백업(backup_saved 로 결과 표시).
+       백업 슬롯은 '<key>_corrupt_backup', '..._2', '..._3' 최대 3개이며 **이미 찬 슬롯은 절대 덮어쓰지
+       않는다**(2차 손상이 최초 원본을 지우면 복구가 불가능해진다). 3개가 모두 차면 새 손상본은 버리고
+       backup_saved:false + backup_full:true 로 알린다. */
   function storage(win) {
     var CORRUPT_SUFFIX = '_corrupt_backup';
+    var MAX_CORRUPT_BACKUPS = 3;
     var mem = {};   /* localStorage 를 못 쓸 때의 세션 한정 폴백 저장소 */
     var ls = null;
     try {
@@ -146,18 +150,36 @@ var SafetyLogic = (function () {
       mem[key] = str;
       return true;   /* 폴백 저장소는 정상 동작 — 소실 위험은 available:false 로 이미 고지됨 */
     }
+    /* 삭제는 '실제로 지워진 곳'만 지운다.
+       폴백 모드(ls 없음)에서는 mem 이 곧 저장소이므로 mem 을 지우는 것이 삭제 그 자체다.
+       실 localStorage 모드에서 removeItem 이 실패하면 오버레이도 남긴다 — 여기서 mem 만 지우면
+       다음 읽기가 ls 에 남은 (오버레이보다 낡은) 값을 되살려 상태가 갈라진다. */
     function rawRemove(key) {
-      var ok = true;
-      if (ls) {
-        try { ls.removeItem(key); } catch (e) { ok = fail('remove', key, e); }
-      }
+      if (!ls) { delete mem[key]; return true; }
+      try { ls.removeItem(key); } catch (e) { return fail('remove', key, e); }
       delete mem[key];
-      return ok;
+      return true;
     }
     function saveJSON(key, value) {
       var str;
       try { str = JSON.stringify(value); } catch (e) { return fail('stringify', key, e); }
       return rawSet(key, str);
+    }
+    /* 손상 원본을 빈 백업 슬롯에 넣는다. 이미 값이 있는 슬롯은 건드리지 않으므로
+       최초 원본은 무슨 일이 있어도 남는다. 반환: {key, saved, full} */
+    function backupCorrupt(key, raw) {
+      var base = key + CORRUPT_SUFFIX;
+      for (var i = 1; i <= MAX_CORRUPT_BACKUPS; i++) {
+        var bkey = (i === 1) ? base : (base + '_' + i);
+        var existing = null;
+        try { existing = rawGet(bkey); } catch (e) { existing = null; }
+        if (existing !== null && existing !== undefined) continue;   /* 찬 슬롯은 덮어쓰지 않는다 */
+        var saved = false;
+        try { saved = rawSet(bkey, raw); } catch (e2) { saved = fail('backup', bkey, e2); }
+        return { key: bkey, saved: saved, full: false };
+      }
+      /* 슬롯 소진 — 새 손상본을 버릴지언정 기존 백업을 밀어내지 않는다 */
+      return { key: base, saved: false, full: true };
     }
     function loadJSON(key, fallback) {
       var raw = rawGet(key);
@@ -166,9 +188,11 @@ var SafetyLogic = (function () {
         return JSON.parse(raw);
       } catch (e) {
         /* 손상 원본을 백업해 둔다 — 다음 save 가 덮어써도 복구 기회가 남는다 */
-        var bkey = key + CORRUPT_SUFFIX;
-        var saved = rawSet(bkey, raw);
-        api.lastError = { op: 'parse', key: key, backup_key: bkey, backup_saved: saved, message: msgOf(e) };
+        var b = backupCorrupt(key, raw);
+        api.lastError = {
+          op: 'parse', key: key, backup_key: b.key,
+          backup_saved: b.saved, backup_full: b.full, message: msgOf(e)
+        };
         return fallback;
       }
     }

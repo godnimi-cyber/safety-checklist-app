@@ -139,7 +139,7 @@ button, .seg-btn, .banner, details > summary .chevron, .progress-fill {
 /* ---------- Banner region (전역, 화면 무관 상시 위치) ---------- */
 #banner-region { padding: 0 var(--space-4); }
 #banner-region:empty { padding: 0; }
-#home-master-banner[hidden] { display: none; }
+#home-master-banner[hidden], #home-storage-banner[hidden] { display: none; }
 
 .banner {
   display: flex;
@@ -312,9 +312,14 @@ select.input {
 .text-danger { color: var(--color-danger); font-weight: 600; }
 .text-neutral { color: var(--color-neutral); }
 
-/* 큐 행 조작(상세·삭제) — 갇힌 항목의 탈출구 */
-.queue-actions { display: flex; gap: var(--space-2); margin-top: var(--space-1); }
-.queue-actions .btn { flex: 1; font-size: 14px; padding: 0 var(--space-3); }
+/* 큐 행 조작(상세·다시 시도·삭제) — 갇힌 항목의 탈출구.
+   375px 에서 버튼 3개가 들어가도록 wrap 허용. 높이는 .btn 의 48px 규격 그대로 둔다. */
+.queue-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); }
+.queue-actions .btn { flex: 1 1 auto; min-width: 80px; font-size: 14px; padding: 0 var(--space-2); }
+/* 경계선은 .btn-outline 의 --tint-primary-strong 를 그대로 둔다(더 옅은 tint 로 덮으면 경계 대비가 떨어진다) */
+.queue-btn-retry { color: var(--color-cta); font-weight: 700; }
+.queue-btn-retry:hover:not(:disabled) { background: var(--tint-cta); }
+.queue-btn-retry:active:not(:disabled) { background: var(--tint-primary-strong); }
 .queue-btn-delete { color: var(--color-danger); border-color: var(--tint-danger-strong); }
 .queue-btn-delete:hover:not(:disabled) { background: var(--tint-danger); }
 .queue-btn-delete:active:not(:disabled) { background: var(--tint-danger-strong); }

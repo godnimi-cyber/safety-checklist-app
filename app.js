@@ -46,18 +46,34 @@
     writeStep: 1,
     syncing: false,
     submitting: false,
-    banner: null
+    banner: null,
+    /* 큐 행 '상세' 열림 상태(submission_id → true) — 재렌더가 열어 둔 패널을 닫지 않게 보존한다 */
+    openQueueDetails: {},
+    /* 같은 저장 실패를 타이핑마다 다시 고지하지 않기 위한 중복 억제 키 */
+    lastSaveFailureKey: null
   };
 
   /* ---------- 유틸 ---------- */
+  /* 시각 기준은 Asia/Seoul(+09:00) 고정이다(계약 K1).
+     기기 시간대에 의존하면, 시간대가 어긋난 휴대폰에서 점검일 기본값·max 와 서버(KST) 판정이
+     하루 어긋나 DATE_FUTURE·DATE_TOO_OLD 로 거절된다. */
+  var KST_OFFSET_MIN = 9 * 60;
+  /* 인자 시각을 KST 로 읽기 위한 대체 Date — 반드시 **UTC 게터**(getUTCFullYear 등)로 읽는다.
+     로컬 게터(getFullYear)를 쓰면 안 된다: getTimezoneOffset() 은 '원래 시각'의 오프셋인데
+     로컬 게터는 '시프트된 시각'의 오프셋을 적용해, 서머타임 경계에서 날짜가 하루 밀린다
+     (Santiago·Chatham 등에서 실측). UTC 게터는 기기 시간대와 완전히 무관하다. */
+  function toKst(date) {
+    return new Date(date.getTime() + KST_OFFSET_MIN * 60000);
+  }
   function todayStr() {
-    var d = new Date();
-    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+    var d = toKst(new Date());
+    return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
   }
   function formatDateTime(iso) {
     var d = new Date(iso);
     if (isNaN(d)) return iso;
-    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    var k = toKst(d);
+    return k.getUTCFullYear() + '-' + pad2(k.getUTCMonth() + 1) + '-' + pad2(k.getUTCDate()) + ' ' + pad2(k.getUTCHours()) + ':' + pad2(k.getUTCMinutes());
   }
   function prefersReducedMotion() {
     return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -123,12 +139,19 @@
     if (Object.prototype.hasOwnProperty.call(view, 'pin')) view.pin = '****';
     return JSON.stringify(view, null, 2);
   }
-  /* 오류 코드 분류(계약 C1):
-       영구(permanent) = AUTH·VALIDATION — 같은 payload 를 다시 보내도 절대 성공하지 않는다 → 자동 재시도 금지
-       일시(retryable) = NETWORK·LOCK_TIMEOUT·SERVER(그 외 전부) — 재시도로 성공할 수 있다 */
-  var PERMANENT_ERROR_CODES = ['AUTH', 'VALIDATION'];
+  /* 오류 코드 3분류(계약 K2):
+       VALIDATION — 제출 내용 자체의 결함. 같은 payload 는 몇 번을 보내도 거절된다 → 자동 재시도 금지
+       CONFIG·AUTH — 서버·시트 설정 / 키 불일치. 관리자가 고치거나 키가 갱신되면 그대로 풀린다 → 큐 보관 + 자동 재시도
+       NETWORK·LOCK_TIMEOUT·SERVER·MOCK(그 외 전부) — 일시 오류 → 자동 재시도
+     AUTH 를 영구로 두면 키 회전 사이에 쌓인 제출이 그대로 고착되므로 재시도 가능으로 분류한다. */
+  var PERMANENT_ERROR_CODES = ['VALIDATION'];
+  var ADMIN_ERROR_CODES = ['CONFIG', 'AUTH'];
   function isPermanentError(code) {
     return PERMANENT_ERROR_CODES.indexOf(String(code || '').toUpperCase()) !== -1;
+  }
+  /* 관리자 조치로 풀리는 오류 — 사용자가 고칠 것이 없으니 "고치세요"라고 하면 안 된다 */
+  function isAdminError(code) {
+    return ADMIN_ERROR_CODES.indexOf(String(code || '').toUpperCase()) !== -1;
   }
   function normalizeError(error) {
     return {
@@ -147,8 +170,31 @@
       return updated;
     });
   }
+  /* ---------- 저장 실패 고지 (계약 K4: 조용한 실패 금지) ----------
+     logic.js 의 save 계열은 던지지 않고 false 를 돌려준다. 그 false 를 버리면
+     "저장됨"이 거짓말이 되고 기록이 소리 없이 사라진다 — 여기서 전부 소비한다. */
+  function saveErrorSuffix() {
+    var e = state.storage && state.storage.lastError;
+    return e ? (' (' + e.op + ': ' + e.message + ')') : '';
+  }
+  function notifySaveFailure(what, dedupeKey) {
+    /* 임시저장은 타이핑마다 호출된다 — 같은 실패를 매 입력마다 다시 띄우면 배너를 닫을 수 없다 */
+    if (dedupeKey && state.lastSaveFailureKey === dedupeKey) return;
+    state.lastSaveFailureKey = dedupeKey || null;
+    showBanner('error', what + ' 저장에 실패했습니다 — 새로고침하거나 탭을 닫으면 이 기록이 사라집니다.' + saveErrorSuffix());
+  }
   function persistDraft() {
-    if (state.draft) state.storage.saveDraft(state.draft);
+    if (!state.draft) return true;
+    var ok = state.storage.saveDraft(state.draft);
+    if (ok) state.lastSaveFailureKey = null;
+    else notifySaveFailure('작성 중인 점검', 'draft');
+    return ok;
+  }
+  function persistQueue() {
+    var ok = state.storage.saveQueue(state.queue);
+    if (ok) state.lastSaveFailureKey = null;
+    else notifySaveFailure('미전송 목록', 'queue');
+    return ok;
   }
   function invalidateAck() {
     /* 제출 내용(1단계 기본정보 + 2단계 응답) 중 무엇이든 검토 확인 이후 바뀌면 이전 확인은 무효 —
@@ -159,21 +205,48 @@
     state.draft.auditee_ack_at = '';
   }
 
-  /* ---------- 네트워크 (fetch 규약 verbatim, 설계 §5.2) ---------- */
+  /* ---------- 네트워크 (fetch 규약 verbatim, 설계 §5.2) ----------
+     응답이 오지 않는 요청은 반드시 끊는다. 끊지 않으면 submitting/syncing 플래그가 true 로
+     고착돼 제출 버튼과 큐가 함께 얼어붙는다(사용자가 앱을 다시 띄우는 것 말고 할 게 없어진다).
+     타임아웃은 재시도 가능(NETWORK)으로 취급한다. */
+  var REQUEST_TIMEOUT_MS = 25000;
+  var TIMEOUT_MESSAGE = '서버 응답이 없어 ' + Math.round(REQUEST_TIMEOUT_MS / 1000) + '초 만에 요청을 중단했습니다';
+  /* 항상 { ok, ... } 봉투로 resolve 한다 — 절대 reject 하지 않는다.
+     AbortController 가 없는 구형 브라우저에서도 타이머가 봉투를 확정하므로 프로미스가 매달리지 않는다. */
+  function requestJson(url, options) {
+    var opts = {};
+    Object.keys(options || {}).forEach(function (k) { opts[k] = options[k]; });
+    var ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+    if (ctrl) opts.signal = ctrl.signal;
+    return new Promise(function (resolve) {
+      var settled = false, timedOut = false;
+      var timer = setTimeout(function () {
+        timedOut = true;
+        if (ctrl) { try { ctrl.abort(); } catch (e) { /* abort 실패해도 아래에서 확정한다 */ } }
+        finish({ ok: false, error: { code: 'NETWORK', message: TIMEOUT_MESSAGE } });
+      }, REQUEST_TIMEOUT_MS);
+      function finish(v) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(v);
+      }
+      fetch(url, opts).then(function (res) {
+        return res.json().then(finish, function () {
+          finish({ ok: false, error: { code: 'NETWORK', message: '서버 응답을 해석할 수 없습니다(비-JSON)' } });
+        });
+      }, function (err) {
+        finish({ ok: false, error: { code: 'NETWORK', message: timedOut ? TIMEOUT_MESSAGE : ((err && err.message) || '네트워크 오류') } });
+      }).catch(function (err) {
+        finish({ ok: false, error: { code: 'NETWORK', message: (err && err.message) || '네트워크 오류' } });
+      });
+    });
+  }
   function loadMastersFromNetwork() {
     return CONFIG.MOCK ? mockMasters() : fetchMastersRemote();
   }
   function fetchMastersRemote() {
-    var url = CONFIG.API_URL + '?action=masters&k=' + CONFIG.SHARED_KEY;
-    return fetch(url).then(function (res) {
-      return res.json().catch(function () {
-        return { ok: false, error: { code: 'NETWORK', message: '마스터 응답을 해석할 수 없습니다' } };
-      });
-    }, function () {
-      return { ok: false, error: { code: 'NETWORK', message: '네트워크 오류' } };
-    }).catch(function (err) {
-      return { ok: false, error: { code: 'NETWORK', message: (err && err.message) || '네트워크 오류' } };
-    });
+    return requestJson(CONFIG.API_URL + '?action=masters&k=' + CONFIG.SHARED_KEY, null);
   }
   function mockMasters() {
     return new Promise(function (resolve) {
@@ -184,19 +257,11 @@
     return CONFIG.MOCK ? mockSubmit(payload) : realSubmit(payload);
   }
   function realSubmit(payload) {
-    return fetch(CONFIG.API_URL, {
+    return requestJson(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action: 'submit', k: CONFIG.SHARED_KEY, payload: payload }),
       redirect: 'follow'
-    }).then(function (res) {
-      return res.json().catch(function () {
-        return { ok: false, error: { code: 'NETWORK', message: '서버 응답을 해석할 수 없습니다(비-JSON)' } };
-      });
-    }, function () {
-      return { ok: false, error: { code: 'NETWORK', message: '네트워크 오류' } };
-    }).catch(function (err) {
-      return { ok: false, error: { code: 'NETWORK', message: (err && err.message) || '네트워크 오류' } };
     });
   }
   function mockSubmit(payload) {
@@ -244,6 +309,18 @@
     el.className = 'banner banner-' + state.masterBanner.level;
     el.textContent = state.masterBanner.text;
   }
+  /* 저장소를 못 쓰는 기기(iOS 사생활 보호 모드 등)에서는 "전송 대기 저장됨"이 거짓말이 된다.
+     닫을 수 있는 알림 배너가 아니라, 상태가 풀릴 때까지 홈에 상시 떠 있는 경고로 고지한다(계약 K4). */
+  function renderStorageBanner() {
+    var el = $('home-storage-banner');
+    if (state.storage && state.storage.available) { el.hidden = true; return; }
+    var msg = '이 기기에서는 기록을 저장할 수 없습니다(사생활 보호 모드 등). '
+      + '새로고침하거나 탭을 닫으면 작성 중인 점검과 미전송 목록이 사라집니다 — 점검을 마치면 바로 전송하세요.';
+    /* role="alert" 이므로 텍스트를 다시 쓰면 스크린리더가 매 재렌더마다 다시 읽는다 — 바뀔 때만 쓴다 */
+    if (el.textContent !== msg) el.textContent = msg;
+    el.className = 'banner banner-error';
+    el.hidden = false;
+  }
 
   /* ---------- 화면 전환 ---------- */
   function show(name) {
@@ -278,6 +355,7 @@
     $('home-sync-line').textContent = state.mastersSyncedAt
       ? ('마스터 동기화: ' + formatDateTime(state.mastersSyncedAt))
       : '마스터 동기화 안 됨';
+    renderStorageBanner();
     renderMasterBanner();
 
     var list = $('home-template-list');
@@ -315,8 +393,18 @@
     badge.textContent = String(count);
     badge.hidden = count === 0;
     $('home-queue-empty').hidden = count !== 0;
+    /* '지금 동기화'는 자동 전송 대상이 있을 때만 활성 — 영구 실패만 남은 큐에서 눌러도
+       아무 일이 없으면 사용자는 앱이 고장 났다고 판단한다. */
+    var autoTargets = autoRetryTargets().length;
     var syncBtn = $('btn-sync-now');
-    syncBtn.disabled = state.syncing || count === 0;
+    syncBtn.disabled = state.syncing || autoTargets === 0;
+    var hint = $('home-queue-hint');
+    if (count > 0 && autoTargets === 0) {
+      hint.hidden = false;
+      hint.textContent = '자동 전송 대상이 없습니다. 항목별 \'다시 시도\'를 쓰세요.';
+    } else {
+      hint.hidden = true;
+    }
     renderQueueList();
   }
   function renderQueueList() {
@@ -329,40 +417,77 @@
       var stateEl = node.querySelector('.queue-state');
       if (q.state === 'failed') {
         var detail = (q.reason || '') + (q.reason_message ? ' — ' + q.reason_message : '');
-        /* 영구 실패는 자동 재시도 대상이 아니다 — "언젠간 전송되겠지"라는 오해를 문구로 끊는다 */
-        stateEl.textContent = isPermanentError(q.reason)
-          ? ('전송 불가 (자동 재시도 안 함) — ' + detail)
-          : ('재전송 대기 — 실패(' + detail + ')');
+        /* 3분류(계약 K2)를 문구로 구분한다 — "언젠간 전송되겠지"라는 오해도, 사용자가 고칠 수 없는
+           설정 오류를 "고치세요"라고 미는 오해도 둘 다 끊는다. */
+        if (isPermanentError(q.reason)) {
+          stateEl.textContent = '전송 불가 — 제출 내용 결함으로 거절됨(자동 재시도 안 함): ' + detail;
+        } else if (isAdminError(q.reason)) {
+          stateEl.textContent = '관리자 확인이 필요합니다. 해결되면 자동으로 전송됩니다 (' + detail + ')';
+        } else {
+          stateEl.textContent = '재전송 대기 — 실패(' + detail + ')';
+        }
         stateEl.classList.add('text-danger');
       } else {
         stateEl.textContent = '전송 대기 중';
         stateEl.classList.add('text-neutral');
       }
 
-      /* 상세: 갇힌 항목의 내용을 읽을 수 있게 (textContent 로만 — innerHTML 금지) */
+      /* 상세: 갇힌 항목의 내용을 읽을 수 있게 (textContent 로만 — innerHTML 금지).
+         열림 상태는 state 에 남긴다 — 재렌더가 읽고 있던 패널을 닫아버리면 안 된다. */
       var detailBtn = node.querySelector('.queue-btn-detail');
       var payloadEl = node.querySelector('.queue-payload');
       payloadEl.textContent = queuePayloadPreview(q);
+      paintDetailToggle(detailBtn, payloadEl, !!state.openQueueDetails[q.submission_id]);
       detailBtn.addEventListener('click', function () {
         var willShow = payloadEl.hidden;
-        payloadEl.hidden = !willShow;
-        detailBtn.setAttribute('aria-expanded', willShow ? 'true' : 'false');
-        detailBtn.textContent = willShow ? '상세 닫기' : '상세';
+        if (willShow) state.openQueueDetails[q.submission_id] = true;
+        else delete state.openQueueDetails[q.submission_id];
+        paintDetailToggle(detailBtn, payloadEl, willShow);
       });
 
-      /* 삭제: 큐에 갇힌 항목의 유일한 탈출구. 전송 중에는 경합을 피해 잠근다. */
+      /* 다시 시도(계약 K3): 자동 재시도에서 제외된 항목도 사람이 직접 되살릴 수 있어야 한다.
+         삭제가 유일한 탈출구가 되면, 관리자가 시트를 고친 뒤에도 현장 기록은 복구 불가로 굳는다.
+         queueReducer(logic.js)는 이 전이를 모르므로 큐 배열을 여기서 직접 다룬다. */
+      var retryBtn = node.querySelector('.queue-btn-retry');
+      if (q.state !== 'failed') {
+        retryBtn.hidden = true;
+      } else {
+        retryBtn.disabled = state.syncing;
+        retryBtn.addEventListener('click', function () {
+          state.queue = state.queue.map(function (x) {
+            if (x.submission_id !== q.submission_id) return x;
+            var revived = {};
+            Object.keys(x).forEach(function (k) {
+              if (k !== 'reason' && k !== 'reason_message') revived[k] = x[k];
+            });
+            revived.state = 'pending';
+            return revived;
+          });
+          persistQueue();
+          renderHome();
+          flushQueue();
+        });
+      }
+
+      /* 삭제: 되살릴 수 없는 항목의 마지막 정리 수단. 전송 중에는 경합을 피해 잠근다. */
       var deleteBtn = node.querySelector('.queue-btn-delete');
       deleteBtn.disabled = state.syncing;
       deleteBtn.addEventListener('click', function () {
         var ok = window.confirm('이 미전송 항목을 큐에서 삭제합니다. 삭제하면 복구할 수 없고 서버에도 전송되지 않습니다. 계속할까요?');
         if (!ok) return;
         state.queue = state.queue.filter(function (x) { return x.submission_id !== q.submission_id; });
-        state.storage.saveQueue(state.queue);
+        delete state.openQueueDetails[q.submission_id];
+        persistQueue();
         renderHome();
       });
 
       wrap.appendChild(node);
     });
+  }
+  function paintDetailToggle(btn, payloadEl, open) {
+    payloadEl.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    btn.textContent = open ? '상세 닫기' : '상세';
   }
   function startNewInspection(template) {
     if (state.draft) {
@@ -370,9 +495,10 @@
       if (!ok) return;
     }
     state.draft = SafetyLogic.newDraft(template.template_id, template.ver, todayStr());
-    state.storage.saveDraft(state.draft);
     state.writeStep = 1;
     clearBanner();
+    state.lastSaveFailureKey = null;   /* 새 점검 = 새 고지 기회 */
+    persistDraft();                    /* 저장 실패는 여기서 즉시 배너로 뜬다 */
     show('write');
   }
   function continueDraft() {
@@ -381,14 +507,17 @@
     clearBanner();
     show('write');
   }
-  function flushQueue() {
-    if (state.syncing) return Promise.resolve();
-    /* 영구 실패(AUTH·VALIDATION)는 재전송해도 같은 결과다 — 무한 재시도를 여기서 끊는다.
-       사용자는 큐 행의 '상세'로 내용을 확인하고 '삭제'로 정리한다. */
-    var targets = state.queue.filter(function (q) {
+  /* 자동 재시도 대상 — 영구 실패(VALIDATION)는 재전송해도 같은 결과라 무한 재시도를 여기서 끊는다.
+     그 항목은 큐 행의 '다시 시도'(사람의 명시적 의사)로만 다시 흐른다. */
+  function autoRetryTargets() {
+    return state.queue.filter(function (q) {
       if (q.state === 'pending') return true;
       return q.state === 'failed' && !isPermanentError(q.reason);
     });
+  }
+  function flushQueue() {
+    if (state.syncing) return Promise.resolve();
+    var targets = autoRetryTargets();
     if (!targets.length) return Promise.resolve();
     state.syncing = true;
     renderHome();
@@ -402,13 +531,16 @@
           } else {
             markQueueFailure(payload.submission_id, normalizeError(result.error));
           }
-          state.storage.saveQueue(state.queue);
+          persistQueue();
         });
       });
     });
-    return chain.then(function () {
+    /* finally: 어느 경로로 끝나든 syncing 을 반드시 푼다 — 여기서 새면 큐가 영구히 얼어붙는다 */
+    return chain.finally(function () {
       state.syncing = false;
       if (state.currentScreen === 'home') renderHome();
+    }).catch(function (e) {
+      showBanner('error', '동기화 중 오류가 발생했습니다: ' + ((e && e.message) || e));
     });
   }
 
@@ -801,7 +933,6 @@
     btn.textContent = '제출 중...';
     $('btn-review-back').disabled = true;
     submitToServer(payload).then(function (result) {
-      state.submitting = false;
       if (result.ok) {
         state.storage.clearDraft();
         state.draft = null;
@@ -811,44 +942,83 @@
       }
       var err = normalizeError(result.error);
       if (isPermanentError(err.code)) {
-        /* 영구 오류(AUTH·VALIDATION): 같은 payload 는 몇 번을 보내도 거절된다.
+        /* VALIDATION: 제출 내용 자체의 결함이라 같은 payload 는 몇 번을 보내도 거절된다.
            큐에 넣으면 무한 재시도가 되고, clearDraft 하면 유일한 작성본이 사라진다.
            → draft 를 그대로 둔 채 검토 화면에 머물러 사용자가 PIN·날짜 등을 고쳐 재제출하게 한다.
            (클라 사전검증은 withInjectedPin 때문에 PIN 오타를 구조적으로 못 잡는다 — 여기가 유일한 방어선) */
-        renderReview();
-        showBanner('error', '서버가 제출을 거절했습니다 — 자동 재시도하지 않습니다. 내용을 고쳐 다시 제출하세요: '
+        showBanner('error', '서버가 제출을 거절했습니다 — 입력을 고쳐 다시 제출하세요: '
           + err.message + ' (' + err.code + ')');
         window.scrollTo(0, 0); /* 배너는 화면 최상단이다 — 스크롤된 상태면 거절 사실을 못 본다 */
         return;
       }
-      /* 일시 오류·네트워크·비JSON: 지금까지대로 큐 적재 후 홈으로 */
+      /* CONFIG·AUTH·일시 오류·네트워크·비JSON: 큐 적재 후 홈으로 (자동 재시도 대상) */
       state.queue = SafetyLogic.queueReducer(state.queue, { type: 'ENQUEUE', item: payload });
       markQueueFailure(payload.submission_id, err);
-      state.storage.saveQueue(state.queue);
+      if (!state.storage.saveQueue(state.queue)) {
+        /* 여기서 clearDraft 하면 유일한 기록이 사라진다 — 전송도 저장도 실패한 최악의 경로다.
+           큐 적재를 되돌리고(영속되지 않은 행을 남기지 않는다) draft 를 살린 채 검토 화면에 붙잡아 둔다. */
+        state.queue = state.queue.filter(function (x) { return x.submission_id !== payload.submission_id; });
+        showBanner('error', '전송에 실패했고 미전송 목록 저장도 실패했습니다 — 이 기기의 저장소가 막혀 있습니다. '
+          + '기록을 잃지 않도록 작성 내용을 이 화면에 그대로 둡니다. 연결을 확인한 뒤 다시 제출하세요: '
+          + err.message + ' (' + err.code + ')' + saveErrorSuffix());
+        window.scrollTo(0, 0);
+        return;
+      }
       state.storage.clearDraft();
       state.draft = null;
-      showBanner('error', '전송 실패 — 큐에 보관됨: ' + err.message + ' (' + err.code + ')');
+      showBanner('error', isAdminError(err.code)
+        ? ('전송 실패 — 큐에 보관됨. 관리자 확인이 필요합니다. 해결되면 자동으로 전송됩니다: ' + err.message + ' (' + err.code + ')')
+        : ('전송 실패 — 큐에 보관됨: ' + err.message + ' (' + err.code + ')'));
       show('home');
+    }).finally(function () {
+      /* 어느 경로로 끝나든 submitting 을 반드시 푼다 — 여기서 새면 제출 버튼이 영구히 잠긴다 */
+      state.submitting = false;
+      if (state.currentScreen === 'review') renderReview();
+    }).catch(function (e) {
+      showBanner('error', '제출 처리 중 오류가 발생했습니다: ' + ((e && e.message) || e));
     });
   }
 
   /* ================= 기동 ================= */
-  function loadCachedMasters() {
+  /* 마스터 캐시도 draft·queue 와 같은 폴백 계약을 따른다(계약 K4의 전제):
+     localStorage 접근이 던지는 기기에서는 아예 손대지 않고 세션 메모리로만 유지한다.
+     (logic.js 의 storage 래퍼는 draft/queue 전용 API 만 노출하므로 같은 규칙을 여기서 지킨다 —
+      래퍼에 범용 키 API 가 생기면 이 블록은 그대로 대체된다.) */
+  var MASTERS_KEY = 'sc_masters';
+  var mastersMemCache = null;   /* 저장소를 못 쓸 때의 세션 한정 폴백 */
+  function storageUsable() {
+    return !!(state.storage && state.storage.available);
+  }
+  function readMastersCache() {
+    if (mastersMemCache) return mastersMemCache;
+    if (!storageUsable()) return null;
     try {
-      var raw = window.localStorage.getItem('sc_masters');
-      if (!raw) return;
-      var cached = JSON.parse(raw);
-      if (cached && cached.data) { state.masters = cached.data; state.mastersSyncedAt = cached.syncedAt || null; }
-    } catch (e) { /* 캐시 파싱 실패 = 캐시 없음 취급 */ }
+      var raw = window.localStorage.getItem(MASTERS_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;   /* 캐시 파싱/접근 실패 = 캐시 없음 취급(마스터는 네트워크에서 다시 받는다) */
+    }
+  }
+  function writeMastersCache(entry) {
+    mastersMemCache = entry;
+    if (!storageUsable()) return false;
+    try {
+      window.localStorage.setItem(MASTERS_KEY, JSON.stringify(entry));
+      return true;
+    } catch (e) {
+      return false;   /* 저장 공간 부족 등 — 세션 캐시로 계속 진행(기록이 아니라 사본이라 고지하지 않는다) */
+    }
+  }
+  function loadCachedMasters() {
+    var cached = readMastersCache();
+    if (cached && cached.data) { state.masters = cached.data; state.mastersSyncedAt = cached.syncedAt || null; }
   }
   function refreshMasters() {
     return loadMastersFromNetwork().then(function (result) {
       if (result.ok) {
         state.masters = result.data;
         state.mastersSyncedAt = new Date().toISOString();
-        try {
-          window.localStorage.setItem('sc_masters', JSON.stringify({ data: state.masters, syncedAt: state.mastersSyncedAt }));
-        } catch (e) { /* 저장 공간 부족 등 — 캐시 없이 계속 진행 */ }
+        writeMastersCache({ data: state.masters, syncedAt: state.mastersSyncedAt });
         state.masterBanner = CONFIG.MOCK ? { level: 'info', text: 'MOCK 모드 — 내장 목 데이터 사용 중(서버 미연결)' } : null;
       } else {
         state.masterBanner = state.masters
@@ -886,13 +1056,26 @@
     $('btn-submit').addEventListener('click', onSubmit);
   }
 
+  /* 손상 복구는 조용히 지나가면 안 된다(계약 K4) — 무엇이 사라졌고 어디에 백업됐는지 알려준다 */
+  function corruptNotice(subject, err) {
+    var where = err.backup_saved ? ('(백업 키: ' + err.backup_key + ')')
+      : (err.backup_full ? '(백업 슬롯이 가득 차 이번 손상본은 보관하지 못했습니다)' : '(백업 저장에도 실패했습니다)');
+    return subject + ' 손상되어 백업에 보관했습니다' + where;
+  }
   function init() {
     state.storage = SafetyLogic.storage(window);
     state.queue = state.storage.loadQueue();
+    /* lastError 는 '직전 호출'의 결과다 — loadDraft 가 첫 줄에서 null 로 덮어쓰므로 여기서 먼저 읽는다 */
+    var queueErr = state.storage.lastError;
     state.draft = state.storage.loadDraft();
+    var draftErr = state.storage.lastError;
     loadCachedMasters();
     wireEvents();
     show('home');
+    var notices = [];
+    if (queueErr && queueErr.op === 'parse') notices.push(corruptNotice('미전송 목록이', queueErr));
+    if (draftErr && draftErr.op === 'parse') notices.push(corruptNotice('작성 중이던 점검이', draftErr));
+    if (notices.length) showBanner('error', notices.join(' / '));
     refreshMasters();
   }
 
