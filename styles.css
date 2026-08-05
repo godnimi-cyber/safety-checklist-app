@@ -11,26 +11,28 @@
   --color-surface: #FFFFFF;
   --color-text: #0F172A;
 
-  /* success/danger 의 명도 파생(같은 색상/채도, 명도만 낮춤) — "텍스트가 자신의 옅은 tint
-     배경 위에 직접 얹히는" 자리 전용(.banner-success/.banner-error/.findings-empty/
-     .finding-category). --color-success/--color-danger 원본은 배지·버튼 배경(위에 흰 텍스트)·
-     보더 등 다른 곳에서 그대로 쓰이므로 원본을 바꾸지 않는다(전부 감사 완료, 아래 참고) —
-     여기서만 별도 변수로 어둡게 쓴다. 색상(hue)·채도(sat)는 원본과 동일, 명도만 낮췄다.
-       실측(WCAG 2.x 상대휘도 공식, 배경은 --tint-*-08% 를 실제 렌더 배경인 --color-bg 위에
-       합성한 값 — 정확한 합성 배경색·계산 과정은 task-4-report.md 에 남겼다, 여기선 결과만):
-         --color-success(HSL 142.4°/71.8%/29.2%) on 합성 tint-success
-           = 4.32:1 (AA 4.5:1 미달) → --color-success-text(L 25.6%) = 5.89:1
-         --color-danger(HSL 0°/72.2%/50.6%) on 합성 tint-danger
-           = 4.09:1 (AA 4.5:1 미달) → --color-danger-text(L 42.8%) = 6.00:1
-       (순수 흰 배경 가정 시 각각 4.51/4.27 — 배경 가정과 무관하게 원본은 AA 미달, 새 값은 통과)
-     원본이 쓰이는 다른 곳(배지·seg-btn·item-card 보더·finding-card 보더·queue-btn-delete·
-     text-danger·plan-overdue·plan-note)은 이 변경으로 손대지 않는다 — 흰/검 텍스트를 얹는 배경
-     용도이거나 흰 배경 위 텍스트 용도라 이미 4.5:1 이상이었고(예: plan-overdue 4.83:1), 변수
-     자체를 바꾸지 않으므로 그대로 유지된다. 단 .text-danger(색상 자체는 무관, --tint-neutral
-     배경 조합)는 원래부터 3.995:1 로 별도의 미달 사례였다 — 이번 지시(C1) 범위 밖이라 손대지
-     않고 task-4-report.md 에 발견 사실만 남긴다. */
+  /* success/danger/neutral 의 명도 파생(같은 색상/채도, 명도만 낮춤) — "텍스트가 자신 또는
+     다른 옅은 tint 배경 위에 직접 얹히는" 자리 전용. 원본(--color-success/--color-danger/
+     --color-neutral)은 배지·버튼 배경(위에 흰 텍스트)·보더 등 다른 곳에서 그대로 쓰이므로
+     원본을 바꾸지 않는다(전부 감사 완료) — 여기서만 별도 변수로 어둡게 쓴다. 색상(hue)·
+     채도(sat)는 원본과 동일, 명도만 낮췄다. 정확한 합성 배경색·계산 과정은 task-4-report.md 에
+     남겼다, 여기선 결과만(WCAG 2.x 상대휘도 공식, 실제 DOM 조상 체인까지 반영한 합성 배경):
+       --color-success-text(L 25.6%, #127035): .banner-success/.findings-empty 에서 5.89:1
+         (원본 --color-success 는 자신의 tint-success 배경에서 4.32:1 로 AA 미달)
+       --color-danger-text(L 36.6%, #A11A1A — 2차 조정, 아래 참고): .banner-error/
+         .findings-category/.text-danger/.queue-btn-delete(모든 상태) 에서 5.0~6.6:1
+       --color-neutral-text(L 40.6%, #576478): .continue-card .muted·.queue-sub·
+         .text-neutral·.note-box-label·.item-card.is-invalid 안의 .criteria-body·
+         .note-counter 에서 5.0~5.3:1(원본 --color-neutral 은 이 자리들에서 3.99~4.21:1 미달)
+     --color-danger-text 는 원래 L 42.8%(C1 당시 banner-error 만 보고 골랐다)였는데,
+     T2 감사에서 .queue-btn-delete:active(배경이 .queue-row(흰 카드 위 tint-neutral 12%) 위에
+     그 버튼 자신의 tint-danger-strong 20% 가 다시 합성되는 이중 겹침이라 대비가 더 나쁘다)가
+     4.011:1 로 여전히 미달인 게 드러나 #A11A1A 로 더 어둡게 다시 조정했다 — 어두워지는
+     방향이라 기존 4곳(banner-error 6.64/findings-category 6.64/text-danger 6.49/
+     queue-btn-delete:hover 6.01)은 전부 유지되거나 더 좋아졌다(회귀 없음, 재검증 완료). */
   --color-success-text: #127035;
-  --color-danger-text: #BC1E1E;
+  --color-danger-text: #A11A1A;
+  --color-neutral-text: #576478;
 
   /* 위 5색의 저채도 파생(투명도) — 배경 타일용. 새 색상이 아니라 같은 5색의 tint */
   --tint-primary: rgba(30, 64, 175, 0.08);
@@ -299,6 +301,10 @@ select.input {
   gap: var(--space-3);
 }
 .continue-card[hidden] { display: none; }
+/* T2: .muted(색: --color-neutral) 는 대부분 흰/page-bg 위라 그대로 4.5:1 이상이지만, 이 카드
+   배경(--tint-primary)과 합쳐지면 3.990:1 로 미달이다 — 여기서만 파생 변수로 덮는다(범용
+   .muted 규칙은 다른 곳(홈 안내문 등)에서 이미 통과라 그대로 둔다). */
+.continue-card .muted { color: var(--color-neutral-text); }
 
 .queue-card {
   background: var(--color-surface);
@@ -338,23 +344,30 @@ select.input {
   font-size: 13px;
 }
 .queue-title { font-weight: 600; }
-.queue-sub { color: var(--color-neutral); }
-/* R2: .queue-row 배경(--tint-neutral, 위 337행)과 조합해 실측하면 원본 --color-danger 는
-   3.995:1 로 AA 미달이었다 — 현장에서 큐 실패 사유를 읽는 바로 그 텍스트라 방치할 수 없다.
-   C1 에서 만든 --color-danger-text(#BC1E1E) 를 이 배경 조합에서 다시 계산하니 5.197:1 로
-   AA 를 넉넉히 통과해 새 변수를 또 만들 필요가 없었다(재사용, 계산: task-4-report.md 참고). */
+/* T2: .queue-row 는 흰 .queue-card 위에 --tint-neutral(12%) 이 얹힌 배경이다(위 343행) — 원본
+   --color-neutral 텍스트는 여기서 4.106:1 로 AA 미달이었다(회귀 테스트 §19 표 참고). */
+.queue-sub { color: var(--color-neutral-text); }
+/* R2: --color-danger-text 는 T2 에서 #A11A1A 로 재조정됐다(:root 주석 참고) — 이 자리
+   (.queue-row 배경 위 텍스트)에서도 6.49:1 로 넉넉히 통과한다. */
 .text-danger { color: var(--color-danger-text); font-weight: 600; }
-.text-neutral { color: var(--color-neutral); }
+.text-neutral { color: var(--color-neutral-text); }
 
 /* 큐 행 조작(상세·다시 시도·삭제) — 갇힌 항목의 탈출구.
    375px 에서 버튼 3개가 들어가도록 wrap 허용. 높이는 .btn 의 48px 규격 그대로 둔다. */
 .queue-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); }
 .queue-actions .btn { flex: 1 1 auto; min-width: 80px; font-size: 14px; padding: 0 var(--space-2); }
-/* 경계선은 .btn-outline 의 --tint-primary-strong 를 그대로 둔다(더 옅은 tint 로 덮으면 경계 대비가 떨어진다) */
+/* 경계선은 .btn-outline 의 --tint-primary-strong 를 그대로 둔다(더 옅은 tint 로 덮으면 경계 대비가 떨어진다).
+   T2: 이 버튼은 .queue-row(흰 카드 위 tint-neutral 12%) 안에 있어, hover/active 배경이 그 위에
+   다시 겹쳐 합성된다(이중 합성) — 기본 상태(색: --color-cta, 흰 .btn-outline 배경)는 5.17:1 로
+   이미 통과라 그대로 두고, hover/active 만 텍스트를 --color-primary 로 바꿔 통과시켰다
+   (지시대로 --color-primary 재사용, 6.6/5.8:1). */
 .queue-btn-retry { color: var(--color-cta); font-weight: 700; }
-.queue-btn-retry:hover:not(:disabled) { background: var(--tint-cta); }
-.queue-btn-retry:active:not(:disabled) { background: var(--tint-primary-strong); }
-.queue-btn-delete { color: var(--color-danger); border-color: var(--tint-danger-strong); }
+.queue-btn-retry:hover:not(:disabled) { background: var(--tint-cta); color: var(--color-primary); }
+.queue-btn-retry:active:not(:disabled) { background: var(--tint-primary-strong); color: var(--color-primary); }
+/* T2: 기본 상태도 포함해 전부 --color-danger-text 로 통일했다(기본 상태도 흰 배경 위에서 원본
+   --color-danger 로 이미 충분했지만, hover/active 만 다른 변수를 쓰면 상태 전환에 색이 두 번
+   바뀌는 것처럼 보인다 — 밝기만 다른 하나의 변수로 세 상태 모두 커버). */
+.queue-btn-delete { color: var(--color-danger-text); border-color: var(--tint-danger-strong); }
 .queue-btn-delete:hover:not(:disabled) { background: var(--tint-danger); }
 .queue-btn-delete:active:not(:disabled) { background: var(--tint-danger-strong); }
 .queue-payload {
@@ -505,6 +518,10 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
 }
 .item-card.is-answered { border-left-color: var(--color-success); }
 .item-card.is-invalid { border-left-color: var(--color-danger); background: var(--tint-danger); }
+/* T2: is-invalid 카드(부적합 응답인데 사유 미입력) 배경이 --tint-danger 로 바뀌면, 흰 배경에서는
+   4.5:1 이상이던 --color-neutral 텍스트(.criteria-body·아래 .note-counter)가 4.21:1 로 미달된다
+   — 정상(흰 배경) 카드의 같은 규칙은 이미 통과라 기본 규칙은 그대로 두고 이 조합만 덮는다. */
+.item-card.is-invalid .criteria-body, .item-card.is-invalid .note-counter { color: var(--color-neutral-text); }
 .item-text { font-size: 15px; font-weight: 600; line-height: 1.5; }
 .item-criteria { font-size: 13px; }
 /* 접이식 '점검기준' — 텍스트 높이(약 26px)로는 터치 타깃이 부족해 44px 하한을 강제 */
@@ -549,7 +566,9 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
   color: var(--color-text);
   line-height: 1.5;
 }
-.note-box .note-box-label { font-weight: 700; color: var(--color-neutral); display: block; margin-bottom: 4px; font-size: 12px; }
+/* T2: .note-box 배경(--tint-neutral, 위 561행)과 조합하면 --color-neutral 라벨 텍스트가
+   AA 미달이다(자신의 tint 위 텍스트 — .banner-success 와 같은 결함 클래스). */
+.note-box .note-box-label { font-weight: 700; color: var(--color-neutral-text); display: block; margin-bottom: 4px; font-size: 12px; }
 
 /* ---------- 검토 ---------- */
 .summary-card {

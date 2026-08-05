@@ -67,6 +67,10 @@
     plans: [],
     plansSyncedAt: null,
     plansBanner: null,
+    /* T1: 이 기기에서 이미 제출 시도(성공 또는 큐 적재)로 소비된 plan_id 표식(tombstone).
+       큐 항목과 독립적으로 sc_plans 캐시에 함께 영속된다(persistPlansCache) — 큐 항목을
+       지워도 남아야 응답 유실 → 큐 삭제 → 재작성 경로의 이중 기록을 막는다. */
+    consumedPlanIds: {},
     /* 사전등록 화면 진입 시 1회 생성해 재시도에도 같은 값을 쓰는 plan_id(서버 멱등의 전제) */
     planFormId: null,
     creatingPlan: false,
@@ -210,13 +214,22 @@
   /* FAILED 는 code(reason)만 남긴다 — 사람이 읽을 message 까지 큐 행에 보존한다. */
   function markQueueFailure(id, error) {
     state.queue = SafetyLogic.queueReducer(state.queue, { type: 'FAILED', id: id, reason: error.code });
+    var item = null;
     state.queue = state.queue.map(function (q) {
       if (q.submission_id !== id) return q;
       var updated = {};
       Object.keys(q).forEach(function (k) { updated[k] = q[k]; });
       updated.reason_message = error.message || '';
+      item = updated;
       return updated;
     });
+    /* T1 반대 방향: 큐에 처음 들어갈 때는 절대 VALIDATION 일 수 없다(onSubmit 이 그 앞에서 먼저
+       걸러 별도 처리한다) — 이 분기가 실제로 발화하는 경우는 재시도(flushQueue/'다시 시도')에서
+       뒤늦게 payload 자체가 무효로 밝혀졌을 때뿐이다. 그때는 최초 큐 적재 때 세운 tombstone 을
+       풀어야 현장이 다시 점검할 수 있다(계획을 영원히 막아두면 안 된다). */
+    if (item && item.plan_id && isPermanentError(error.code)) {
+      unmarkPlanConsumed(item.plan_id);
+    }
   }
   /* ---------- 저장 실패 고지 (계약 K4: 조용한 실패 금지) ----------
      logic.js 의 save 계열은 던지지 않고 false 를 돌려준다. 그 false 를 버리면
@@ -690,11 +703,20 @@
       var hasDraft = !!(state.drafts && state.drafts[p.plan_id]);
       var startBtn = node.querySelector('.plan-btn-start');
       var noteEl = node.querySelector('.plan-note');
+      /* T1: 큐 삭제 후에도 "이미 제출했다"는 사실은 tombstone(consumedPlanIds)에 남아 있어야
+         재작성(→ 새 submission_id → 점검대장 2행)을 막는다 — queued 만 보면 큐 삭제로 이
+         방어가 풀린다. */
+      var isConsumed = !!(state.consumedPlanIds && state.consumedPlanIds[p.plan_id]);
       if (queued[p.plan_id]) {
         startBtn.textContent = '전송 대기 중';
         startBtn.disabled = true;
         noteEl.hidden = false;
         noteEl.textContent = '이미 작성해 미전송 목록에 있습니다 — 아래 미전송 목록에서 전송하세요.';
+      } else if (isConsumed) {
+        startBtn.textContent = '이미 전송됨';
+        startBtn.disabled = true;
+        noteEl.hidden = false;
+        noteEl.textContent = '이미 작성해 전송했습니다 — 다시 작성하지 마세요. 다시 열어야 하면 관리자에게 문의하세요.';
       } else {
         startBtn.textContent = hasDraft ? '이어서 작성' : '작성 시작';
         startBtn.disabled = false;
@@ -762,7 +784,7 @@
     cancelPlanOnServer({ plan_id: plan.plan_id, inspector_id: inspectorId, pin: pin }).then(function (result) {
       if (result.ok) {
         state.plans = state.plans.filter(function (p) { return p.plan_id !== plan.plan_id; });
-        state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt });
+        persistPlansCache();
         /* H7: 계획이 사라지면 그 계획의 임시저장(PIN 포함)이 도달 불가·삭제 불가로 남는다 —
            행이 없어지면 '이어서 작성' 진입점 자체가 사라지기 때문이다. 여기서 함께 정리한다.
            clearDraft 의 반환값을 본다(계약 K4) — 삭제 실패를 조용히 삼키지 않는다. */
@@ -797,6 +819,42 @@
       window.scrollTo(0, 0);
     });
   }
+  /* T1: state.plans/plansSyncedAt/consumedPlanIds 셋을 한 번에 sc_plans 캐시로 영속한다.
+     이 헬퍼 하나로 몰아야 하는 이유 — savePlans 호출부가 여러 곳(재조회·로컬 제거·upsert·계획
+     취소)인데, consumed 필드를 하나라도 안 실어 보내면 그 저장이 앞선 소비 표식을 지운다
+     (savePlans 는 sc_plans 전체를 덮어쓰는 API 라 부분 갱신이 없다). 새 저장 지점을 추가할 때도
+     이 함수를 거치면 표식이 빠질 일이 없다. */
+  function persistPlansCache() {
+    state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt, consumed: state.consumedPlanIds });
+  }
+  /* T1: 이 기기에서 그 계획으로 제출을 서버에 내보냈다(성공이든 큐 적재든) — tombstone 을 큐와
+     독립적으로 남긴다. 큐 항목을 사용자가 지워도 이 표식은 남아 재작성(→ 새 submission_id →
+     서버 멱등 불성립 → 점검대장 2행)을 막는다. */
+  function markPlanConsumed(planId) {
+    if (!planId) return;
+    state.consumedPlanIds[planId] = true;
+    persistPlansCache();
+  }
+  /* T1 반대 방향: 제출이 영구 오류(VALIDATION)로 거절되면 그 payload 자체가 못 쓴다는 뜻이라
+     계획을 계속 막아두면 현장이 재점검을 할 방법이 없어진다(설계 K3 와 충돌) — 반드시 푼다. */
+  function unmarkPlanConsumed(planId) {
+    if (!planId || !state.consumedPlanIds[planId]) return;
+    delete state.consumedPlanIds[planId];
+    persistPlansCache();
+  }
+  /* T1: 표식이 영원히 쌓이지 않게 한다 — 서버가 그 계획을 더 이상 'planned' 로 돌려주지 않으면
+     (done 이든 canceled 든) 로컬 표식도 정리한다. 서버 재조회(refreshPlans) 직후에만 호출한다 —
+     캐시가 아니라 서버 응답을 근거로 지워야, 오프라인 중 캐시가 오래됐다는 이유로 표식을
+     섣불리 지워 그 사이 재작성을 허용해버리는 사고를 막는다. */
+  function pruneConsumedPlanIds(currentPlans) {
+    var present = {};
+    (currentPlans || []).forEach(function (p) { if (p && p.plan_id) present[p.plan_id] = true; });
+    var changed = false;
+    Object.keys(state.consumedPlanIds).forEach(function (id) {
+      if (!present[id]) { delete state.consumedPlanIds[id]; changed = true; }
+    });
+    return changed;
+  }
   /* 제출이 서버에 접수되면 그 계획은 더 이상 '작성 시작' 대상이 아니다(서버는 done 으로 전이한다).
      재조회를 기다리지 않고 로컬 진실을 먼저 맞춘다 — 오프라인에서도 목록이 거짓말하지 않게(H1). */
   function removePlanLocally(planId) {
@@ -804,7 +862,7 @@
     var before = (state.plans || []).length;
     state.plans = (state.plans || []).filter(function (p) { return p.plan_id !== planId; });
     if (state.plans.length === before) return false;
-    state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt });
+    persistPlansCache();
     return true;
   }
   /* 큐에 걸린 계획 id 집합 — 큐는 영속되므로 재적재 후에도 같은 판정이 나온다(파생 상태, 별도 저장 금지) */
@@ -830,14 +888,15 @@
     if (!plan || !plan.plan_id) return;
     state.plans = (state.plans || []).filter(function (p) { return p.plan_id !== plan.plan_id; });
     state.plans.push(plan);
-    state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt });
+    persistPlansCache();
   }
   function refreshPlans() {
     return loadPlansFromNetwork().then(function (result) {
       if (result.ok) {
         state.plans = (result.data && result.data.plans) || [];
         state.plansSyncedAt = new Date().toISOString();
-        state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt });
+        pruneConsumedPlanIds(state.plans);   /* T1: 서버가 확인해 준 시점에만 표식을 정리한다 */
+        persistPlansCache();
         state.plansBanner = null;
       } else {
         /* F7(Task 3 인계, 계약 K2): CONFIG(탭 없음·헤더 손상) 등 실패라도 캐시를 빈 목록으로
@@ -1535,6 +1594,7 @@
         var donePlanId = payload.plan_id || null;
         var cleared = clearActiveDraft();   /* H8 — 반환값을 쓴다 */
         removePlanLocally(donePlanId);
+        markPlanConsumed(donePlanId);   /* T1 — 목록에서 이미 지웠어도 표식은 남긴다(방어적) */
         showBanner(cleared ? 'success' : 'error',
           ((result.data && result.data.dup) ? '이미 처리된 제출입니다(중복 확인됨).' : '제출 완료.')
           + (cleared ? '' : ' 다만 이 기기의 임시저장 삭제에 실패했습니다 — 앱을 다시 열면 제출된 점검이 임시저장으로 남아 있을 수 있습니다.' + saveErrorSuffix()));
@@ -1569,6 +1629,8 @@
       var cleared2 = clearActiveDraft();   /* H8 — 반환값을 쓴다. 계획은 여기서 지우지 않는다(H1) —
         서버는 아직 이 계획을 done 으로 전이하지 않았다(제출이 큐에 있을 뿐이다). renderPlanList 의
         queuedPlanIdSet 이 이 큐 항목을 보고 '작성 시작'을 막는다. */
+      markPlanConsumed(payload.plan_id);   /* T1 — 큐 저장이 실제로 성공한 뒤에만 표식을 남긴다.
+        큐 항목을 나중에 지워도 이 표식은 독립적으로 남아 재작성을 막는다(이 결함의 핵심). */
       showBanner('error', (isAdminError(err.code)
         ? ('전송 실패 — 큐에 보관됨. 관리자 확인이 필요합니다. 해결되면 자동으로 전송됩니다: ' + err.message + ' (' + err.code + ')')
         : ('전송 실패 — 큐에 보관됨: ' + err.message + ' (' + err.code + ')'))
@@ -1607,10 +1669,11 @@
       if (state.currentScreen === 'home') renderHome();
     });
   }
-  /* 계획 캐시(sc_plans) — 마스터와 같은 패턴({data, syncedAt}) */
+  /* 계획 캐시(sc_plans) — 마스터와 같은 패턴({data, syncedAt}) + T1 소비 표식(consumed). */
   function loadCachedPlans() {
     var cached = state.storage.loadPlans();
     if (cached && cached.data) { state.plans = cached.data; state.plansSyncedAt = cached.syncedAt || null; }
+    if (cached && cached.consumed) { state.consumedPlanIds = cached.consumed; }
   }
 
   function wireEvents() {
