@@ -106,6 +106,9 @@
         <div class="field">
           <label class="field-label" for="f-date">점검일</label>
           <input class="input" type="date" id="f-date">
+          <!-- 계획 기반 작성에서 잠긴 점검일·협력회사·공사를 본문 색으로 노출(H3·H6) — disabled
+               select 는 값을 다른 곳에 안 보여주므로 이 텍스트가 유일한 판독 수단이다 -->
+          <p class="field-hint" id="f-plan-context" hidden></p>
         </div>
         <div class="field">
           <label class="field-label" for="f-company">협력회사</label>
@@ -269,6 +272,7 @@
       <span class="plan-date"></span>
       <span class="plan-project"></span>
       <span class="plan-company"></span>
+      <span class="plan-note" hidden></span>
     </div>
     <div class="plan-actions">
       <button type="button" class="btn btn-primary plan-btn-start">작성 시작</button>

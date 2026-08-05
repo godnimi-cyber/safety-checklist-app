@@ -239,13 +239,18 @@
     return ok;
   }
   /* 제출 성공(또는 큐 적재 후 홈 복귀) 경로 공용 — 현재 붙잡고 있는 draft 를 drafts 맵과
-     storage 양쪽에서 지운다(계획별 임시저장, 설계 §6-4). */
+     storage 양쪽에서 지운다(계획별 임시저장, 설계 §6-4).
+     반환값(H8, 계약 K4): storage.clearDraft 는 던지지 않고 실패를 false 로 보고하도록 설계돼
+     있는데(logic.js), 이 값을 버리면 저장소가 막힌 기기에서 "제출 완료"만 뜨고 옛 sc_drafts 가
+     재적재 시 되살아나 이미 제출된 점검이 임시저장으로 부활한다. 호출자가 반환값을 소비해
+     배너로 알린다(여기서 직접 showBanner 하지 않는다 — 호출자가 성공 문구를 덮어써야 한다). */
   function clearActiveDraft() {
-    if (!state.draftKey) return;
-    state.storage.clearDraft(state.draftKey);
+    if (!state.draftKey) return true;
+    var ok = state.storage.clearDraft(state.draftKey);
     if (state.drafts) delete state.drafts[state.draftKey];
     state.draft = null;
     state.draftKey = null;
+    return ok;
   }
   function persistQueue() {
     var ok = state.storage.saveQueue(state.queue);
@@ -488,6 +493,10 @@
       else { show('home'); }
       return;
     }
+    /* H9: 등록 요청이 떠 있는 동안(최대 25초) 이탈을 막는다 — 떠나도 요청은 계속 흐르지만,
+       이탈을 막으면 애초에 "늦게 온 응답이 남의 화면을 홈으로 튕기는" 경합 창을 좁힌다.
+       (onCreatePlan 의 sameContext 판정이 최종 방어선이고, 이건 보조다.) */
+    if (state.currentScreen === 'plan' && state.creatingPlan) return;
     if (state.currentScreen === 'plan') { show('home'); }
   }
 
@@ -566,6 +575,16 @@
            설정 오류를 "고치세요"라고 미는 오해도 둘 다 끊는다. */
         if (isPermanentError(q.reason)) {
           stateEl.textContent = '전송 불가 — 제출 내용 결함으로 거절됨(자동 재시도 안 함): ' + detail;
+        } else if (/PLAN_LINK_HEADER/.test(detail)) {
+          /* H-S1: 서버는 점검계획 탭 헤더가 손상되면 점검대장·부적합대장 기록은 정상 저장한
+             뒤(부분 성공) CONFIG/PLAN_LINK_HEADER 를 돌려준다(gas/main.gs). q.reason 은
+             'CONFIG'(isAdminError 대상)뿐이고 실제 세부 코드는 markQueueFailure 가 채우는
+             q.reason_message 에 실린다(직접 확인함) — 그래서 reason 이 아니라 이 두 필드를
+             합친 detail 로 매칭한다. isAdminError 보다 먼저 걸어야 한다(안 그러면 "관리자 확인
+             필요" 문구에 밀려 이 분기가 죽는다) — 큐 보관·자동 재전송 자체는 옳다(재전송이
+             관리자 조치 후 계획 연동을 완성한다), 문구만 다르게 한다: 기록이 이미 저장됐다는
+             사실을 모르면 사용자가 같은 점검을 다시 작성해 점검대장에 2행이 남는다(H1과 같은 뿌리). */
+          stateEl.textContent = '점검 기록은 저장되었습니다. 계획 연동만 관리자 조치 대기 중입니다 — 다시 작성하지 마세요.';
         } else if (isAdminError(q.reason)) {
           stateEl.textContent = '관리자 확인이 필요합니다. 해결되면 자동으로 전송됩니다 (' + detail + ')';
         } else {
@@ -647,6 +666,10 @@
     var wrap = $('home-plans-list');
     wrap.innerHTML = '';
     var today = todayStr();
+    /* 이미 그 계획으로 작성해 큐에 넣은 제출이 있으면(전송 대기 중) '작성 시작'을 다시 누르게
+       두면 안 된다 — 새 submission_id 로 또 작성하면 서버 멱등에 안 걸려 점검대장에 2행이
+       남는다(H1). 계획은 서버에서 아직 planned 이므로 목록에는 남기되 시작을 막는다. */
+    var queued = queuedPlanIdSet(state.queue);
     var plans = (state.plans || []).slice().sort(function (a, b) {
       var ga = planGroup(a, today), gb = planGroup(b, today);
       if (ga !== gb) return ga - gb;
@@ -666,8 +689,18 @@
 
       var hasDraft = !!(state.drafts && state.drafts[p.plan_id]);
       var startBtn = node.querySelector('.plan-btn-start');
-      startBtn.textContent = hasDraft ? '이어서 작성' : '작성 시작';
-      startBtn.addEventListener('click', function () { startFromPlan(p); });
+      var noteEl = node.querySelector('.plan-note');
+      if (queued[p.plan_id]) {
+        startBtn.textContent = '전송 대기 중';
+        startBtn.disabled = true;
+        noteEl.hidden = false;
+        noteEl.textContent = '이미 작성해 미전송 목록에 있습니다 — 아래 미전송 목록에서 전송하세요.';
+      } else {
+        startBtn.textContent = hasDraft ? '이어서 작성' : '작성 시작';
+        startBtn.disabled = false;
+        noteEl.hidden = true;
+        startBtn.addEventListener('click', function () { startFromPlan(p); });
+      }
 
       node.querySelector('.plan-btn-cancel').addEventListener('click', function () { openPlanCancelPanel(p); });
 
@@ -688,7 +721,13 @@
   }
   function openPlanCancelPanel(plan) {
     state.cancelingPlan = plan;
-    $('plan-cancel-target').textContent = plan.planned_date + ' · ' + plan.company_name + ' · ' + plan.project_name + ' 계획을 취소합니다. 등록자 인증 후 확정됩니다.';
+    /* H7: 이 계획으로 이미 작성 중인 임시저장이 있으면 취소와 함께 사라진다는 걸 미리 알린다 —
+       계획별 임시저장의 유일한 진입점이 이 행의 '이어서 작성' 버튼이라, 계획이 목록에서
+       빠지는 순간 도달할 방법이 없어진다(내 기기의 draft. 다른 기기·PIN 없는 draft 는 범위 밖). */
+    var hasDraft = !!(state.drafts && state.drafts[plan.plan_id]);
+    $('plan-cancel-target').textContent = plan.planned_date + ' · ' + plan.company_name + ' · ' + plan.project_name
+      + ' 계획을 취소합니다. 등록자 인증 후 확정됩니다.'
+      + (hasDraft ? ' 이 계획에 작성 중인 내용이 있으며 취소하면 함께 삭제됩니다.' : '');
     populateTeamSelect('pc-team');
     $('pc-team').value = '';
     populateInspectorSelect('', 'pc-inspector');
@@ -705,10 +744,17 @@
     var plan = state.cancelingPlan;
     var inspectorId = $('pc-inspector').value;
     var pin = $('pc-pin').value;
-    var missing = [];
-    if (!inspectorId) missing.push('등록자');
-    if (!/^\d{4}$/.test(pin || '')) missing.push('PIN(4자리)');
-    if (missing.length) { showBanner('error', '다음 항목을 확인하세요: ' + missing.join(', ')); return; }
+    var missing = [], focusId = null;
+    if (!inspectorId) { missing.push('등록자'); focusId = focusId || 'pc-inspector'; }
+    if (!/^\d{4}$/.test(pin || '')) { missing.push('PIN(4자리)'); focusId = focusId || 'pc-pin'; }
+    if (missing.length) {
+      /* #banner-region 은 문서 최상단·비-sticky 다(H5) — 취소 패널은 scrollIntoView 로 화면
+         가운데로 끌려와 있어, 배너만 띄우면 위쪽으로 스크롤된 실패 사실을 못 본다. */
+      showBanner('error', '다음 항목을 확인하세요: ' + missing.join(', '));
+      window.scrollTo(0, 0);
+      if (focusId) { var fel = $(focusId); if (fel && !fel.disabled) fel.focus(); }
+      return;
+    }
     state.cancelingPlanBusy = true;
     var btn = $('btn-plan-cancel-confirm');
     btn.disabled = true;
@@ -717,8 +763,20 @@
       if (result.ok) {
         state.plans = state.plans.filter(function (p) { return p.plan_id !== plan.plan_id; });
         state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt });
+        /* H7: 계획이 사라지면 그 계획의 임시저장(PIN 포함)이 도달 불가·삭제 불가로 남는다 —
+           행이 없어지면 '이어서 작성' 진입점 자체가 사라지기 때문이다. 여기서 함께 정리한다.
+           clearDraft 의 반환값을 본다(계약 K4) — 삭제 실패를 조용히 삼키지 않는다. */
+        var hadDraft = !!(state.drafts && state.drafts[plan.plan_id]);
+        var clearedOk = true;
+        if (hadDraft) {
+          clearedOk = state.storage.clearDraft(plan.plan_id);
+          delete state.drafts[plan.plan_id];
+          if (state.draftKey === plan.plan_id) { state.draft = null; state.draftKey = null; }
+        }
         closePlanCancelPanel();
-        showBanner('success', '점검 계획을 취소했습니다.');
+        showBanner(clearedOk ? 'success' : 'error',
+          '점검 계획을 취소했습니다.' + (hadDraft ? (clearedOk ? ' 작성 중이던 내용도 삭제했습니다.'
+            : ' 다만 이 기기의 임시저장 삭제에 실패했습니다 — 저장소를 확인하세요.' + saveErrorSuffix()) : ''));
         renderHome();
         return;
       }
@@ -729,13 +787,50 @@
         : /PIN_MISMATCH/.test(err.message) ? 'PIN이 일치하지 않습니다.'
         : err.message;
       showBanner('error', '취소에 실패했습니다: ' + friendly + ' (' + err.code + ')');
+      window.scrollTo(0, 0);
     }).finally(function () {
       state.cancelingPlanBusy = false;
       btn.disabled = false;
       btn.textContent = '취소 확정';
     }).catch(function (e) {
       showBanner('error', '취소 처리 중 오류가 발생했습니다: ' + ((e && e.message) || e));
+      window.scrollTo(0, 0);
     });
+  }
+  /* 제출이 서버에 접수되면 그 계획은 더 이상 '작성 시작' 대상이 아니다(서버는 done 으로 전이한다).
+     재조회를 기다리지 않고 로컬 진실을 먼저 맞춘다 — 오프라인에서도 목록이 거짓말하지 않게(H1). */
+  function removePlanLocally(planId) {
+    if (!planId) return false;
+    var before = (state.plans || []).length;
+    state.plans = (state.plans || []).filter(function (p) { return p.plan_id !== planId; });
+    if (state.plans.length === before) return false;
+    state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt });
+    return true;
+  }
+  /* 큐에 걸린 계획 id 집합 — 큐는 영속되므로 재적재 후에도 같은 판정이 나온다(파생 상태, 별도 저장 금지) */
+  function queuedPlanIdSet(queue) {
+    var set = Object.create(null);
+    (queue || []).forEach(function (q) { if (q && q.plan_id) set[q.plan_id] = 1; });
+    return set;
+  }
+  /* 서버가 이번 등록에서 채번한 공사를 마스터에 즉시 흡수한다(설계 §4-2·§5, H4). 흡수하지 않으면
+     같은 세션에서 그 계획을 시작했을 때 lib.js 의 PROJECT_UNKNOWN 으로 제출이 막히고,
+     공사 select 가 잠겨 있어(renderWriteStep1) 사용자가 고칠 방법이 없다. */
+  function upsertProject(proj) {
+    if (!state.masters) return;               /* 마스터 미수신 세션 — 재적재로 복구된다 */
+    var list = state.masters.projects = state.masters.projects || [];
+    var i = -1;
+    list.forEach(function (p, k) { if (p.project_id === proj.project_id) i = k; });
+    if (i >= 0) list[i] = proj; else list.push(proj);
+    state.storage.saveMasters({ data: state.masters, syncedAt: state.mastersSyncedAt });
+  }
+  /* 서버가 돌려준 plan 을 목록에 즉시 반영한다(H4) — refreshPlans 재조회가 끊기거나 실패해도
+     방금 등록한 계획이 화면에 남는다(재조회는 보조 정합 확인일 뿐 유일한 반영 경로가 아니다). */
+  function upsertPlan(plan) {
+    if (!plan || !plan.plan_id) return;
+    state.plans = (state.plans || []).filter(function (p) { return p.plan_id !== plan.plan_id; });
+    state.plans.push(plan);
+    state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt });
   }
   function refreshPlans() {
     return loadPlansFromNetwork().then(function (result) {
@@ -793,11 +888,18 @@
       show('write');
       return;
     }
-    var draft = SafetyLogic.newDraft(plan.template_id, plan.template_ver, plan.planned_date);
+    /* 실제 점검일은 '작성 시점의 오늘'이지 계획 예정일이 아니다(H3). 계획 예정일을 inspect_date 에
+       박으면 미래 계획은 제출 시 DATE_FUTURE, 31일 넘게 지난(지남) 계획은 DATE_TOO_OLD 로 거절되는데
+       점검일 입력은 잠겨 있어(renderWriteStep1) 사용자가 고칠 수도 없다(lib.js validateDate 의
+       기본 pastDays=31/futureDays=0, 제출 검증 기준 — 사전등록은 ±365일이라 범위가 다르다).
+       예정일 자체는 화면 표시용으로만 planned_date_label 에 남긴다 — draftToPayload(logic.js)가
+       필드 화이트리스트라 서버로는 새지 않는다(직접 확인함). */
+    var draft = SafetyLogic.newDraft(plan.template_id, plan.template_ver, todayStr());
     draft.plan_id = plan.plan_id;
     draft.company_id = plan.company_id;
     draft.project_key = plan.project_key;
     draft.project_name = plan.project_name;
+    draft.planned_date_label = plan.planned_date;
     state.draft = draft;
     state.draftKey = plan.plan_id;
     state.drafts = state.drafts || {};
@@ -876,14 +978,22 @@
     var inspectorId = $('p-inspector').value;
     var pin = $('p-pin').value;
 
-    var missing = [];
-    if (!date) missing.push('점검예정일');
-    if (!companyId) missing.push('협력회사');
-    if (!projectSel || (isNewProject && !newProjectName)) missing.push('공사');
-    if (!tpl) missing.push('양식');
-    if (!inspectorId) missing.push('등록자');
-    if (!/^\d{4}$/.test(pin || '')) missing.push('PIN(4자리)');
-    if (missing.length) { showBanner('error', '다음 항목을 확인하세요: ' + missing.join(', ')); return; }
+    var missing = [], focusId = null;
+    function mark(cond, label, id) { if (cond) { missing.push(label); focusId = focusId || id; } }
+    mark(!date, '점검예정일', 'p-date');
+    mark(!companyId, '협력회사', 'p-company');
+    mark(!projectSel || (isNewProject && !newProjectName), '공사', isNewProject ? 'p-project-new' : 'p-project');
+    mark(!tpl, '양식', 'p-template');
+    mark(!inspectorId, '등록자', 'p-inspector');
+    mark(!/^\d{4}$/.test(pin || ''), 'PIN(4자리)', 'p-pin');
+    if (missing.length) {
+      /* #banner-region 은 문서 최상단·비-sticky 다(H5) — 이 화면은 필드 7개라 375×667 에서
+         하단 고정 액션바의 '등록'을 누르는 시점에 배너는 확실히 화면 밖이다. */
+      showBanner('error', '다음 항목을 확인하세요: ' + missing.join(', '));
+      window.scrollTo(0, 0);
+      if (focusId) { var fel = $(focusId); if (fel && !fel.disabled && !fel.hidden) fel.focus(); }
+      return;
+    }
 
     var payload = {
       plan_id: state.planFormId,
@@ -901,22 +1011,45 @@
     var v = SafetyLib.validatePlan(payload, mastersForValidate, todayStr());
     if (!v.ok) {
       showBanner('error', v.errors.map(function (e) { return e.msg + '(' + e.code + ')'; }).join(' / '));
+      window.scrollTo(0, 0);
       return;
     }
     state.creatingPlan = true;
     var btn = $('btn-plan-create');
     btn.disabled = true;
     btn.textContent = '등록 중...';
+    /* H9: 요청이 떠 있는 동안(최대 25초, requestJson 타임아웃) 사용자가 뒤로가기·취소로 이
+       화면을 떠나고 다시 새 사전등록을 시작할 수 있다 — openPlanForm 이 매번 planFormId 를
+       새로 만든다. 요청 시작 시점의 id 를 지역 캡처해, 응답이 왔을 때 "그 요청을 보낸 화면이
+       지금도 그대로인지" 를 판정한다(다른 화면을 빼앗지 않는다). 목록 반영(upsertPlan)은
+       문맥과 무관하게 항상 한다 — 서버에 실제로 생긴 계획이라 화면이 바뀌었어도 숨기면 안 된다. */
+    var reqPlanId = payload.plan_id;
     createPlanOnServer(payload).then(function (result) {
+      var sameContext = (state.planFormId === reqPlanId);
       if (result.ok) {
-        state.planFormId = null;
-        showBanner('success', (result.data && result.data.reused_project)
-          ? '이미 등록된 공사라 기존 공사로 연결했습니다.'
+        var d = result.data || {};
+        /* H4: 서버가 채번한 공사·계획을 재조회 없이 즉시 흡수한다. refreshPlans/refreshMasters 는
+           둘 다 세션당 온디맨드 호출(onCreatePlan 성공·init 뿐, 폴링 없음)이라, 여기서 흡수하지
+           않으면 세션 내내 새 공사가 마스터에 없어 그 계획을 시작해 제출하면 PROJECT_UNKNOWN 으로
+           거절되는데 공사 select 는 잠겨 있어(renderWriteStep1) 고칠 방법이 없다. */
+        if (d.created_project) {
+          upsertProject({ project_id: d.created_project.project_id, name: d.created_project.name,
+                          company_id: payload.company_id, status: '진행' });
+        }
+        upsertPlan(d.plan);
+        /* dup:true(같은 plan_id 재시도가 멱등으로 흡수된 응답)는 이번 화면의 입력이 반영되지
+           않았다는 뜻이다(gas/main.gs 의 멱등 경로는 첫 성공 시점 값을 그대로 돌려준다) —
+           신규 등록과 같은 '점검이 등록되었습니다.'를 띄우면 사용자가 오인한다. */
+        showBanner(d.dup ? 'warn' : 'success',
+          d.dup ? ('이미 등록된 계획입니다 — 이번 화면의 변경은 반영되지 않았습니다(등록된 예정일: '
+                   + ((d.plan && d.plan.planned_date) || '확인 불가') + ')')
+          : d.reused_project ? '이미 등록된 공사라 기존 공사로 연결했습니다.'
           : '점검이 등록되었습니다.');
-        refreshPlans();
-        show('home');
+        if (sameContext) { state.planFormId = null; show('home'); }
+        refreshPlans();   /* 보조 — 실패해도 위에서 이미 로컬 정합이 맞다 */
         return;
       }
+      if (!sameContext) return;   /* 화면을 이미 떠났다 — 남의 화면에 늦게 온 실패를 덮어씌우지 않는다 */
       /* 설계 §7: 계획 등록 실패는 큐에 넣지 않는다 — 화면에 머무르며 사유를 보여준다. */
       var err = normalizeError(result.error);
       var friendly = /PLAN_DUP/.test(err.message) ? '이미 처리된 계획입니다. 새로고침 후 다시 등록해 주세요.' : err.message;
@@ -924,10 +1057,11 @@
       window.scrollTo(0, 0);
     }).finally(function () {
       state.creatingPlan = false;
-      btn.disabled = false;
+      btn.disabled = false;          /* 화면을 떠났다 돌아와도 버튼이 잠긴 채로 남지 않는다(H9) */
       btn.textContent = '등록';
     }).catch(function (e) {
       showBanner('error', '등록 처리 중 오류가 발생했습니다: ' + ((e && e.message) || e));
+      window.scrollTo(0, 0);
     });
   }
   /* 자동 재시도 대상 — 영구 실패(VALIDATION)는 재전송해도 같은 결과라 무한 재시도를 여기서 끊는다.
@@ -945,12 +1079,15 @@
     state.syncing = true;
     renderHome();
     var chain = Promise.resolve();
+    /* H1: 큐에 있던 제출이 이번에 성공하면 그 계획도 done 이 된 것이다 — 로컬에서 즉시 지운다. */
+    var removedPlan = false;
     targets.forEach(function (item) {
       chain = chain.then(function () {
         var payload = stripQueueMeta(item);
         return submitToServer(payload).then(function (result) {
           if (result.ok) {
             state.queue = SafetyLogic.queueReducer(state.queue, { type: 'SENT', id: payload.submission_id });
+            if (removePlanLocally(payload.plan_id)) removedPlan = true;
           } else {
             markQueueFailure(payload.submission_id, normalizeError(result.error));
           }
@@ -961,6 +1098,7 @@
     /* finally: 어느 경로로 끝나든 syncing 을 반드시 푼다 — 여기서 새면 큐가 영구히 얼어붙는다 */
     return chain.finally(function () {
       state.syncing = false;
+      if (removedPlan) refreshPlans();   /* 서버 진실로 최종 정합 — renderHome 은 이 안에서도 불린다 */
       if (state.currentScreen === 'home') renderHome();
     }).catch(function (e) {
       showBanner('error', '동기화 중 오류가 발생했습니다: ' + ((e && e.message) || e));
@@ -988,7 +1126,11 @@
     var locked = !!draft.plan_id;
     $('f-date').value = draft.inspect_date || todayStr();
     $('f-date').max = todayStr();
-    $('f-date').disabled = locked;
+    /* disabled 대신 readonly(H6) — 포커스·탭 순서는 유지하고 값 수정만 막는다. disabled 입력은
+       change 이벤트 자체를 안 쏘므로 그 성질을 오히려 이용한다: readonly 도 사용자 상호작용으로는
+       값이 안 바뀌므로 onDateChange 가 잠긴 상태에서 발화할 길이 없다. */
+    $('f-date').readOnly = locked;
+    $('f-date').disabled = false;
 
     populateCompanySelect();
     $('f-company').value = draft.company_id || '';
@@ -1002,7 +1144,12 @@
       $('f-project').value = draft.project_key || '';
       $('f-project-tmp-wrap').hidden = true;
     }
-    if (locked) { $('f-project').disabled = true; $('f-project-tmp').disabled = true; }
+    /* 양방향 대입(H2) — populateProjectSelect 호출 뒤에 와야 한다(그 함수가 내부에서 한 번
+       disabled 를 다시 계산한다). 예전에는 locked 일 때만 잠그고 푸는 코드가 없어, 계획 작성을
+       한 번 시작하면 이후 adhoc(미등록 공사 직접 입력, 오프라인 탈출구) 입력칸이 새로고침
+       전까지 죽어 있었다. */
+    $('f-project').disabled = locked || !draft.company_id;
+    $('f-project-tmp').disabled = locked;
 
     populateTeamSelect();
     var team = teamOf(draft.inspector_id);
@@ -1012,6 +1159,17 @@
 
     $('f-pin').value = draft.pin || '';
     $('f-auditee').value = draft.auditee || '';
+
+    /* 계획 컨텍스트 표시(H3·H6) — 실제 점검일은 오늘로 채워 잠그고(startFromPlan 참고), 계획
+       예정일은 이 문구로만 보여준다. disabled select 는 선택된 값을 다른 곳에 노출하지 않으므로
+       이 텍스트가 협력회사·공사·예정일을 읽을 수 있는 유일한 자리다(본문색, styles.css 참고). */
+    var ctx = $('f-plan-context');
+    if (locked) {
+      ctx.hidden = false;
+      ctx.textContent = '사전등록 계획: ' + (draft.planned_date_label || '') + ' · ' + companyName(draft.company_id) + ' · ' + (draft.project_name || '');
+    } else {
+      ctx.hidden = true;
+    }
   }
   /* selectId 는 선택: 작성 화면(f-*)이 기본이고, 사전등록 화면(p-*)·계획 취소 패널(pc-*)이
      같은 채움 로직을 재사용한다(기존 호출부는 인자 없이 그대로 동작한다). */
@@ -1370,9 +1528,18 @@
     $('btn-review-back').disabled = true;
     submitToServer(payload).then(function (result) {
       if (result.ok) {
-        clearActiveDraft();
-        showBanner('success', (result.data && result.data.dup) ? '이미 처리된 제출입니다(중복 확인됨).' : '제출 완료.');
+        /* H1: 서버가 제출을 접수하면 그 계획은 done 으로 전이해 GET plans 에서 더 이상 내려오지
+           않는다 — 재조회를 기다리지 않고 로컬에서도 즉시 지운다(오프라인이면 refreshPlans 가
+           실패해 캐시가 그대로 남으므로 여기서 먼저 맞춰야 한다). clearActiveDraft 가 draft 를
+           지우므로 payload.plan_id 로 먼저 캡처한다. */
+        var donePlanId = payload.plan_id || null;
+        var cleared = clearActiveDraft();   /* H8 — 반환값을 쓴다 */
+        removePlanLocally(donePlanId);
+        showBanner(cleared ? 'success' : 'error',
+          ((result.data && result.data.dup) ? '이미 처리된 제출입니다(중복 확인됨).' : '제출 완료.')
+          + (cleared ? '' : ' 다만 이 기기의 임시저장 삭제에 실패했습니다 — 앱을 다시 열면 제출된 점검이 임시저장으로 남아 있을 수 있습니다.' + saveErrorSuffix()));
         show('home');
+        refreshPlans();   /* 서버 진실로 최종 정합(성공해도 실패해도 위에서 이미 로컬은 맞다) */
         return;
       }
       var err = normalizeError(result.error);
@@ -1399,10 +1566,13 @@
         window.scrollTo(0, 0);
         return;
       }
-      clearActiveDraft();
-      showBanner('error', isAdminError(err.code)
+      var cleared2 = clearActiveDraft();   /* H8 — 반환값을 쓴다. 계획은 여기서 지우지 않는다(H1) —
+        서버는 아직 이 계획을 done 으로 전이하지 않았다(제출이 큐에 있을 뿐이다). renderPlanList 의
+        queuedPlanIdSet 이 이 큐 항목을 보고 '작성 시작'을 막는다. */
+      showBanner('error', (isAdminError(err.code)
         ? ('전송 실패 — 큐에 보관됨. 관리자 확인이 필요합니다. 해결되면 자동으로 전송됩니다: ' + err.message + ' (' + err.code + ')')
-        : ('전송 실패 — 큐에 보관됨: ' + err.message + ' (' + err.code + ')'));
+        : ('전송 실패 — 큐에 보관됨: ' + err.message + ' (' + err.code + ')'))
+        + (cleared2 ? '' : ' (임시저장 삭제 실패' + saveErrorSuffix() + ')'));
       show('home');
     }).finally(function () {
       /* 어느 경로로 끝나든 submitting 을 반드시 푼다 — 여기서 새면 제출 버튼이 영구히 잠긴다 */
@@ -1449,7 +1619,10 @@
     $('btn-sync-now').addEventListener('click', flushQueue);
 
     $('btn-open-plan-form').addEventListener('click', openPlanForm);
-    $('btn-plan-form-cancel').addEventListener('click', function () { clearBanner(); show('home'); });
+    $('btn-plan-form-cancel').addEventListener('click', function () {
+      if (state.creatingPlan) return;   /* H9 — 요청 진행 중 이탈 금지 */
+      clearBanner(); show('home');
+    });
     $('btn-plan-create').addEventListener('click', onCreatePlan);
     $('p-company').addEventListener('change', onPlanCompanyChange);
     $('p-project').addEventListener('change', onPlanProjectChange);

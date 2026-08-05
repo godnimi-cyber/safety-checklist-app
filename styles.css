@@ -238,7 +238,12 @@ section.screen > .screen-body {
 }
 .input:hover { border-color: var(--color-neutral); }
 .input:focus-visible { border-color: var(--color-primary); }
-.input:disabled { background: var(--tint-neutral); color: var(--color-neutral); }
+/* disabled 가 '값 표시' 수단으로도 쓰인다(계획 잠금, app.js renderWriteStep1) — --color-neutral 텍스트는
+   흰 배경에 합성한 --tint-neutral 배경 위에서 4.09:1 로 WCAG AA 본문 4.5:1 미달이라 본문 색으로 올린다.
+   비활성 구분은 배경 틴트와 not-allowed 커서로 충분하다(H6). */
+.input:disabled { background: var(--tint-neutral); color: var(--color-text); cursor: not-allowed; }
+/* readonly 입력(계획 잠금의 점검일, disabled 대신 사용 — 탭 순서·포커스 유지, H6)도 같은 시각 잠김 표시 */
+.input:read-only:not([type="checkbox"]) { background: var(--tint-neutral); }
 textarea.input {
   height: auto;
   min-height: 88px;
@@ -357,6 +362,9 @@ select.input {
 #home-plans .plan-overdue { color: var(--color-danger); }
 #home-plans .plan-project { font-weight: 600; }
 #home-plans .plan-company { color: var(--color-neutral); }
+/* 큐 대기 중 안내(H1) — display 를 선언하지 않는다: 전역 [hidden]{display:none!important}(44행) 가드가
+   그대로 이기게 두는 것이 이 파일의 관례다(같은 지뢰를 새로 심지 않는다). */
+#home-plans .plan-note { color: var(--color-danger); font-size: 12px; }
 /* 375px 폭에서 버튼 2개(작성 시작/이어서 작성 · 취소)가 겹치지 않도록 wrap 허용, 48px 규격은 .btn 그대로 */
 #home-plans .plan-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 #home-plans .plan-actions .btn { flex: 1 1 120px; }
@@ -375,6 +383,9 @@ select.input {
 
 /* ---------- 작성: step1 ---------- */
 #write-step1[hidden], #write-step2[hidden] { display: none; }
+/* 계획 잠금 컨텍스트(H3·H6) — 잠긴 점검일·협력회사·공사 값을 유일하게 노출하는 텍스트라
+   .field-hint 의 옅은 --color-neutral 대신 본문색을 쓴다(disabled select 는 값을 다른 곳에 안 보여준다). */
+#f-plan-context { color: var(--color-text); font-weight: 600; }
 .tmp-project-wrap { display: flex; flex-direction: column; gap: var(--space-2); }
 .tmp-project-wrap[hidden] { display: none; }
 
