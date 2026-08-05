@@ -556,6 +556,31 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
 .note-wrap[hidden] { display: none; }
 .note-counter { align-self: flex-end; font-size: 12px; color: var(--color-neutral); }
 
+/* 세부 항목(일반 안전수칙) 접는 상자 — 기본안전수칙이 있는 분류에만 생긴다.
+   분류 아코디언 안에 한 겹 더 들어가므로 배경을 쓰지 않고 테두리로만 구분한다(중첩 강조 회피). */
+.sub-items { border: 1px solid var(--tint-neutral-strong); border-radius: var(--radius-sm); }
+.sub-items-summary {
+  list-style: none;
+  min-height: var(--control-h);           /* 48px — 터치 타깃 하한 */
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+.sub-items-summary::-webkit-details-marker { display: none; }
+.sub-items-summary > span { flex: 1; }
+.sub-items-summary:hover { background: var(--tint-primary); }
+.sub-items[open] > .sub-items-summary .chevron { transform: rotate(0deg); }
+.sub-items-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0 var(--space-3) var(--space-3);
+}
+
 /* 기본안전수칙을 해당없음으로 골라 하위를 함께 처리했을 때만 보이는 안내.
    display 를 선언하지 않는다 — [hidden] 전역 가드가 그대로 이긴다(.action-bar 사고 재발 방지).
    배경은 항상 불투명한 카드 위다: 해당없음일 때만 뜨므로 .is-invalid(부적합+사유미입력) 틴트와

@@ -1445,6 +1445,11 @@
      buildStep2 진입 시 비운다 — 옛 카드의 클로저가 남아 사라진 DOM 을 그리지 않게. */
   var cardPainters = {};
 
+  /* 기본안전수칙 item_id -> 그 분류의 세부 항목을 감싼 <details>.
+     적합·부적합이면 펼치고, 해당없음이면 접은 채로 일괄 처리한다. cardPainters 와 같은
+     이유로 buildStep2 마다 비운다(옛 DOM 을 붙잡지 않게). */
+  var subBoxOf = {};
+
   /* 기본안전수칙(group)에서 '해당없음' 을 고르면 같은 분류의 일반 안전수칙(item)을 함께 처리한다.
      - '해당없음' 일 때만 작동한다. Y/N 으로 바꿔도 하위는 건드리지 않는다(이미 답한 것을 지우지 않는다).
      - 잠그지 않는다 — 그 뒤 개별 항목을 자유롭게 되돌릴 수 있다.
@@ -1473,6 +1478,7 @@
     var root = $('accordion-root');
     root.innerHTML = '';
     cardPainters = {};
+    subBoxOf = {};
     var items = getCurrentTemplateItems();
     if (!items.length) {
       var p = document.createElement('p');
@@ -1506,9 +1512,42 @@
       details.appendChild(summary);
       var body = document.createElement('div');
       body.className = 'category-body';
+      /* 기본안전수칙(group)이 있는 분류만 세부 항목을 접는다 — 70개가 한 번에 펼쳐지면
+         스크롤을 감당할 수 없다. 접는 상자를 <details> 로 두면 키보드·스크린리더가 이미
+         아는 구조이고, 사용자가 언제든 직접 펼칠 수 있어 "개별로 바꿀 수 있다"는 약속이 산다.
+         머리 행이 note 인 분류(협력회사 SHE계획서 이행점검)는 펼칠 버튼이 될 group 이 없다
+         → 접지 않는다. 접으면 그 항목들에 영영 답할 수 없다. */
+      var headGroup = null, subItems = [];
       group.items.forEach(function (it) {
-        body.appendChild(it.type === 'note' ? buildNoteBox(it) : buildItemCard(it));
+        if (it.type === 'group' && !headGroup) headGroup = it; else subItems.push(it);
       });
+      if (headGroup && subItems.length) {
+        body.appendChild(buildItemCard(headGroup));
+        var subBox = document.createElement('details');
+        subBox.className = 'sub-items';
+        /* 이어 쓰던 점검에서 이미 답한 항목이 있으면 열어 둔다 — 접으면 한 일이 안 보인다. */
+        subBox.open = subItems.some(function (it) { return !!state.draft.results[it.item_id]; });
+        var subSummary = document.createElement('summary');
+        subSummary.className = 'sub-items-summary';
+        var subLabel = document.createElement('span');
+        subLabel.textContent = '일반 안전수칙 ' +
+          subItems.filter(function (it) { return it.type !== 'note'; }).length + '개';
+        subSummary.appendChild(subLabel);
+        subSummary.appendChild(chevronNode());
+        subBox.appendChild(subSummary);
+        var subBody = document.createElement('div');
+        subBody.className = 'sub-items-body';
+        subItems.forEach(function (it) {
+          subBody.appendChild(it.type === 'note' ? buildNoteBox(it) : buildItemCard(it));
+        });
+        subBox.appendChild(subBody);
+        body.appendChild(subBox);
+        subBoxOf[headGroup.item_id] = subBox;
+      } else {
+        group.items.forEach(function (it) {
+          body.appendChild(it.type === 'note' ? buildNoteBox(it) : buildItemCard(it));
+        });
+      }
       details.appendChild(body);
       root.appendChild(details);
       updateCategoryChip(details);
@@ -1556,9 +1595,18 @@
         /* 기본안전수칙을 해당없음으로 고르면 같은 분류의 세부 항목도 함께 처리한다.
            해당없음이 아닌 값으로 바꿀 때는 안내를 지운다 — 더는 사실이 아니기 때문이다. */
         var cascaded = [];
-        if (it.type === 'group' && r === 'NA') {
-          cascaded = cascadeNaToCategory(it);
-          cascaded.forEach(function (id) { if (cardPainters[id]) cardPainters[id](); });
+        if (it.type === 'group') {
+          var box = subBoxOf[it.item_id];
+          if (r === 'NA') {
+            cascaded = cascadeNaToCategory(it);
+            cascaded.forEach(function (id) { if (cardPainters[id]) cardPainters[id](); });
+            /* 접은 채로 둔다 — 해당없음이면 세부를 볼 이유가 없다. 필요하면 사용자가 직접 편다. */
+            if (box) box.open = false;
+          } else if (box) {
+            /* 적합·부적합은 둘 다 편다. 부적합이면 어느 세부 항목 때문인지 남겨야 하므로
+               적합보다 더 필요하다. */
+            box.open = true;
+          }
         }
         invalidateAck();
         /* paint() 를 안내보다 **먼저** 부른다. 부적합(사유 미입력) 상태의 그룹을 해당없음으로
@@ -1627,8 +1675,13 @@
     if (!target) return;
     var card = document.querySelector('.item-card[data-item-id="' + target.item_id + '"]');
     if (!card) return;
-    var details = card.closest('details');
-    if (details && !details.open) details.open = true;
+    /* 접힌 상자가 두 겹이다(분류 아코디언 + 세부 항목 상자). 하나만 펼치면 스크롤은 가는데
+       화면에는 아무것도 안 보인다 — 조상 details 를 전부 편다. */
+    var box = card.closest('details');
+    while (box) {
+      box.open = true;
+      box = box.parentElement ? box.parentElement.closest('details') : null;
+    }
     card.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
     var firstBtn = card.querySelector('.seg-btn');
     if (firstBtn) firstBtn.focus();
