@@ -1678,9 +1678,23 @@
     show('home');
     var notices = [];
     if (queueErr && queueErr.op === 'parse') notices.push(corruptNotice('미전송 목록이', queueErr));
+    /* migrateLegacyDraft() 결과 5종(logic.js 실측, 'none'·'migrated' 는 정상 무통보) — 계약 K4:
+       'collision'/'copied' 를 조용히 흘리면 사용자가 옛 기기에 남은 미완성 점검의 존재를
+       영영 모른다(그 draft 는 storage.saveDraft/loadDraft 가 계속 관리하므로 사라지지 않았을
+       뿐 — 화면에 안 나타나는 게 문제다). 모르는 값도 최소한 드러낸다(값 자체를 노출) — 이
+       분기가 앞으로 나올 새 결과값까지 조용히 삼키지 않게 하는 안전판이다. */
     if (migrated === 'failed') {
       notices.push('이전 버전 임시저장을 옮기지 못했습니다' +
         (migrateErr ? (' (' + migrateErr.op + ': ' + migrateErr.message + ')') : ''));
+    } else if (migrated === 'collision') {
+      notices.push('이전 버전에서 작성하던 임시저장이 이 기기에 남아 있습니다. 지금 작성 중인 건을 ' +
+        '제출하거나 지운 뒤 앱을 다시 열면 이어서 쓸 수 있습니다.');
+    } else if (migrated === 'copied') {
+      notices.push('이전 버전 임시저장은 새 저장 방식으로 옮겨졌지만, 옛 저장분을 지우지 못해 ' +
+        '기기에 중복으로 남아 있습니다(지금 작성 화면 동작에는 영향이 없습니다).');
+    } else if (migrated !== 'none' && migrated !== 'migrated') {
+      notices.push('임시저장 이전 결과를 알 수 없습니다(상태: ' + migrated + '). 작성 중이던 점검이 ' +
+        '있었다면 홈에서 보이는지 확인하세요.');
     }
     if (draftsErr && draftsErr.op === 'parse') notices.push(corruptNotice('작성 중이던 점검이', draftsErr));
     if (notices.length) showBanner('error', notices.join(' / '));

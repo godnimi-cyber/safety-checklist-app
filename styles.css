@@ -339,7 +339,11 @@ select.input {
 }
 .queue-title { font-weight: 600; }
 .queue-sub { color: var(--color-neutral); }
-.text-danger { color: var(--color-danger); font-weight: 600; }
+/* R2: .queue-row 배경(--tint-neutral, 위 337행)과 조합해 실측하면 원본 --color-danger 는
+   3.995:1 로 AA 미달이었다 — 현장에서 큐 실패 사유를 읽는 바로 그 텍스트라 방치할 수 없다.
+   C1 에서 만든 --color-danger-text(#BC1E1E) 를 이 배경 조합에서 다시 계산하니 5.197:1 로
+   AA 를 넉넉히 통과해 새 변수를 또 만들 필요가 없었다(재사용, 계산: task-4-report.md 참고). */
+.text-danger { color: var(--color-danger-text); font-weight: 600; }
 .text-neutral { color: var(--color-neutral); }
 
 /* 큐 행 조작(상세·다시 시도·삭제) — 갇힌 항목의 탈출구.
