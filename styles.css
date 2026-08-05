@@ -403,6 +403,7 @@ select.input {
 .sent-when { font-weight: 700; }
 .sent-project { font-weight: 600; }
 .sent-company { color: var(--color-neutral); }
+.sent-row .sent-btn-void { margin-top: var(--space-2); }
 
 /* ---------- 예정된 점검(사전등록 계획) ---------- */
 /* 홈의 목록과 관리 화면의 목록은 같은 행 컴포넌트다 — 선택자를 둘 다에 건다.
@@ -432,7 +433,7 @@ select.input {
 #home-plans .plan-actions, #screen-manage .plan-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 #home-plans .plan-actions .btn, #screen-manage .plan-actions .btn { flex: 1 1 120px; }
 
-#screen-manage .plan-manage-panel {
+#screen-manage .plan-manage-panel, #home-sent-panel-scope .plan-manage-panel, #void-panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -445,9 +446,9 @@ select.input {
    전역 [hidden]{display:none!important}(44행)가 !important 라 지금은 안 깨지지만(그래서 Minor),
    과거 .action-bar{display:flex}가 [hidden]을 덮어써 앱 전체가 막힌 사고가 이 클래스의 결함이었다 —
    나중에 전역 가드에서 !important 를 떼면 이 규칙만 그날 터진다. 명시적으로 짝을 둔다. */
-#screen-manage .plan-manage-panel[hidden] { display: none; }
-#screen-manage .plan-manage-actions { display: flex; gap: var(--space-3); }
-#screen-manage .plan-manage-actions .btn { flex: 1; }
+#screen-manage .plan-manage-panel[hidden], #void-panel[hidden] { display: none; }
+#screen-manage .plan-manage-actions, #void-panel .plan-manage-actions { display: flex; gap: var(--space-3); }
+#screen-manage .plan-manage-actions .btn, #void-panel .plan-manage-actions .btn { flex: 1; }
 /* 헤더 버튼 2개(관리·사전등록) — 375px 에서 제목과 겹치지 않게 줄바꿈을 허용한다 */
 .queue-header-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 

@@ -79,6 +79,9 @@
     managingPlan: null,
     managingMode: null,
     managingPlanBusy: false,
+    /* 취소하려는 제출(오늘 보낸 목록의 한 건)과 처리 중 표식 */
+    voiding: null,
+    voidingBusy: false,
     queue: [],
     currentScreen: 'home',
     writeStep: 1,
@@ -463,6 +466,24 @@
   function updatePlanOnServer(payload) {
     return CONFIG.MOCK ? mockPlanUpdate(payload) : realPlanUpdate(payload);
   }
+  function voidSubmissionOnServer(payload) {
+    return CONFIG.MOCK ? mockSubmissionVoid(payload) : realSubmissionVoid(payload);
+  }
+  function realSubmissionVoid(payload) {
+    return requestJson(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'submission_void', k: CONFIG.SHARED_KEY, payload: payload }),
+      redirect: 'follow'
+    });
+  }
+  function mockSubmissionVoid(payload) {
+    // eslint-disable-next-line no-console
+    console.log('[MOCK submission_void]', payload);
+    return new Promise(function (resolve) {
+      setTimeout(function () { resolve({ ok: true, data: { voided: true, findings: 0 } }); }, 200);
+    });
+  }
   function realPlanUpdate(payload) {
     return requestJson(CONFIG.API_URL, {
       method: 'POST',
@@ -837,8 +858,76 @@
       node.querySelector('.sent-project').textContent = s.project_name || '(공사 미상)';
       node.querySelector('.sent-company').textContent =
         (s.company_name || '') + (s.inspect_date ? ' · 점검일 ' + s.inspect_date : '');
+      node.querySelector('.sent-btn-void').addEventListener('click', function () { openVoidPanel(s); });
       wrap.appendChild(node);
     });
+  }
+  /* 제출 취소 — 본인이 **오늘 보낸** 것만. 점검자를 고르는 칸이 없다: 제출자가 이미
+     정해져 있으므로 고를 수 없고, 고를 수 없으면 잘못 고를 수도 없다. PIN 만 받고
+     서버가 제출자와 대조한다(권한이 새로 생기지 않는다 — 자기 것을 자기 PIN 으로 무른다). */
+  function openVoidPanel(sent) {
+    if (state.voidingBusy) {
+      showBanner('warn', '앞선 요청을 처리하는 중입니다 — 끝난 뒤 다시 눌러 주세요.');
+      window.scrollTo(0, 0);
+      return;
+    }
+    state.voiding = sent;
+    $('void-target').textContent = (sent.project_name || '(공사 미상)') + ' · ' + (sent.company_name || '')
+      + ' 제출을 취소합니다. 취소하면 통계에서 빠지고, 되돌리려면 새로 작성해 제출해야 합니다.';
+    $('void-pin').value = '';
+    $('void-panel').hidden = false;
+    $('void-panel').scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+  }
+  function closeVoidPanel() {
+    state.voiding = null;
+    $('void-panel').hidden = true;
+  }
+  function onVoidConfirm() {
+    if (state.voidingBusy || !state.voiding) return;
+    var target = state.voiding;
+    var pin = $('void-pin').value;
+    if (!/^\d{4}$/.test(pin || '')) {
+      showBanner('error', 'PIN(4자리)을 확인하세요.');
+      window.scrollTo(0, 0);
+      var el = $('void-pin'); if (el && !el.disabled) el.focus();
+      return;
+    }
+    state.voidingBusy = true;
+    var btn = $('btn-void-confirm');
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '취소 처리 중...';
+    voidSubmissionOnServer({ submission_id: target.submission_id,
+      inspector_id: target.inspector_id, pin: pin }).then(function (result) {
+      if (result.ok) {
+        /* 목록에서 뺀다 — 취소된 것을 '오늘 보낸' 목록에 남겨 두면 또 취소하려 든다. */
+        state.sent = (state.sent || []).filter(function (r) { return r.submission_id !== target.submission_id; });
+        state.storage.saveSent(state.sent, todayStr());
+        closeVoidPanel();
+        var f = (result.data && result.data.findings) || 0;
+        showBanner('success', '제출을 취소했습니다.' + (f ? ' 부적합 ' + f + '건도 함께 정리했습니다.' : ''));
+        renderHome();
+        return;
+      }
+      var err = normalizeError(result.error);
+      showBanner('error', '취소에 실패했습니다: ' + friendlyVoidError(err.message) + ' (' + err.code + ')');
+      window.scrollTo(0, 0);
+    }).catch(function (e) {
+      showBanner('error', '취소 처리 중 오류가 발생했습니다: ' + ((e && e.message) || e));
+      window.scrollTo(0, 0);
+    }).finally(function () {
+      state.voidingBusy = false;
+      btn.disabled = false;
+      btn.textContent = label;
+    });
+  }
+  function friendlyVoidError(message) {
+    return /NOT_YOUR_SUBMISSION/.test(message) ? '본인이 제출한 점검만 취소할 수 있습니다.'
+      : /VOID_WINDOW_CLOSED/.test(message) ? '오늘 보낸 점검만 앱에서 취소할 수 있습니다 — 지난 것은 관리자에게 요청하세요.'
+      : /SUBMISSION_NOT_FOUND/.test(message) ? '서버에 없는 제출입니다. 목록을 새로고침하세요.'
+      : /PIN_MISMATCH/.test(message) ? 'PIN이 일치하지 않습니다.'
+      : /SUBMISSION_DUPLICATE/.test(message) ? '같은 제출이 장부에 두 번 있습니다 — 관리자에게 알리세요.'
+      : message;
   }
   function renderPlansSyncLine() {
     $('home-plans-sync-line').textContent = state.plansSyncedAt
@@ -2270,6 +2359,9 @@
     $('p-project').addEventListener('change', onPlanProjectChange);
     $('p-team').addEventListener('change', onPlanTeamChange);
     $('p-pin').addEventListener('input', clampPinInput);
+    $('btn-void-close').addEventListener('click', closeVoidPanel);
+    $('btn-void-confirm').addEventListener('click', onVoidConfirm);
+    $('void-pin').addEventListener('input', clampPinInput);
     $('btn-open-plan-manage').addEventListener('click', function () { clearBanner(); show('manage'); });
     $('pm-team').addEventListener('change', function (e) { populateInspectorSelect(e.target.value, 'pm-inspector'); });
     $('pm-pin').addEventListener('input', clampPinInput);

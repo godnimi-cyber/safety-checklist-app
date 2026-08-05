@@ -86,6 +86,19 @@
           </div>
           <p class="muted" id="home-sent-empty">오늘 보낸 점검이 없습니다.</p>
           <div class="queue-list" id="home-sent-list"></div>
+
+          <!-- 취소 패널 — 본인 것만 무르므로 점검자 선택 없이 PIN 만 받는다 -->
+          <div class="plan-manage-panel" id="void-panel" hidden>
+            <p class="muted" id="void-target"></p>
+            <div class="field">
+              <label class="field-label" for="void-pin">본인 PIN (4자리)</label>
+              <input class="input" type="tel" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" id="void-pin" autocomplete="off">
+            </div>
+            <div class="plan-manage-actions">
+              <button type="button" class="btn btn-outline" id="btn-void-close">닫기</button>
+              <button type="button" class="btn btn-primary" id="btn-void-confirm">취소 확정</button>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -350,6 +363,7 @@
     <span class="sent-when"></span>
     <span class="sent-project"></span>
     <span class="sent-company"></span>
+    <button type="button" class="btn btn-outline sent-btn-void">제출 취소</button>
   </div>
 </template>
 
