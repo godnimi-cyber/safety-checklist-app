@@ -83,6 +83,33 @@ var SafetyLogic = (function () {
     return { answered: answered, total: total };
   }
 
+  /* R3: 키 순서에 흔들리지 않는 결정적 직렬화.
+     JSON.stringify 는 객체 키를 '삽입 순서'대로 쓴다 — 구조가 완전히 같은 두 객체도 키가 들어간
+     순서가 다르면 다른 문자열이 된다. 그 비교로 이전(migration) 충돌을 판정하면 실제로는 같은
+     값인데 영원히 'collision' 이 나와 수렴하지 않는다.
+     입력은 항상 JSON.parse 의 결과이므로 순환 참조·undefined·함수가 없다 → 재귀 키 정렬로 충분하다.
+     외부 라이브러리 없이 ES5 로 구현한다. */
+  function stableStringify(v) {
+    if (v === null || typeof v !== 'object') return JSON.stringify(v);
+    var i;
+    if (Object.prototype.toString.call(v) === '[object Array]') {
+      var items = [];
+      for (i = 0; i < v.length; i++) {
+        var el = stableStringify(v[i]);
+        items.push(el === undefined ? 'null' : el);   /* JSON.stringify 의 배열 구멍 규칙과 동일 */
+      }
+      return '[' + items.join(',') + ']';
+    }
+    var keys = Object.keys(v).sort();
+    var parts = [];
+    for (i = 0; i < keys.length; i++) {
+      var enc = stableStringify(v[keys[i]]);
+      if (enc === undefined) continue;   /* undefined 프로퍼티는 JSON.stringify 처럼 생략 */
+      parts.push(JSON.stringify(keys[i]) + ':' + enc);
+    }
+    return '{' + parts.join(',') + '}';
+  }
+
   function queueReducer(queue, event) {
     queue = queue || [];
     if (!event) return queue;
@@ -147,6 +174,13 @@ var SafetyLogic = (function () {
       }
       return { ok: true, value: null };
     }
+    /* 이 키의 현재 값이 '영속되지 못한 오버레이'인가.
+       실 localStorage 가 있는데도 mem 에 값이 있다 = setItem 이 실패해 세션 한정으로만 남은 값이다.
+       (ls 가 없는 폴백 모드에서는 mem 이 곧 저장소이므로 volatile 이 아니다 — 소실 위험은
+       available:false 로 이미 고지된다.) */
+    function isVolatile(key) {
+      return !!ls && Object.prototype.hasOwnProperty.call(mem, key);
+    }
     function rawSet(key, str) {
       if (ls) {
         try { ls.setItem(key, str); delete mem[key]; return true; }
@@ -172,7 +206,12 @@ var SafetyLogic = (function () {
       return rawSet(key, str);
     }
     /* 손상 원본을 빈 백업 슬롯에 넣는다. 이미 값이 있는 슬롯은 건드리지 않으므로
-       최초 원본은 무슨 일이 있어도 남는다. 반환: {key, saved, full, unreadable} */
+       최초 원본은 무슨 일이 있어도 남는다.
+       R2: 같은 손상본은 슬롯을 더 먹지 않는다. 손상된 키는 고쳐지기 전까지 '읽을 때마다' 손상으로
+       감지되므로(앱 기동마다 1회 이상), 중복 감지가 없으면 정상 사용만으로 3~4회 만에 슬롯 3개가
+       모두 같은 원본으로 차고 그 뒤 모든 쓰기가 막힌다. 이미 같은 raw 가 들어 있는 슬롯을 찾으면
+       '이미 백업됨'(saved:true, deduped:true)으로 보고 새 슬롯을 쓰지 않는다 — 원본은 이미 안전하다.
+       반환: {key, saved, full, unreadable, deduped} */
     function backupCorrupt(key, raw) {
       var base = key + CORRUPT_SUFFIX;
       for (var i = 1; i <= MAX_CORRUPT_BACKUPS; i++) {
@@ -180,7 +219,19 @@ var SafetyLogic = (function () {
         var existing = rawGet(bkey);
         /* P1: 읽기 실패 = '비었다' 가 아니라 '모른다'. 모르는 슬롯에 쓰면 실제로 있던 백업을 파괴한다(P1). */
         if (!existing.ok) return { key: bkey, saved: false, full: false, unreadable: true };
-        if (existing.ok && existing.value !== null && existing.value !== undefined) continue;   /* 찬 슬롯은 덮어쓰지 않는다 */
+        if (existing.value !== null && existing.value !== undefined) {
+          if (existing.value === raw) {
+            /* R2: 바로 이 원본이 이미 여기 보관돼 있다 → 새 슬롯을 소비하지 않는다.
+               단 그 값이 영속되지 못한 오버레이라면 아직 '백업됐다'고 말할 수 없다(새로고침이면
+               사라진다) → 같은 슬롯에 다시 쓰기를 시도하고, 또 실패하면 정직하게 saved:false.
+               그래야 P2 의 쓰기 금지(cannotWrite)가 계속 작동한다. */
+            if (!isVolatile(bkey)) return { key: bkey, saved: true, full: false, deduped: true };
+            var again = false;
+            try { again = rawSet(bkey, raw); } catch (e3) { again = fail('backup', bkey, e3); }
+            return { key: bkey, saved: again, full: false, deduped: true };
+          }
+          continue;   /* 다른 값이 든 슬롯은 덮어쓰지 않는다 */
+        }
         var saved = false;
         try { saved = rawSet(bkey, raw); } catch (e2) { saved = fail('backup', bkey, e2); }
         return { key: bkey, saved: saved, full: false };
@@ -207,12 +258,19 @@ var SafetyLogic = (function () {
           var b = backupCorrupt(key, raw);
           api.lastError = {
             op: 'type', key: key, backup_key: b.key,
-            backup_saved: b.saved, backup_full: b.full,
+            backup_saved: b.saved, backup_full: !!b.full,
+            /* R4: '읽을 수 없었다'(슬롯 상태를 모른다)와 '쓰기가 실패했다'는 서로 다른 사건이다.
+               둘 다 backup_saved:false 라 이 필드가 없으면 호출자가 구별할 수 없다. */
+            backup_unreadable: !!b.unreadable, backup_deduped: !!b.deduped,
             message: '저장된 값이 객체가 아니다 (배열=' + Array.isArray(parsed) + ')'
           };
-          /* P2: 백업이 실패했거나 꽉 찼으면, 호출자가 쓰기를 피하도록 신호 */
-          if (!b.saved || b.full || b.unreadable) return { ok: true, value: fallback, cannotWrite: true };
-          return { ok: true, value: fallback };
+          /* P2: 백업이 실패했거나 꽉 찼으면, 호출자가 쓰기를 피하도록 신호
+             R1: corrupt 는 '값을 잃고 fallback 으로 대체했다'는 사실 자체 — 백업이 성공해도 남는다.
+             (fallback 을 '원래 비어 있었다'로 착각하면 안 되는 호출자가 본다) */
+          if (!b.saved || b.full || b.unreadable) {
+            return { ok: true, value: fallback, cannotWrite: true, corrupt: true };
+          }
+          return { ok: true, value: fallback, corrupt: true };
         }
         return { ok: true, value: parsed };
       } catch (e) {
@@ -220,11 +278,15 @@ var SafetyLogic = (function () {
         var b = backupCorrupt(key, raw);
         api.lastError = {
           op: 'parse', key: key, backup_key: b.key,
-          backup_saved: b.saved, backup_full: b.full, message: msgOf(e)
+          backup_saved: b.saved, backup_full: !!b.full,
+          backup_unreadable: !!b.unreadable, backup_deduped: !!b.deduped,
+          message: msgOf(e)
         };
         /* P2: 백업이 실패했거나 꽉 찼으면, 호출자가 쓰기를 피하도록 신호 */
-        if (!b.saved || b.full || b.unreadable) return { ok: true, value: fallback, cannotWrite: true };
-        return { ok: true, value: fallback };
+        if (!b.saved || b.full || b.unreadable) {
+          return { ok: true, value: fallback, cannotWrite: true, corrupt: true };
+        }
+        return { ok: true, value: fallback, corrupt: true };
       }
     }
 
@@ -236,12 +298,18 @@ var SafetyLogic = (function () {
       return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(k);
     }
 
+    /* R4: 공개 읽기 함수는 진입 시 lastError 를 지운다 — 이 호출에서 실제로 생긴 오류만 남는다.
+       (앞서 거절된 키가 남긴 오류가 성공한 읽기 뒤에도 살아 있으면 호출자가 '지금 실패했다'고 오인한다.)
+       쓰기 함수(saveDraft/clearDraft)는 loadJSON '전에' 지운다 — 그 호출 안에서 생긴 손상/읽기실패
+       오류는 반드시 보존되어야 하기 때문이다. 그 순서를 여기 맞춰 바꾸면 안 된다. */
     api.loadAllDrafts = function () {
+      api.lastError = null;
       var result = loadJSON(DRAFTS_KEY, {}, true);  /* M3: 맵 검증 */
       if (!result.ok) return {};   /* 읽기 실패 → 비어 있는 것으로 간주하되 lastError 유지 */
       return result.value || {};
     };
     api.loadDraft = function (key) {
+      api.lastError = null;
       var result = loadJSON(DRAFTS_KEY, {}, true);  /* M3: 맵 검증 */
       if (!result.ok) return null;   /* 읽기 실패 → null, lastError 유지 */
       var all = result.value || {};
@@ -300,18 +368,27 @@ var SafetyLogic = (function () {
     api.migrateLegacyDraft = function () {
       api.lastError = null;
       var oldResult = loadJSON(DRAFT_KEY, null, true);  /* M3: 맵 검증 */
-      if (!oldResult.ok) return 'failed';  /* 읽기 실패 */
+      /* R1: 읽기 실패는 물론, 백업 불가(cannotWrite)와 '손상되어 fallback 으로 대체됨'(corrupt)도
+         실패다. corrupt 인데 'none' 을 돌려주면 "옮길 게 없었다"는 거짓말이 된다 — 실제로는 옛
+         기록이 있었고 읽지 못했을 뿐이며, 앱은 아무 것도 고지하지 않고 넘어간다. */
+      if (!oldResult.ok || oldResult.cannotWrite || oldResult.corrupt) return 'failed';
       var old = oldResult.value;
-      if (!old) return 'none';
+      if (!old) return 'none';   /* 정상적으로 '값 없음'을 읽은 경우만 여기 온다 */
 
       var allResult = loadJSON(DRAFTS_KEY, {}, true);  /* M3: 맵 검증 */
-      if (!allResult.ok) return 'failed';  /* 읽기 실패 */
+      /* R1: cannotWrite(백업 실패·슬롯 소진·슬롯 읽기 불가)면 아무 것도 쓰지 않는다.
+         여기서 그냥 진행하면 손상된 sc_drafts 를 백업 없이 {} 로 덮어쓰고 sc_draft 까지 지운다
+         — 손상 원본이 흔적 없이 소멸한다(스펙 §6·계약 K4 위반).
+         corrupt 자체는 막지 않는다: 백업이 성공했다면 손상 복구를 계속 진행해야 한다(그렇지 않으면
+         손상을 한 번 만난 사용자가 그 뒤로 영원히 이전을 못 한다). */
+      if (!allResult.ok || allResult.cannotWrite) return 'failed';
       var all = allResult.value || {};
 
       /* M1: adhoc 충돌 감지 — P3: 수렴 여부 검사 */
       if (Object.prototype.hasOwnProperty.call(all, 'adhoc')) {
-        /* P3: 값이 같으면 이미 이전이 완료된 상태 (이전 호출에서 저장만 성공하고 지우기 실패) */
-        if (JSON.stringify(old) === JSON.stringify(all.adhoc)) {
+        /* P3: 값이 같으면 이미 이전이 완료된 상태 (이전 호출에서 저장만 성공하고 지우기 실패)
+           R3: 키 순서에 흔들리지 않는 결정적 직렬화로 비교한다 — 'collision' 은 값이 진짜 다를 때만. */
+        if (stableStringify(old) === stableStringify(all.adhoc)) {
           /* 지우기만 재시도 */
           if (!rawRemove(DRAFT_KEY)) return 'copied';
           return 'migrated';
@@ -333,6 +410,7 @@ var SafetyLogic = (function () {
     };
     api.saveQueue = function (queue) { api.lastError = null; return saveJSON(QUEUE_KEY, queue); };
     api.loadQueue = function () {
+      api.lastError = null;   /* R4 */
       var result = loadJSON(QUEUE_KEY, []);
       return result.ok ? result.value : [];
     };
@@ -341,11 +419,13 @@ var SafetyLogic = (function () {
        tests-js/wiring.test.mjs §18c). 값 형태는 호출자(app.js) 자유 — 여기서는 불투명 JSON 블롭이다. */
     api.saveMasters = function (entry) { api.lastError = null; return saveJSON(MASTERS_KEY, entry); };
     api.loadMasters = function () {
+      api.lastError = null;   /* R4 */
       var result = loadJSON(MASTERS_KEY, null);
       return result.ok ? result.value : null;
     };
     api.savePlans = function (entry) { api.lastError = null; return saveJSON(PLANS_KEY, entry); };
     api.loadPlans = function () {
+      api.lastError = null;   /* R4 */
       var result = loadJSON(PLANS_KEY, null);
       return result.ok ? result.value : null;
     };
