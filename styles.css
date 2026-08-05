@@ -556,6 +556,12 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
 .note-wrap[hidden] { display: none; }
 .note-counter { align-self: flex-end; font-size: 12px; color: var(--color-neutral); }
 
+/* 기본안전수칙을 해당없음으로 골라 하위를 함께 처리했을 때만 보이는 안내.
+   display 를 선언하지 않는다 — [hidden] 전역 가드가 그대로 이긴다(.action-bar 사고 재발 방지).
+   배경은 항상 불투명한 카드 위다: 해당없음일 때만 뜨므로 .is-invalid(부적합+사유미입력) 틴트와
+   동시에 존재할 수 없다 → 대비 계산은 흰 배경 기준 하나로 충분하다. */
+.cascade-note { color: var(--color-neutral); font-size: 13px; line-height: 1.5; }
+
 /* ---------- note 유형: 안내 박스 ---------- */
 .note-box {
   background: var(--tint-neutral);

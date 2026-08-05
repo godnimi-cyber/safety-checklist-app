@@ -1439,9 +1439,35 @@
   }
 
   /* ---------- 작성 2단계: 항목 아코디언 ---------- */
+
+  /* 일괄처리는 여러 카드의 표시를 한꺼번에 바꿔야 한다. 화면을 통째로 다시 그리면 스크롤
+     위치와 아코디언 상태가 튀므로, 카드별 paint() 를 여기 등록해 두고 필요한 것만 다시 그린다.
+     buildStep2 진입 시 비운다 — 옛 카드의 클로저가 남아 사라진 DOM 을 그리지 않게. */
+  var cardPainters = {};
+
+  /* 기본안전수칙(group)에서 '해당없음' 을 고르면 같은 분류의 일반 안전수칙(item)을 함께 처리한다.
+     - '해당없음' 일 때만 작동한다. Y/N 으로 바꿔도 하위는 건드리지 않는다(이미 답한 것을 지우지 않는다).
+     - 잠그지 않는다 — 그 뒤 개별 항목을 자유롭게 되돌릴 수 있다.
+     - note 행과 다른 group 행은 대상이 아니다(답이 없거나 자기 자신).
+     - 머리 행이 note 인 분류(협력회사 SHE계획서 이행점검)는 발동시킬 group 이 없어 대상이 아니다.
+     반환: 실제로 바뀐 item_id 배열. 이미 해당없음이던 것은 빼므로 멱등이고 알림 개수도 정확하다. */
+  function cascadeNaToCategory(groupItem) {
+    var changed = [];
+    getCurrentTemplateItems().forEach(function (it) {
+      if (it.type !== 'item') return;
+      if ((it.category || '') !== (groupItem.category || '')) return;
+      var cur = state.draft.results[it.item_id];
+      if (cur && cur.r === 'NA') return;
+      state.draft.results[it.item_id] = { r: 'NA' };
+      changed.push(it.item_id);
+    });
+    return changed;
+  }
+
   function buildStep2() {
     var root = $('accordion-root');
     root.innerHTML = '';
+    cardPainters = {};
     var items = getCurrentTemplateItems();
     if (!items.length) {
       var p = document.createElement('p');
@@ -1501,6 +1527,7 @@
     var noteWrap = node.querySelector('.note-wrap');
     var textarea = node.querySelector('.note-input');
     var counter = node.querySelector('.note-counter');
+    var cascadeNote = node.querySelector('.cascade-note');
 
     function paint() {
       var cur = state.draft.results[it.item_id];
@@ -1514,12 +1541,29 @@
       node.classList.toggle('is-answered', !!cur);
       node.classList.toggle('is-invalid', isN && !(cur.n && cur.n.trim()));
     }
+    cardPainters[it.item_id] = paint;
     segButtons.forEach(function (btn) {
       btn.addEventListener('click', function () {
         var r = btn.dataset.r;
         var prev = state.draft.results[it.item_id];
         var prevNote = (prev && prev.n) || '';
         state.draft.results[it.item_id] = (r === 'N') ? { r: r, n: prevNote } : { r: r };
+        /* 기본안전수칙을 해당없음으로 고르면 같은 분류의 세부 항목도 함께 처리한다.
+           해당없음이 아닌 값으로 바꿀 때는 안내를 지운다 — 더는 사실이 아니기 때문이다. */
+        var cascaded = [];
+        if (it.type === 'group' && r === 'NA') {
+          cascaded = cascadeNaToCategory(it);
+          cascaded.forEach(function (id) { if (cardPainters[id]) cardPainters[id](); });
+        }
+        if (cascadeNote) {
+          if (cascaded.length) {
+            cascadeNote.textContent = '이 분류의 하위 ' + cascaded.length +
+              '개 항목을 해당없음으로 함께 처리했습니다. 필요하면 개별로 바꿀 수 있습니다.';
+            cascadeNote.hidden = false;
+          } else if (r !== 'NA') {
+            cascadeNote.hidden = true;
+          }
+        }
         invalidateAck();
         paint();
         if (r === 'N') {
