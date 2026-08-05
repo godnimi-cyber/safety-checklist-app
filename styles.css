@@ -11,6 +11,27 @@
   --color-surface: #FFFFFF;
   --color-text: #0F172A;
 
+  /* success/danger 의 명도 파생(같은 색상/채도, 명도만 낮춤) — "텍스트가 자신의 옅은 tint
+     배경 위에 직접 얹히는" 자리 전용(.banner-success/.banner-error/.findings-empty/
+     .finding-category). --color-success/--color-danger 원본은 배지·버튼 배경(위에 흰 텍스트)·
+     보더 등 다른 곳에서 그대로 쓰이므로 원본을 바꾸지 않는다(전부 감사 완료, 아래 참고) —
+     여기서만 별도 변수로 어둡게 쓴다. 색상(hue)·채도(sat)는 원본과 동일, 명도만 낮췄다.
+       실측(WCAG 2.x 상대휘도 공식, 배경은 --tint-*-08% 를 실제 렌더 배경인 --color-bg 위에
+       합성한 값 — 정확한 합성 배경색·계산 과정은 task-4-report.md 에 남겼다, 여기선 결과만):
+         --color-success(HSL 142.4°/71.8%/29.2%) on 합성 tint-success
+           = 4.32:1 (AA 4.5:1 미달) → --color-success-text(L 25.6%) = 5.89:1
+         --color-danger(HSL 0°/72.2%/50.6%) on 합성 tint-danger
+           = 4.09:1 (AA 4.5:1 미달) → --color-danger-text(L 42.8%) = 6.00:1
+       (순수 흰 배경 가정 시 각각 4.51/4.27 — 배경 가정과 무관하게 원본은 AA 미달, 새 값은 통과)
+     원본이 쓰이는 다른 곳(배지·seg-btn·item-card 보더·finding-card 보더·queue-btn-delete·
+     text-danger·plan-overdue·plan-note)은 이 변경으로 손대지 않는다 — 흰/검 텍스트를 얹는 배경
+     용도이거나 흰 배경 위 텍스트 용도라 이미 4.5:1 이상이었고(예: plan-overdue 4.83:1), 변수
+     자체를 바꾸지 않으므로 그대로 유지된다. 단 .text-danger(색상 자체는 무관, --tint-neutral
+     배경 조합)는 원래부터 3.995:1 로 별도의 미달 사례였다 — 이번 지시(C1) 범위 밖이라 손대지
+     않고 task-4-report.md 에 발견 사실만 남긴다. */
+  --color-success-text: #127035;
+  --color-danger-text: #BC1E1E;
+
   /* 위 5색의 저채도 파생(투명도) — 배경 타일용. 새 색상이 아니라 같은 5색의 tint */
   --tint-primary: rgba(30, 64, 175, 0.08);
   --tint-primary-strong: rgba(30, 64, 175, 0.16);
@@ -139,7 +160,9 @@ button, .seg-btn, .banner, details > summary .chevron, .progress-fill {
 /* ---------- Banner region (전역, 화면 무관 상시 위치) ---------- */
 #banner-region { padding: 0 var(--space-4); }
 #banner-region:empty { padding: 0; }
-#home-master-banner[hidden], #home-storage-banner[hidden] { display: none; }
+/* home-plans-banner(사전등록 계획 동기화 배너)도 같은 .banner 패턴이라 이 목록에 넣는다(C2 감사 —
+   빠뜨리면 전역 [hidden]!important 에만 기대게 돼 이 파일의 동반 가드 관례를 벗어난다) */
+#home-master-banner[hidden], #home-storage-banner[hidden], #home-plans-banner[hidden] { display: none; }
 
 .banner {
   display: flex;
@@ -171,9 +194,11 @@ button, .seg-btn, .banner, details > summary .chevron, .progress-fill {
 }
 .banner-close:hover { background: rgba(0, 0, 0, 0.06); }
 .banner-info { background: var(--tint-primary); border-color: var(--tint-primary-strong); color: var(--color-primary); }
-.banner-success { background: var(--tint-success); border-color: var(--tint-success-strong); color: var(--color-success); }
+/* color 는 --color-success/--color-danger 가 아니라 -text 파생 변수다(C1) — 자신의 옅은 tint
+   배경 위에 얹히는 텍스트라 원본은 4.09~4.32:1 로 AA 미달이었다(계산 근거는 :root 주석). */
+.banner-success { background: var(--tint-success); border-color: var(--tint-success-strong); color: var(--color-success-text); }
 .banner-warn { background: var(--tint-neutral); border-color: var(--tint-neutral-strong); color: var(--color-text); }
-.banner-error { background: var(--tint-danger); border-color: var(--tint-danger-strong); color: var(--color-danger); }
+.banner-error { background: var(--tint-danger); border-color: var(--tint-danger-strong); color: var(--color-danger-text); }
 
 /* ---------- Layout ---------- */
 main {
@@ -378,6 +403,11 @@ select.input {
   border: 1px solid var(--tint-primary-strong);
   border-radius: var(--radius-md);
 }
+/* 동반 가드(C2) — 이 파일의 다른 display 선언 규칙(.continue-card[hidden] 등)은 전부 짝을 둔다.
+   전역 [hidden]{display:none!important}(44행)가 !important 라 지금은 안 깨지지만(그래서 Minor),
+   과거 .action-bar{display:flex}가 [hidden]을 덮어써 앱 전체가 막힌 사고가 이 클래스의 결함이었다 —
+   나중에 전역 가드에서 !important 를 떼면 이 규칙만 그날 터진다. 명시적으로 짝을 둔다. */
+#home-plans .plan-cancel-panel[hidden] { display: none; }
 #home-plans .plan-cancel-actions { display: flex; gap: var(--space-3); }
 #home-plans .plan-cancel-actions .btn { flex: 1; }
 
@@ -531,10 +561,12 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
 .summary-card dt { color: var(--color-neutral); }
 .summary-card dd { margin: 0; font-weight: 600; }
 
+/* color 는 -text 파생 변수(C1 감사 중 발견 — .banner-success 와 정확히 같은 패턴:
+   자신의 옅은 tint-success 배경 위에 얹히는 텍스트라 원본 --color-success 는 4.32:1 로 미달이었다). */
 .findings-empty {
   background: var(--tint-success);
   border: 1px solid var(--tint-success-strong);
-  color: var(--color-success);
+  color: var(--color-success-text);
   border-radius: var(--radius-md);
   padding: var(--space-4);
   font-weight: 600;
@@ -550,7 +582,9 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
   flex-direction: column;
   gap: 4px;
 }
-.finding-category { font-size: 12px; font-weight: 700; color: var(--color-danger); }
+/* color 는 -text 파생 변수(C1 감사 중 발견 — .finding-card 배경이 tint-danger 라 .banner-error 와
+   같은 패턴, 원본 --color-danger 는 4.09:1 로 미달이었다). border-left 는 장식용 보더라 그대로 둔다. */
+.finding-category { font-size: 12px; font-weight: 700; color: var(--color-danger-text); }
 .finding-text { font-weight: 600; }
 .finding-note { font-size: 14px; color: var(--color-text); white-space: pre-wrap; }
 
