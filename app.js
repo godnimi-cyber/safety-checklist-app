@@ -876,7 +876,7 @@
       if (queued[p.plan_id]) {
         cancelBtn.disabled = true;
         noteEl.hidden = false;
-        noteEl.textContent = '이 계획으로 작성한 제출이 미전송 목록에 있어 취소할 수 없습니다 — 홈에서 전송하거나 그 항목을 삭제한 뒤 다시 시도하세요.';
+        noteEl.textContent = '이 기기의 미전송 목록에 이 계획으로 작성한 제출이 있어 취소할 수 없습니다 — 홈에서 전송하거나 그 항목을 삭제한 뒤 다시 시도하세요.';
       } else {
         cancelBtn.addEventListener('click', function () { openPlanManagePanel(p, 'cancel'); });
         if (isConsumed) {
@@ -1140,16 +1140,27 @@
      되돌린다(옛 날짜가 살아나고 취소한 계획이 다시 나타난다. 그 뒤 조회가 없으면 그대로 남는다).
      조회는 시작 시점의 세대를 기억했다가, 응답 시점에 세대가 그대로일 때만 반영한다. */
   function bumpPlansGeneration() { state.plansGen = (state.plansGen || 0) + 1; }
+  /* 조회 응답의 역전을 막는 장치가 **둘** 필요하다(3차 검증 #8).
+     - plansGen: 조회가 도는 동안 로컬 수정·취소가 성공하면 그 응답은 낡았다
+     - plansSeq: 조회끼리도 도착 순서가 뒤집힌다. 늦게 보낸 R2 가 먼저 도착해 반영된 뒤
+       R1 이 도착하면 최신 목록이 옛 목록으로 되돌아간다 — 세대만으로는 이걸 못 막는다.
+       **가장 마지막에 시작한 조회만** 반영한다. */
   function refreshPlans(retriesLeft) {
     var gen = state.plansGen || 0;
-    /* 재조회 상한 — 매번 세대가 밀리면(사용자가 계속 조작 중) 무한 재귀가 된다.
-       상한에 닿으면 그만둔다: 로컬은 이미 낙관 반영으로 맞아 있고, 다음 화면 진입이 또 조회한다. */
+    var seq = state.plansSeq = (state.plansSeq || 0) + 1;
+    /* 재조회 상한 — 매번 세대가 밀리면(사용자가 계속 조작 중) 무한 재귀가 된다. */
     var left = (retriesLeft == null) ? 2 : retriesLeft;
     return loadPlansFromNetwork().then(function (result) {
+      if (seq !== state.plansSeq) return;   /* 더 나중에 시작한 조회가 있다 — 이 응답은 버린다 */
       if ((state.plansGen || 0) !== gen) {
         /* 이 조회가 도는 동안 수정·취소가 성공했다 — 이 응답은 이미 낡았다. 조용히 버리지
            않고 새 조회를 걸어 최종 정합을 맞춘다(버리기만 하면 화면이 로컬 낙관값에 머문다). */
         if (left > 0) return refreshPlans(left - 1);
+        /* 상한 소진 — 조용히 포기하면 사용자는 목록이 왜 낡았는지 알 수 없다(K4).
+           로컬 낙관값은 맞아 있으므로 데이터는 안전하다. 다시 맞추라고 알린다. */
+        state.plansBanner = { level: 'warn', text: '예정 점검 동기화를 마치지 못했습니다 — 잠시 후 새로고침하세요.' };
+        if (state.currentScreen === 'home') renderHome();
+        else if (state.currentScreen === 'manage') renderManage();
         return;
       }
       if (result.ok) {
