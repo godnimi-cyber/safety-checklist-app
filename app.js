@@ -1655,7 +1655,18 @@
     $('btn-submit').addEventListener('click', onSubmit);
   }
 
-  /* 손상 복구는 조용히 지나가면 안 된다(계약 K4) — 무엇이 사라졌고 어디에 백업됐는지 알려준다 */
+  /* 손상 계열 op 판정 — logic.js(storage 래퍼)가 원본을 백업하고 빈 값으로 복구하는 두 경우를
+     한 곳에서 묶는다: 'parse'(JSON 자체를 못 읽음)·'type'(JSON 은 읽히지만 맵이어야 할 자리에
+     배열/null/문자열/숫자가 들어 있음, logic.js M3). 둘 다 backupCorrupt()를 거쳐 lastError 에
+     같은 모양({op, key, backup_key, backup_saved, backup_full, message})을 남긴다 — 사용자
+     입장에서는 "쓰던 게 사라지고 백업만 남았다"는 같은 사건이다. 앞으로 손상 유형이 더 늘어도
+     이 술어 하나만 넓히면 큐·임시저장 양쪽에 동시 반영된다(S1). */
+  function isCorruptOp(op) {
+    return op === 'parse' || op === 'type';
+  }
+  /* 손상 복구는 조용히 지나가면 안 된다(계약 K4) — 무엇이 사라졌고 어디에 백업됐는지 알려준다.
+     문구는 op 를 가리지 않는다 — "손상되어 백업에 보관했습니다"는 parse(못 읽음)·type(모양이
+     틀림) 어느 쪽이든 사실 그대로다(사용자는 파싱 실패와 형태 오류를 구분해 알 필요가 없다). */
   function corruptNotice(subject, err) {
     var where = err.backup_saved ? ('(백업 키: ' + err.backup_key + ')')
       : (err.backup_full ? '(백업 슬롯이 가득 차 이번 손상본은 보관하지 못했습니다)' : '(백업 저장에도 실패했습니다)');
@@ -1677,7 +1688,7 @@
     wireEvents();
     show('home');
     var notices = [];
-    if (queueErr && queueErr.op === 'parse') notices.push(corruptNotice('미전송 목록이', queueErr));
+    if (queueErr && isCorruptOp(queueErr.op)) notices.push(corruptNotice('미전송 목록이', queueErr));
     /* migrateLegacyDraft() 결과 5종(logic.js 실측, 'none'·'migrated' 는 정상 무통보) — 계약 K4:
        'collision'/'copied' 를 조용히 흘리면 사용자가 옛 기기에 남은 미완성 점검의 존재를
        영영 모른다(그 draft 는 storage.saveDraft/loadDraft 가 계속 관리하므로 사라지지 않았을
@@ -1696,7 +1707,7 @@
       notices.push('임시저장 이전 결과를 알 수 없습니다(상태: ' + migrated + '). 작성 중이던 점검이 ' +
         '있었다면 홈에서 보이는지 확인하세요.');
     }
-    if (draftsErr && draftsErr.op === 'parse') notices.push(corruptNotice('작성 중이던 점검이', draftsErr));
+    if (draftsErr && isCorruptOp(draftsErr.op)) notices.push(corruptNotice('작성 중이던 점검이', draftsErr));
     if (notices.length) showBanner('error', notices.join(' / '));
     refreshMasters();
     refreshPlans();
