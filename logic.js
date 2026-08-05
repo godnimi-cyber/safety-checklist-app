@@ -1,6 +1,7 @@
 /* SafetyLogic — 브라우저(전역)/Node(require) 겸용. DOM 무의존(DOM 조작은 Task 5 app.js 담당). */
 var SafetyLogic = (function () {
   var DRAFT_KEY = 'sc_draft';
+  var DRAFTS_KEY = 'sc_drafts';
   var QUEUE_KEY = 'sc_queue';
 
   function hasWebCrypto() {
@@ -197,9 +198,38 @@ var SafetyLogic = (function () {
       }
     }
 
-    api.saveDraft = function (draft) { api.lastError = null; return saveJSON(DRAFT_KEY, draft); };
-    api.loadDraft = function () { api.lastError = null; return loadJSON(DRAFT_KEY, null); };
-    api.clearDraft = function () { api.lastError = null; return rawRemove(DRAFT_KEY); };
+    api.loadAllDrafts = function () { api.lastError = null; return loadJSON(DRAFTS_KEY, {}) || {}; };
+    api.loadDraft = function (key) {
+      api.lastError = null;
+      var all = loadJSON(DRAFTS_KEY, {}) || {};
+      return Object.prototype.hasOwnProperty.call(all, key) ? all[key] : null;
+    };
+    api.saveDraft = function (key, draft) {
+      api.lastError = null;
+      var all = loadJSON(DRAFTS_KEY, {}) || {};
+      all[key] = draft;
+      return saveJSON(DRAFTS_KEY, all);
+    };
+    api.clearDraft = function (key) {
+      api.lastError = null;
+      var all = loadJSON(DRAFTS_KEY, {}) || {};
+      if (!Object.prototype.hasOwnProperty.call(all, key)) return true;
+      delete all[key];
+      return saveJSON(DRAFTS_KEY, all);
+    };
+    /* 옛 단일 슬롯(sc_draft) → sc_drafts['adhoc'].
+       저장이 실패하면 옛 키를 지우지 않는다 — 옮기기 전에 원본을 잃으면 복구할 수 없다.
+       이미 adhoc 이 있으면 덮지 않는다(진행 중인 작성이 우선). */
+    api.migrateLegacyDraft = function () {
+      api.lastError = null;
+      var old = loadJSON(DRAFT_KEY, null);
+      if (!old) return 'none';
+      var all = loadJSON(DRAFTS_KEY, {}) || {};
+      if (!Object.prototype.hasOwnProperty.call(all, 'adhoc')) all.adhoc = old;
+      if (!saveJSON(DRAFTS_KEY, all)) return 'failed';
+      rawRemove(DRAFT_KEY);
+      return 'migrated';
+    };
     api.saveQueue = function (queue) { api.lastError = null; return saveJSON(QUEUE_KEY, queue); };
     api.loadQueue = function () { api.lastError = null; return loadJSON(QUEUE_KEY, []); };
     return api;
