@@ -588,6 +588,7 @@
     renderPlansSyncLine();
     renderPlansBanner();
     renderPlanList();
+    renderSentList();
 
     var list = $('home-template-list');
     list.innerHTML = '';
@@ -814,6 +815,28 @@
         dropBtn.hidden = true;
       }
 
+      wrap.appendChild(node);
+    });
+  }
+  /* 오늘 보낸 점검 — 미전송 큐 **아래**에 둔다. 위(미전송)는 할 일이고 여기는 끝난 일이라,
+     순서를 바꾸면 눈이 먼저 닿는 자리를 끝난 일이 차지한다.
+     예정 점검·임시저장과 같은 순서로 적는다(날짜 · 공사 · 협력회사) — 같은 것을 다르게
+     적으면 세 목록을 서로 대조할 수 없다. */
+  function renderSentList() {
+    var wrap = $('home-sent-list');
+    wrap.innerHTML = '';
+    var list = (state.sent || []).slice().sort(function (a, b) {
+      return String(a.sent_at) < String(b.sent_at) ? 1 : -1;   /* 최근에 보낸 것이 위 */
+    });
+    $('home-sent-empty').hidden = list.length !== 0;
+    $('home-sent-badge').hidden = list.length === 0;
+    $('home-sent-badge').textContent = String(list.length);
+    list.forEach(function (s) {
+      var node = $('tpl-sent-row').content.firstElementChild.cloneNode(true);
+      node.querySelector('.sent-when').textContent = formatDateTime(s.sent_at) + ' 전송';
+      node.querySelector('.sent-project').textContent = s.project_name || '(공사 미상)';
+      node.querySelector('.sent-company').textContent =
+        (s.company_name || '') + (s.inspect_date ? ' · 점검일 ' + s.inspect_date : '');
       wrap.appendChild(node);
     });
   }
@@ -1077,6 +1100,24 @@
      상태가 조용히 퍼진다(계약 K4) — boolean 을 돌려주고, 이 값을 실제로 쓰는 호출자(markPlanConsumed
      → onSubmit)는 그 값에 따라 완료 처리를 늦춘다. 저장 성공/실패를 배너로도 드러낸다(persistDraft/
      persistQueue 와 같은 notifySaveFailure 관용구, 234행). */
+  /* 보낸 사실을 로컬에 남긴다. **제출을 막지 않는다** — 저장이 실패해도 서버에는 이미
+     기록됐으므로 되돌릴 것이 없고, 여기서 배너를 띄우면 "제출 완료" 를 덮어써 오히려 겁준다.
+     조용히 넘기는 유일한 저장 실패다(K4 예외): 잃는 것이 기록이 아니라 **보기 편의**뿐이다. */
+  function recordSent(payload) {
+    if (!payload || !payload.submission_id) return;
+    var today = todayStr();
+    state.sent = (state.sent || []).filter(function (r) { return r.submission_id !== payload.submission_id; });
+    state.sent.push({
+      submission_id: payload.submission_id,
+      sent_date: today,
+      sent_at: new Date().toISOString(),
+      inspect_date: payload.inspect_date || '',
+      company_name: companyName(payload.company_id) || '',
+      project_name: payload.project_name || projectName(payload.project_key) || '',
+      inspector_id: payload.inspector_id || ''
+    });
+    state.storage.saveSent(state.sent, today);
+  }
   function persistPlansCache() {
     var ok = state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt, consumed: state.consumedPlanIds });
     if (ok) state.lastSaveFailureKey = null;
@@ -1482,6 +1523,7 @@
         var payload = stripQueueMeta(item);
         return submitToServer(payload).then(function (result) {
           if (result.ok) {
+            recordSent(payload);   /* 큐에 있다가 나중에 나간 것도 '오늘 보낸' 것이다 */
             state.queue = SafetyLogic.queueReducer(state.queue, { type: 'SENT', id: payload.submission_id });
             if (removePlanLocally(payload.plan_id)) removedPlan = true;
           } else {
@@ -2117,6 +2159,7 @@
            draftToPayload 는 그 값을 그대로 읽는다)로 재제출된다 — 서버가 이미 처리한 submission_id
            라 dup 로 받아들여진다(바로 위 result.data.dup 분기가 이미 그 경우를 처리한다). 초안을
            지워버리면 다음 진입이 newDraft()로 새 submission_id 를 채번해 진짜 중복 위험이 생긴다. */
+        recordSent(payload);   /* 오늘 보낸 목록에 남긴다(제출 흐름을 막지 않는다) */
         var cleared = consumedOk ? clearActiveDraft() : false;   /* H8 — 반환값을 쓴다 */
         showBanner((cleared && consumedOk) ? 'success' : 'error',
           ((result.data && result.data.dup) ? '이미 처리된 제출입니다(중복 확인됨).' : '제출 완료.')
@@ -2303,6 +2346,7 @@
     var draftsErr = state.storage.lastError;
     loadCachedMasters();
     loadCachedPlans();
+    state.sent = state.storage.loadSent(todayStr());
     wireEvents();
     show('home');
     var notices = [];

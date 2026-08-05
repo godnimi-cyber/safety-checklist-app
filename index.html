@@ -75,6 +75,18 @@
           <p class="muted" id="home-queue-hint" hidden></p>
           <div class="queue-list" id="home-queue-list"></div>
         </div>
+
+        <!-- 오늘 보낸 점검 — 미전송 큐 아래(위는 할 일, 여기는 끝난 일) -->
+        <div class="queue-card">
+          <div class="queue-header">
+            <div class="queue-header-left">
+              <h2 class="section-title" style="margin-bottom:0">오늘 보낸 점검</h2>
+              <span class="badge" id="home-sent-badge" hidden>0</span>
+            </div>
+          </div>
+          <p class="muted" id="home-sent-empty">오늘 보낸 점검이 없습니다.</p>
+          <div class="queue-list" id="home-sent-list"></div>
+        </div>
       </div>
     </section>
 
@@ -330,6 +342,14 @@
       <!-- 임시저장이 있을 때만 보인다(renderPlanList 가 토글) -->
       <button type="button" class="btn btn-outline plan-btn-discard" hidden>작성 취소</button>
     </div>
+  </div>
+</template>
+
+<template id="tpl-sent-row">
+  <div class="sent-row">
+    <span class="sent-when"></span>
+    <span class="sent-project"></span>
+    <span class="sent-company"></span>
   </div>
 </template>
 

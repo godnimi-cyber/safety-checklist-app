@@ -5,6 +5,7 @@ var SafetyLogic = (function () {
   var QUEUE_KEY = 'sc_queue';
   var MASTERS_KEY = 'sc_masters';
   var PLANS_KEY = 'sc_plans';
+  var SENT_KEY = 'sc_sent';   /* 오늘 보낸 점검 영수증(당일분만 보관) */
 
   function hasWebCrypto() {
     return typeof globalThis !== 'undefined' && !!globalThis.crypto;
@@ -440,6 +441,22 @@ var SafetyLogic = (function () {
       api.lastError = null;   /* R4 */
       var result = loadJSON(MASTERS_KEY, null);
       return result.ok ? result.value : null;
+    };
+    /* 오늘 보낸 점검 — **당일분만** 보관한다. 날짜가 바뀌면 스스로 비워져 무한히 쌓이지 않는다.
+       저장소는 유한하고(할당량 초과가 이 앱의 실제 실패 모드다) 이 목록의 쓰임새도 당일뿐이다.
+       걸러내는 일을 저장·조회 양쪽에서 한다: 저장만 거르면 자정을 넘긴 뒤 처음 열었을 때
+       어제 것이 그대로 보이고, 조회만 거르면 지운 적이 없어 용량이 계속 는다. */
+    function pruneSent_(list, todayStr) {
+      return (list || []).filter(function (r) { return r && String(r.sent_date) === String(todayStr); });
+    }
+    api.saveSent = function (list, todayStr) {
+      api.lastError = null;
+      return saveJSON(SENT_KEY, pruneSent_(list, todayStr));
+    };
+    api.loadSent = function (todayStr) {
+      api.lastError = null;
+      var result = loadJSON(SENT_KEY, []);
+      return pruneSent_(result.ok ? result.value : [], todayStr);
     };
     api.savePlans = function (entry) { api.lastError = null; return saveJSON(PLANS_KEY, entry); };
     api.loadPlans = function () {
