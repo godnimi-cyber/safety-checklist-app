@@ -54,7 +54,10 @@
 
         <div class="continue-card" id="home-continue-wrap" hidden>
           <p id="home-continue-label" class="muted"></p>
-          <button type="button" class="btn btn-outline btn-block" id="btn-continue-draft">이어쓰기</button>
+          <div class="continue-actions">
+            <button type="button" class="btn btn-outline" id="btn-continue-draft">이어쓰기</button>
+            <button type="button" class="btn btn-outline" id="btn-discard-draft">작성 취소</button>
+          </div>
         </div>
 
         <div class="queue-card">
@@ -298,6 +301,8 @@
     </div>
     <div class="plan-actions">
       <button type="button" class="btn btn-primary plan-btn-start">작성 시작</button>
+      <!-- 임시저장이 있을 때만 보인다(renderPlanList 가 토글) -->
+      <button type="button" class="btn btn-outline plan-btn-discard" hidden>작성 취소</button>
     </div>
   </div>
 </template>

@@ -385,6 +385,10 @@ select.input {
   word-break: break-all;
 }
 
+/* 이어쓰기 카드의 버튼 2개(이어쓰기·작성 취소) — 375px 에서 나란히, 좁으면 줄바꿈 */
+.continue-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.continue-actions .btn { flex: 1 1 120px; }
+
 /* ---------- 예정된 점검(사전등록 계획) ---------- */
 /* 홈의 목록과 관리 화면의 목록은 같은 행 컴포넌트다 — 선택자를 둘 다에 건다.
    한쪽만 걸면 관리 화면 행이 스타일 없이 떨어져 같은 것이 달라 보인다. */

@@ -614,8 +614,7 @@
     var adhocDraft = state.drafts && state.drafts.adhoc;
     if (adhocDraft) {
       contWrap.hidden = false;
-      var tpl = (state.masters && state.masters.templates || []).filter(function (t) { return t.template_id === adhocDraft.template_id; })[0];
-      $('home-continue-label').textContent = '작성 중: ' + (tpl ? tpl.name : adhocDraft.template_id) + ' (' + adhocDraft.inspect_date + ')';
+      $('home-continue-label').textContent = draftLabel(adhocDraft);
     } else {
       contWrap.hidden = true;
     }
@@ -804,6 +803,15 @@
         startBtn.disabled = false;
         noteEl.hidden = true;
         startBtn.addEventListener('click', function () { startFromPlan(p); });
+      }
+      /* 계획별 임시저장도 버릴 수 있어야 한다 — 없으면 그 계획을 통째로 취소하는 것이 유일한
+         탈출로가 되고, 그건 계획까지 잃는 과한 대가다(K3). 임시저장이 있을 때만 보인다. */
+      var dropBtn = node.querySelector('.plan-btn-discard');
+      if (hasDraft && !queued[p.plan_id] && !isConsumed) {
+        dropBtn.hidden = false;
+        dropBtn.addEventListener('click', function () { discardDraft(p.plan_id); });
+      } else {
+        dropBtn.hidden = true;
       }
 
       wrap.appendChild(node);
@@ -1210,6 +1218,34 @@
     state.lastSaveFailureKey = null;   /* 새 점검 = 새 고지 기회 */
     persistDraft();                    /* 저장 실패는 여기서 즉시 배너로 뜬다 */
     show('write');
+  }
+  /* 임시저장을 식별하는 한 줄. 예정 점검 행과 **같은 순서**(날짜 · 공사 · 협력회사)로 적는다 —
+     같은 것을 다르게 적으면 사용자가 둘을 대조하지 못한다.
+     공사는 작성 1단계에서 고르므로 아직 비어 있을 수 있다. 그때 양식명만 적으면 "어느 공사인지
+     모르겠다" 는 원래 문제로 돌아가므로, **아직 안 골랐다는 사실 자체를** 말한다. */
+  function draftLabel(d) {
+    var parts = ['작성 중: ' + d.inspect_date];
+    if (d.project_name) parts.push(d.project_name);
+    else if (d.project_key) parts.push(projectName(d.project_key));
+    else parts.push('공사 미선택');
+    if (d.company_id) parts.push(companyName(d.company_id));
+    return parts.join(' · ');
+  }
+  /* 작성 중이던 것을 버린다. 지금까지는 '새 점검 시작' 으로 덮어쓰는 것이 유일한 경로였다 —
+     지우려고 다른 걸 만들어야 하는 막다른 길이었다(K3).
+     PIN 은 묻지 않는다: 임시저장은 이 폰에만 있어 PIN 이 보호하는 것이 없다(설계 §6).
+     대신 되돌릴 수 없으므로 확인을 받고, 삭제 실패를 조용히 삼키지 않는다(K4). */
+  function discardDraft(key) {
+    var d = state.drafts && state.drafts[key];
+    if (!d) return;
+    if (!window.confirm(draftLabel(d) + '\n\n작성 중이던 내용을 삭제합니다. 되돌릴 수 없습니다. 계속할까요?')) return;
+    var ok = state.storage.clearDraft(key);
+    delete state.drafts[key];
+    if (state.draftKey === key) { state.draft = null; state.draftKey = null; }
+    showBanner(ok ? 'success' : 'error', ok ? '작성 중이던 내용을 삭제했습니다.'
+      : '삭제에 실패했습니다 — 이 기기의 저장소를 확인하세요.' + saveErrorSuffix());
+    window.scrollTo(0, 0);
+    renderHome();
   }
   function continueDraft() {
     var d = state.drafts && state.drafts.adhoc;
@@ -2106,6 +2142,7 @@
   function wireEvents() {
     $('btn-back').addEventListener('click', onBack);
     $('btn-continue-draft').addEventListener('click', continueDraft);
+    $('btn-discard-draft').addEventListener('click', function () { discardDraft('adhoc'); });
     $('btn-sync-now').addEventListener('click', flushQueue);
 
     $('btn-open-plan-form').addEventListener('click', openPlanForm);
