@@ -134,7 +134,9 @@ var SafetyLib = (function () {
     if (errors.length) return { ok: false, errors: errors, stale: stale, snapshots: null };
     return { ok: true, errors: [], stale: stale, snapshots: {
       company_name: comp ? comp.name : '',
-      project_name: isTmp ? String(p.project_name || '') : (proj ? proj.name : ''),
+      /* TMP 공사명은 사용자 자유입력이다 — validatePlan 의 새 공사명과 같은 종류의 값이므로
+         같은 소독을 적용한다(계약 통일). sanitizeCell 은 멱등이라 서버 s_() 와 이중 접두되지 않는다. */
+      project_name: isTmp ? sanitizeCell(String(p.project_name || '')) : (proj ? proj.name : ''),
       inspector_team: insp.team, inspector_name: insp.name } };
   }
   /* 시트 왕복에서 boolean 이 문자열·숫자로 바뀌는 일이 흔하다. 명시적 비활성 표기만 false 로 본다.
