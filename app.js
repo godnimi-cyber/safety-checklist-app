@@ -638,7 +638,15 @@
          삭제가 유일한 탈출구가 되면, 관리자가 시트를 고친 뒤에도 현장 기록은 복구 불가로 굳는다.
          queueReducer(logic.js)는 이 전이를 모르므로 큐 배열을 여기서 직접 다룬다. */
       var retryBtn = node.querySelector('.queue-btn-retry');
-      if (q.state !== 'failed') {
+      /* V2: VALIDATION(영구 오류, isPermanentError)로 거절된 항목은 '다시 시도'를 숨긴다 —
+         같은 payload 는 몇 번을 다시 보내도 같은 결과이고(정의상 영구), U2 의 retire 로 지금은
+         이런 항목이 큐에 남는 경로가 없지만 그건 markQueueFailure 쪽의 방어일 뿐이다 — 이
+         버튼 자신의 조건도 별도로 막아야 나중에 다른 경로로 VALIDATION 항목이 큐에 남더라도
+         재전송 가능한 채로 노출되지 않는다(같은 결함의 재발 방지, 심층 방어).
+         K3(사람이 처리할 길)는 깬 게 아니다 — 바로 위 stateEl 이 이미 "전송 불가 — 제출 내용
+         결함으로 거절됨(자동 재시도 안 함)"이라는 사유를 보여주고(602행), 삭제 버튼은 이 분기와
+         무관하게 항상 남는다(사람이 처리할 길 = 사유 확인 + 삭제, 재전송만 막는다). */
+      if (q.state !== 'failed' || isPermanentError(q.reason)) {
         retryBtn.hidden = true;
       } else {
         retryBtn.disabled = state.syncing;
