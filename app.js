@@ -867,17 +867,24 @@
          대신 무슨 일이 벌어질지는 미리 알린다. */
       var isConsumed = !!(state.consumedPlanIds && state.consumedPlanIds[p.plan_id]);
       editBtn.addEventListener('click', function () { openPlanManagePanel(p, 'edit'); });
-      cancelBtn.addEventListener('click', function () { openPlanManagePanel(p, 'cancel'); });
-      if (isConsumed) {
+      /* 미전송 제출이 있는 계획의 **취소만** 막는다(2차 검증 #7). 취소하면 계획은 canceled 인데
+         나중에 그 제출이 전송돼 점검 기록이 생긴다 — 서버 linkPlanDone_ 은 bestEffort 라
+         canceled 를 done 으로 되돌리지 않으므로 "취소된 계획인데 실제 점검 기록이 있는" 모순이
+         영구히 남는다. 기록을 버리지 않는 건 맞지만 완료된 현장 작업을 취소로 분류하게 된다.
+         이건 막다른 길이 아니다(1차 #4 와 다른 점): 홈 미전송 목록에서 **전송하거나 삭제**하면
+         바로 풀린다. 그 탈출로를 문구로 가리킨다. 예정일 변경은 계획이 남으므로 모순이 없다. */
+      if (queued[p.plan_id]) {
+        cancelBtn.disabled = true;
         noteEl.hidden = false;
-        noteEl.textContent = '이 기기에서 이미 제출을 내보낸 계획입니다 — 서버가 완료 처리했다면 변경·취소가 거절됩니다.';
-      } else if (queued[p.plan_id]) {
-        /* 큐에 든 계획도 손댈 수 있다(서버 linkPlanDone_ 은 bestEffort 라 취소된 계획으로
-           제출이 들어와도 점검 기록 자체는 남는다) — 다만 무슨 일이 벌어지는지는 알린다. */
-        noteEl.hidden = false;
-        noteEl.textContent = '이 계획으로 작성한 제출이 미전송 목록에 있습니다.';
+        noteEl.textContent = '이 계획으로 작성한 제출이 미전송 목록에 있어 취소할 수 없습니다 — 홈에서 전송하거나 그 항목을 삭제한 뒤 다시 시도하세요.';
       } else {
-        noteEl.hidden = true;
+        cancelBtn.addEventListener('click', function () { openPlanManagePanel(p, 'cancel'); });
+        if (isConsumed) {
+          noteEl.hidden = false;
+          noteEl.textContent = '이 기기에서 이미 제출을 내보낸 계획입니다 — 서버가 완료 처리했다면 변경·취소가 거절됩니다.';
+        } else {
+          noteEl.hidden = true;
+        }
       }
       wrap.appendChild(node);
     });
@@ -1015,6 +1022,7 @@
      서버 재조회는 보조 정합으로 뒤에 돌린다 — upsertPlan/removePlanLocally 와 같은 원칙(H4). */
   function applyPlanUpdated(plan, newDate) {
     (state.plans || []).forEach(function (p) { if (p.plan_id === plan.plan_id) p.planned_date = newDate; });
+    bumpPlansGeneration();   /* 이 변경 이전에 시작된 조회 응답은 옛 날짜를 담고 있다(#9) */
     persistPlansCache();
     closePlanManagePanel();
     showBanner('success', '예정일을 ' + newDate + ' 로 변경했습니다.');
@@ -1023,6 +1031,7 @@
   }
   function applyPlanCanceled(plan) {
     state.plans = (state.plans || []).filter(function (p) { return p.plan_id !== plan.plan_id; });
+    bumpPlansGeneration();   /* 낡은 응답이 취소한 계획을 되살리지 못하게(#9) */
     persistPlansCache();
     /* H7: 계획이 사라지면 그 계획의 임시저장(PIN 포함)이 도달 불가·삭제 불가로 남는다 —
        행이 없어지면 '이어서 작성' 진입점 자체가 사라지기 때문이다. 여기서 함께 정리한다.
@@ -1096,6 +1105,7 @@
     var before = (state.plans || []).length;
     state.plans = (state.plans || []).filter(function (p) { return p.plan_id !== planId; });
     if (state.plans.length === before) return false;
+    bumpPlansGeneration();   /* 낡은 응답이 제출로 사라진 계획을 되살리지 못하게(#9) */
     persistPlansCache();
     return true;
   }
@@ -1122,10 +1132,26 @@
     if (!plan || !plan.plan_id) return;
     state.plans = (state.plans || []).filter(function (p) { return p.plan_id !== plan.plan_id; });
     state.plans.push(plan);
+    bumpPlansGeneration();   /* 낡은 응답이 방금 등록한 계획을 지우지 못하게(#9) */
     persistPlansCache();
   }
-  function refreshPlans() {
+  /* 계획 상태의 세대 번호(2차 검증 #9). 수정·취소가 성공하면 올린다 — 그 시점 이전에 시작된
+     조회의 응답은 **바뀌기 전 목록**을 담고 있어, 늦게 도착하면 방금 바꾼 상태와 캐시를
+     되돌린다(옛 날짜가 살아나고 취소한 계획이 다시 나타난다. 그 뒤 조회가 없으면 그대로 남는다).
+     조회는 시작 시점의 세대를 기억했다가, 응답 시점에 세대가 그대로일 때만 반영한다. */
+  function bumpPlansGeneration() { state.plansGen = (state.plansGen || 0) + 1; }
+  function refreshPlans(retriesLeft) {
+    var gen = state.plansGen || 0;
+    /* 재조회 상한 — 매번 세대가 밀리면(사용자가 계속 조작 중) 무한 재귀가 된다.
+       상한에 닿으면 그만둔다: 로컬은 이미 낙관 반영으로 맞아 있고, 다음 화면 진입이 또 조회한다. */
+    var left = (retriesLeft == null) ? 2 : retriesLeft;
     return loadPlansFromNetwork().then(function (result) {
+      if ((state.plansGen || 0) !== gen) {
+        /* 이 조회가 도는 동안 수정·취소가 성공했다 — 이 응답은 이미 낡았다. 조용히 버리지
+           않고 새 조회를 걸어 최종 정합을 맞춘다(버리기만 하면 화면이 로컬 낙관값에 머문다). */
+        if (left > 0) return refreshPlans(left - 1);
+        return;
+      }
       if (result.ok) {
         state.plans = (result.data && result.data.plans) || [];
         state.plansSyncedAt = new Date().toISOString();
