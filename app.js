@@ -958,6 +958,13 @@
       : /PLAN_NOT_FOUND/.test(message) ? '이미 처리되었거나 없는 계획입니다. 목록을 새로고침하세요.'
       : /PLAN_DATE_INVALID/.test(message) ? '예정일이 허용 범위(오늘 기준 ±1년)를 벗어났습니다.'
       : /PIN_MISMATCH/.test(message) ? 'PIN이 일치하지 않습니다.'
+      /* CONFLICT 계열 — 요청도 설정도 잘못되지 않았다. 그 사이 누가(사람이 시트에서) 먼저
+         손댔을 뿐이다. 자동 재시도는 하지 않는다: 바뀐 값을 보지도 않고 덮어쓰게 된다. */
+      : /PLAN_ROW_MOVED/.test(message) ? '그 사이 이 계획이 옮겨졌거나 사라졌습니다. 목록을 새로 받았으니 다시 확인하세요.'
+      : /PLAN_STATE_CHANGED/.test(message) ? '그 사이 이 계획의 상태가 바뀌었습니다. 목록을 새로 받았으니 다시 확인하세요.'
+      : /PLAN_CELL_CHANGED/.test(message) ? '그 사이 다른 곳에서 이 계획을 고쳤습니다. 목록을 새로 받았으니 값을 확인하고 다시 시도하세요.'
+      : /PLAN_ID_DUPLICATE/.test(message) ? '같은 계획이 장부에 두 번 들어 있습니다 — 관리자에게 알리세요.'
+      : /PLAN_CELL_HAS_FORMULA/.test(message) ? '이 계획 행에 수식이 들어 있어 고칠 수 없습니다 — 관리자에게 알리세요.'
       : message;
   }
   function onPlanManageConfirm() {
@@ -1008,6 +1015,9 @@
       showBanner('error', (isEdit ? '예정일 변경에 실패했습니다: ' : '취소에 실패했습니다: ')
         + friendlyPlanError(err.message) + ' (' + err.code + ')');
       window.scrollTo(0, 0);
+      /* 충돌은 "내가 보고 있는 목록이 낡았다" 는 뜻이다 — 사용자가 같은 낡은 값으로 다시
+         누르지 않도록 서버 진실을 즉시 다시 받는다(패널은 renderManage 가 재결합한다). */
+      if (String(err.code) === 'CONFLICT') refreshPlans();
     }).catch(function (e) {
       showBanner('error', (isEdit ? '예정일 변경 중 오류가 발생했습니다: ' : '취소 처리 중 오류가 발생했습니다: ')
         + ((e && e.message) || e));
