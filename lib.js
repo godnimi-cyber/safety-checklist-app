@@ -137,6 +137,13 @@ var SafetyLib = (function () {
       project_name: isTmp ? String(p.project_name || '') : (proj ? proj.name : ''),
       inspector_team: insp.team, inspector_name: insp.name } };
   }
+  /* 시트 왕복에서 boolean 이 문자열·숫자로 바뀌는 일이 흔하다. 명시적 비활성 표기만 false 로 본다.
+     값이 없으면(undefined/null/'') 활성으로 둔다 — 기존 마스터에 active 열이 없던 시절과의 하위호환. */
+  function isActive(v) {
+    if (v === undefined || v === null || v === '') return true;
+    var s = String(v).trim().toLowerCase();
+    return !(s === 'false' || s === '0' || s === 'n' || s === 'no');
+  }
   /* 사전등록(점검계획) 검증.
      제출과 달리 '관용 수락'이 없다 — 계획은 통신이 되는 상황에서 하는 행위라
      잘못된 참조는 그 자리에서 고치게 하는 편이 데이터가 깨끗하다. */
@@ -154,7 +161,7 @@ var SafetyLib = (function () {
       errors.push({ code: 'PLAN_DATE_INVALID', msg: '점검예정일 오류(오늘 기준 ±1년)' });
 
     var comp = (masters.companies || []).filter(function (c) {
-      return c.company_id === p.company_id && c.active !== false; })[0];
+      return c.company_id === p.company_id && isActive(c.active); })[0];
     if (!comp) errors.push({ code: 'COMPANY_UNKNOWN', msg: '협력회사 없음' });
 
     var hasKey = !!(p.project_key && String(p.project_key).length);
@@ -171,13 +178,13 @@ var SafetyLib = (function () {
     }
 
     var tpl = (masters.templates || []).filter(function (t) {
-      return t.template_id === p.template_id && Number(t.ver) === Number(p.template_ver) && t.active !== false; })[0];
+      return t.template_id === p.template_id && Number(t.ver) === Number(p.template_ver) && isActive(t.active); })[0];
     if (!tpl) errors.push({ code: 'ITEMS_MISMATCH', msg: '양식/버전 없음' });
 
     if (errors.length) return { ok: false, errors: errors, snapshots: null };
     return { ok: true, errors: [], snapshots: {
       company_name: comp.name,
-      project_name: proj ? proj.name : rawName } };
+      project_name: proj ? proj.name : sanitizeCell(rawName) } };
   }
   return { validateDate: validateDate, sanitizeCell: sanitizeCell, deriveCounts: deriveCounts,
            extractFindings: extractFindings, diffIds: diffIds, fnv1a: fnv1a,
