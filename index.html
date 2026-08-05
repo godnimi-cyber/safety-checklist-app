@@ -164,6 +164,7 @@
 
       <footer class="action-bar">
         <button type="button" class="btn btn-outline" id="btn-review-back">이전</button>
+        <button type="button" class="btn btn-outline" id="btn-print">인쇄 · PDF</button>
         <button type="button" class="btn btn-primary" id="btn-submit" disabled>제출</button>
       </footer>
     </section>
@@ -248,6 +249,31 @@
     </section>
   </main>
 </div>
+
+<!-- 인쇄 전용 — 원본 수기 양식(기본안전수칙 Checklist) 재현. 화면에서는 숨어 있다. -->
+<section id="print-sheet" hidden aria-hidden="true">
+  <h1 id="print-title">기본안전수칙 Checklist (협력회사)</h1>
+  <table class="print-head">
+    <tr><th>점검일</th><td id="print-date"></td><th>현장 위치</th><td id="print-project"></td></tr>
+    <tr><th>회사명</th><td id="print-company"></td><th>수검자</th><td id="print-auditee"></td></tr>
+    <tr><th>점검자</th><td id="print-inspector"></td><th>확인</th><td id="print-ack"></td></tr>
+  </table>
+  <table class="print-items">
+    <thead>
+      <tr>
+        <th class="c-text">내　용</th>
+        <th class="c-res" colspan="3">점검결과</th>
+        <th class="c-note">내용</th>
+        <th class="c-std">점검기준</th>
+      </tr>
+      <tr class="sub">
+        <th class="c-text"></th><th>Y</th><th>N</th><th>N/A</th>
+        <th class="c-note"></th><th class="c-std"></th>
+      </tr>
+    </thead>
+    <tbody id="print-rows"></tbody>
+  </table>
+</section>
 
 <!-- ---------- 템플릿 요소 ---------- -->
 <template id="tpl-item-card">

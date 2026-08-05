@@ -696,3 +696,77 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
   /* 새 색상 대신 승인된 neutral의 저채도 tint로 데스크톱 레터박스 배경 처리 */
   body { background: var(--tint-neutral); }
 }
+
+/* ================= 인쇄 (설계 2026-08-05-print-sheet §2) =================
+   화면에서는 #print-sheet 가 [hidden] 이라 안 보인다. 인쇄 순간에만 열고 그것만 남긴다.
+   .app-shell 을 통째로 숨기는 이유: 상단바·액션바는 position:sticky/fixed 라 인쇄에서
+   페이지마다 겹쳐 찍힌다. 요소를 하나씩 지우는 것보다 "인쇄할 것만 남긴다"가 안전하다.
+
+   색은 **새로 만들지 않는다** — 5색 체계 안의 --color-text(거의 검정)와 --tint-neutral 을
+   그대로 쓴다. 종이용 회색을 따로 만들면 팔레트가 두 벌이 되고, 가드(검증 7)가 그것을
+   잡아낸 것이 옳았다. */
+#print-sheet { display: none; }
+
+@media print {
+  @page { size: A4 portrait; margin: 10mm 8mm; }
+
+  .app-shell, #banner-region { display: none !important; }
+  /* [hidden] 전역 가드가 !important 라 여기서도 !important 로 이긴다 */
+  #print-sheet { display: block !important; }
+
+  html, body { background: var(--color-surface); color: var(--color-text); }
+
+  #print-title {
+    font-size: 13pt;
+    font-weight: 700;
+    text-align: center;
+    margin: 0 0 3mm;
+    letter-spacing: 0.5px;
+  }
+
+  .print-head, .print-items {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .print-head { margin-bottom: 2.5mm; }
+  .print-head th, .print-head td {
+    border: 0.4pt solid var(--color-text);
+    font-size: 8pt;
+    padding: 1mm 1.5mm;
+    text-align: left;
+    vertical-align: middle;
+  }
+  .print-head th { width: 16mm; font-weight: 700; }
+
+  .print-items th, .print-items td {
+    border: 0.4pt solid var(--color-text);
+    font-size: 7pt;
+    line-height: 1.25;
+    padding: 0.6mm 1mm;
+    vertical-align: top;
+    word-break: break-all;   /* 한글 긴 문장이 칸을 넘지 않게 */
+  }
+  .print-items thead th { text-align: center; font-weight: 700; }
+  /* 머리글은 쪽이 넘어가도 반복된다 — 2쪽부터 무슨 칸인지 모르게 되는 것을 막는다 */
+  .print-items thead { display: table-header-group; }
+  .print-items tr { break-inside: avoid; page-break-inside: avoid; }
+
+  /* 열 폭 — 원본(내용 넓게 / 판정 좁게 / 사유·기준 중간)을 따른다 */
+  .print-items .c-text { width: 44%; }
+  .print-items .c-res  { width: 5%; text-align: center; font-weight: 700; }
+  .print-items .c-note { width: 18%; }
+  .print-items .c-std  { width: 18%; }
+
+  /* 대분류·안내문 행 음영. 브라우저 기본값은 배경을 인쇄하지 않으므로 명시적으로 요청한다 —
+     꺼져 있어도 굵은 글씨와 테두리로 구분되므로 정보가 사라지지는 않는다. */
+  .print-head th,
+  .print-items thead th,
+  .print-items tr.g .c-text,
+  .print-items .c-note-row {
+    background: var(--tint-neutral);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-items tr.g .c-text, .print-items .c-note-row { font-weight: 700; }
+}

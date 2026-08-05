@@ -1963,6 +1963,78 @@
   }
 
   /* ================= 검토 ================= */
+  /* 인쇄 전용 DOM 을 지금 상태로 다시 그린다(설계 2026-08-05-print-sheet §2).
+     원본 수기 양식과 같은 표를 만든다 — 내용 │ Y N N/A │ 내용(부적합 사유) │ 점검기준.
+     화면 표시가 아니라 **종이 기록**이므로, 판정은 고른 것만 찍는다(원본은 셋 다 인쇄해 두고
+     손으로 동그라미를 쳤지만, 이미 정해진 값을 셋 다 보여주면 무엇이 답인지 흐려진다). */
+  function renderPrintSheet() {
+    var d = state.draft;
+    if (!d) return false;
+    var items = getCurrentTemplateItems();
+    if (!items.length) return false;
+
+    $('print-date').textContent = d.inspect_date || '';
+    $('print-project').textContent = d.project_name || projectName(d.project_key) || '';
+    $('print-company').textContent = companyName(d.company_id) || '';
+    $('print-auditee').textContent = d.auditee || '';
+    $('print-inspector').textContent = inspectorDisplay(d.inspector_id) || '';
+    /* 수검자 확인은 앱의 기록이지 서명이 아니다 — 인쇄물에도 그대로 '확인함' 으로만 적는다
+       (설계 §4: 서명란은 원본에 없고 만들지 않는다). */
+    $('print-ack').textContent = d.auditee_ack ? '확인함' : '';
+
+    var tb = $('print-rows');
+    tb.innerHTML = '';
+    items.forEach(function (it) {
+      var tr = document.createElement('tr');
+      var isNote = it.type === 'note';
+      var isGroup = it.type === 'group';
+      if (isGroup) tr.className = 'g';
+      var tdText = document.createElement('td');
+      tdText.className = 'c-text';
+      tdText.textContent = it.text || '';
+      tr.appendChild(tdText);
+
+      if (isNote) {
+        /* 안내문은 판정이 없다 — 원본 70행([협력회사 SHE계획서 이행점검])과 같다.
+           나머지 칸을 합쳐 문장이 잘리지 않게 한다. */
+        tdText.colSpan = 6;
+        tdText.className = 'c-text c-note-row';
+        tb.appendChild(tr);
+        return;
+      }
+      var entry = d.results[it.item_id];
+      var r = entry && entry.r;
+      ['Y', 'N', 'NA'].forEach(function (kind) {
+        var td = document.createElement('td');
+        td.className = 'c-res';
+        td.textContent = (r === kind) ? 'O' : '';
+        tr.appendChild(td);
+      });
+      var tdNote = document.createElement('td');
+      tdNote.className = 'c-note';
+      tdNote.textContent = (entry && entry.n) || '';
+      tr.appendChild(tdNote);
+      var tdStd = document.createElement('td');
+      tdStd.className = 'c-std';
+      tdStd.textContent = it.criteria || '';
+      tr.appendChild(tdStd);
+      tb.appendChild(tr);
+    });
+    return true;
+  }
+  /* 인쇄는 브라우저 기능을 그대로 쓴다 — 외부 라이브러리 0(설계 §2).
+     폰에서는 이 창이 '인쇄' 대화상자로 열리고 거기서 PDF 로 저장한다. */
+  function printSheet() {
+    if (!renderPrintSheet()) {
+      showBanner('error', '인쇄할 내용을 만들지 못했습니다 — 양식을 불러오지 못했을 수 있습니다.');
+      window.scrollTo(0, 0);
+      return;
+    }
+    var el = $('print-sheet');
+    el.hidden = false;
+    try { window.print(); }
+    finally { el.hidden = true; }   /* 실패해도 화면에 인쇄용 표가 남지 않게 한다 */
+  }
   function renderReview() {
     if (!state.draft) { show('home'); return; }
     var draft = state.draft;
@@ -2179,6 +2251,7 @@
       if (state.submitting) return;
       state.writeStep = 2; show('write');
     });
+    $('btn-print').addEventListener('click', printSheet);
     $('chk-ack').addEventListener('change', onAckChange);
     $('btn-submit').addEventListener('click', onSubmit);
   }
