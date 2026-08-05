@@ -229,6 +229,18 @@
        풀어야 현장이 다시 점검할 수 있다(계획을 영원히 막아두면 안 된다). */
     if (item && item.plan_id && isPermanentError(error.code)) {
       unmarkPlanConsumed(item.plan_id);
+      /* U2: tombstone 을 푸는 것만으로는 안 끝난다 — 이 죽은 큐 항목을 '다시 시도' 가능한 채로
+         남겨두면(629행 retryBtn 은 state==='failed' 면 이유를 안 가리고 보인다), '계획을 다시
+         열어 제출'(tombstone 해제로 열린 정상 경로, 새 submission_id)과 '이 죽은 항목을
+         나중에 다시 시도'(예: PIN 회전으로 그때는 통과) 가 서로 독립적인 두 제출 경로로
+         동시에 살아있게 된다 — 서버는 각각 처음 보는 submission_id 라 계획 링크 가드(대장
+         append 뒤에만 걸린다)로도 못 막고 대장에 2행이 남는다. 되살릴 대상은 하나여야
+         한다(K3) — tombstone 해제가 이미 "계획을 다시 연다"는 그 하나이므로, 이 큐 항목은
+         재전송 불가로 확정(retire)한다: 조용히 없애면 안 되므로(K4) 배너로 알린다. */
+      state.queue = state.queue.filter(function (q) { return q.submission_id !== id; });
+      showBanner('error', '이전 제출이 입력 오류로 거절되어 미전송 목록에서 정리했습니다 — '
+        + '계획을 다시 열어 확인 후 제출하세요: ' + (error.message || '') + ' (' + error.code + ')');
+      window.scrollTo(0, 0);
     }
   }
   /* ---------- 저장 실패 고지 (계약 K4: 조용한 실패 금지) ----------
@@ -823,24 +835,36 @@
      이 헬퍼 하나로 몰아야 하는 이유 — savePlans 호출부가 여러 곳(재조회·로컬 제거·upsert·계획
      취소)인데, consumed 필드를 하나라도 안 실어 보내면 그 저장이 앞선 소비 표식을 지운다
      (savePlans 는 sc_plans 전체를 덮어쓰는 API 라 부분 갱신이 없다). 새 저장 지점을 추가할 때도
-     이 함수를 거치면 표식이 빠질 일이 없다. */
+     이 함수를 거치면 표식이 빠질 일이 없다.
+     U1(6→7차): 반환값을 버리면 이 저장이 실패해도(예: 저장소 용량 초과) "표식이 섰다"는 거짓
+     상태가 조용히 퍼진다(계약 K4) — boolean 을 돌려주고, 이 값을 실제로 쓰는 호출자(markPlanConsumed
+     → onSubmit)는 그 값에 따라 완료 처리를 늦춘다. 저장 성공/실패를 배너로도 드러낸다(persistDraft/
+     persistQueue 와 같은 notifySaveFailure 관용구, 234행). */
   function persistPlansCache() {
-    state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt, consumed: state.consumedPlanIds });
+    var ok = state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt, consumed: state.consumedPlanIds });
+    if (ok) state.lastSaveFailureKey = null;
+    else notifySaveFailure('예정 점검 목록', 'plans');
+    return ok;
   }
   /* T1: 이 기기에서 그 계획으로 제출을 서버에 내보냈다(성공이든 큐 적재든) — tombstone 을 큐와
      독립적으로 남긴다. 큐 항목을 사용자가 지워도 이 표식은 남아 재작성(→ 새 submission_id →
-     서버 멱등 불성립 → 점검대장 2행)을 막는다. */
+     서버 멱등 불성립 → 점검대장 2행)을 막는다.
+     U1: 메모리 표식(state.consumedPlanIds)은 영속 성공 여부와 무관하게 항상 세운다 — 이번
+     세션 안에서는 렌더가 메모리를 보므로 즉시 방어가 걸린다. 영속 결과(bool)는 그대로
+     돌려줘 호출자(onSubmit)가 "이 기기 재시작에도 방어가 살아남는지"를 판단하게 한다.
+     planId 가 없으면(세울 것이 없으면) 실패도 없다 — true 를 돌려줘 호출자가 오판하지 않게 한다. */
   function markPlanConsumed(planId) {
-    if (!planId) return;
+    if (!planId) return true;
     state.consumedPlanIds[planId] = true;
-    persistPlansCache();
+    return persistPlansCache();
   }
   /* T1 반대 방향: 제출이 영구 오류(VALIDATION)로 거절되면 그 payload 자체가 못 쓴다는 뜻이라
-     계획을 계속 막아두면 현장이 재점검을 할 방법이 없어진다(설계 K3 와 충돌) — 반드시 푼다. */
+     계획을 계속 막아두면 현장이 재점검을 할 방법이 없어진다(설계 K3 와 충돌) — 반드시 푼다.
+     U1: 위와 대칭으로 boolean 을 돌려준다(지울 게 없으면 true — 실패할 일이 없다). */
   function unmarkPlanConsumed(planId) {
-    if (!planId || !state.consumedPlanIds[planId]) return;
+    if (!planId || !state.consumedPlanIds[planId]) return true;
     delete state.consumedPlanIds[planId];
-    persistPlansCache();
+    return persistPlansCache();
   }
   /* T1: 표식이 영원히 쌓이지 않게 한다 — 서버가 그 계획을 더 이상 'planned' 로 돌려주지 않으면
      (done 이든 canceled 든) 로컬 표식도 정리한다. 서버 재조회(refreshPlans) 직후에만 호출한다 —
@@ -1592,12 +1616,24 @@
            실패해 캐시가 그대로 남으므로 여기서 먼저 맞춰야 한다). clearActiveDraft 가 draft 를
            지우므로 payload.plan_id 로 먼저 캡처한다. */
         var donePlanId = payload.plan_id || null;
-        var cleared = clearActiveDraft();   /* H8 — 반환값을 쓴다 */
         removePlanLocally(donePlanId);
-        markPlanConsumed(donePlanId);   /* T1 — 목록에서 이미 지웠어도 표식은 남긴다(방어적) */
-        showBanner(cleared ? 'success' : 'error',
+        var consumedOk = markPlanConsumed(donePlanId);   /* T1 — 목록에서 이미 지웠어도 표식은 남긴다(방어적).
+          U1: 반환값(영속 성공 여부)을 아래에서 쓴다 — 실패해도 메모리 표식은 이미 서 있어 이번
+          세션은 안전하지만, 이 기기를 새로고침하면 표식이 사라진다. */
+        /* U1: tombstone 영속이 실패하면 초안을 지우지 않는다 — clearActiveDraft 를 건너뛰면
+           state.drafts[plan_id]가 그대로 남아, 나중에 이 계획을 다시 열어도 startFromPlan(940행)이
+           "기존 draft 재사용" 분기를 타 같은 submission_id(logic.js newDraft 가 한 번만 채번,
+           draftToPayload 는 그 값을 그대로 읽는다)로 재제출된다 — 서버가 이미 처리한 submission_id
+           라 dup 로 받아들여진다(바로 위 result.data.dup 분기가 이미 그 경우를 처리한다). 초안을
+           지워버리면 다음 진입이 newDraft()로 새 submission_id 를 채번해 진짜 중복 위험이 생긴다. */
+        var cleared = consumedOk ? clearActiveDraft() : false;   /* H8 — 반환값을 쓴다 */
+        showBanner((cleared && consumedOk) ? 'success' : 'error',
           ((result.data && result.data.dup) ? '이미 처리된 제출입니다(중복 확인됨).' : '제출 완료.')
-          + (cleared ? '' : ' 다만 이 기기의 임시저장 삭제에 실패했습니다 — 앱을 다시 열면 제출된 점검이 임시저장으로 남아 있을 수 있습니다.' + saveErrorSuffix()));
+          + (!consumedOk
+              ? ' 다만 이 기기에 제출 완료 표시를 저장하지 못해 작성 내용을 지우지 않고 남겨뒀습니다 — '
+                + '서버에는 이미 기록되었으니 다시 작성하지 마세요. 이 계획을 나중에 다시 열면 방금 낸 '
+                + '내용 그대로 이어지며 같은 제출로 처리됩니다. 저장소를 확인하세요.' + saveErrorSuffix()
+              : (cleared ? '' : ' 다만 이 기기의 임시저장 삭제에 실패했습니다 — 앱을 다시 열면 제출된 점검이 임시저장으로 남아 있을 수 있습니다.' + saveErrorSuffix())));
         show('home');
         refreshPlans();   /* 서버 진실로 최종 정합(성공해도 실패해도 위에서 이미 로컬은 맞다) */
         return;
@@ -1626,15 +1662,23 @@
         window.scrollTo(0, 0);
         return;
       }
-      var cleared2 = clearActiveDraft();   /* H8 — 반환값을 쓴다. 계획은 여기서 지우지 않는다(H1) —
+      var consumedOk2 = markPlanConsumed(payload.plan_id);   /* T1 — 큐 저장이 실제로 성공한 뒤에만 표식을 남긴다.
+        큐 항목을 나중에 지워도 이 표식은 독립적으로 남아 재작성을 막는다(이 결함의 핵심).
+        U1: 반환값(영속 성공 여부)을 아래에서 쓴다. */
+      /* U1: 여기서도 tombstone 영속 실패 시 초안을 지우지 않는다(위 성공 분기와 같은 이유 —
+         submission_id 를 재사용할 수 있는 유일한 사본을 남긴다). 큐 항목 자체는 이미
+         saveQueue 로 영속을 확인했으니(위 1631행) 되돌리지 않는다 — 이 문제는 tombstone 이라는
+         "두 번째 방어선"만의 문제고, 되돌려야 할 대상이 아니다. */
+      var cleared2 = consumedOk2 ? clearActiveDraft() : false;   /* H8 — 반환값을 쓴다. 계획은 여기서 지우지 않는다(H1) —
         서버는 아직 이 계획을 done 으로 전이하지 않았다(제출이 큐에 있을 뿐이다). renderPlanList 의
         queuedPlanIdSet 이 이 큐 항목을 보고 '작성 시작'을 막는다. */
-      markPlanConsumed(payload.plan_id);   /* T1 — 큐 저장이 실제로 성공한 뒤에만 표식을 남긴다.
-        큐 항목을 나중에 지워도 이 표식은 독립적으로 남아 재작성을 막는다(이 결함의 핵심). */
       showBanner('error', (isAdminError(err.code)
         ? ('전송 실패 — 큐에 보관됨. 관리자 확인이 필요합니다. 해결되면 자동으로 전송됩니다: ' + err.message + ' (' + err.code + ')')
         : ('전송 실패 — 큐에 보관됨: ' + err.message + ' (' + err.code + ')'))
-        + (cleared2 ? '' : ' (임시저장 삭제 실패' + saveErrorSuffix() + ')'));
+        + (!consumedOk2
+            ? ' 다만 이 기기에 재작성 방지 표시를 저장하지 못해 작성 내용을 지우지 않고 남겨뒀습니다 — '
+              + '안전을 위한 것이니 그대로 두세요.' + saveErrorSuffix()
+            : (cleared2 ? '' : ' (임시저장 삭제 실패' + saveErrorSuffix() + ')')));
       show('home');
     }).finally(function () {
       /* 어느 경로로 끝나든 submitting 을 반드시 푼다 — 여기서 새면 제출 버튼이 영구히 잠긴다 */
