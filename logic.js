@@ -137,13 +137,15 @@ var SafetyLogic = (function () {
       return false;
     }
     /* mem 은 '영속되지 못한 값'의 오버레이다 — 있으면 항상 우선한다.
-       실제 저장이 성공하면 오버레이를 지워 낡은 값이 남지 않게 한다. */
+       실제 저장이 성공하면 오버레이를 지워 낡은 값이 남지 않게 한다.
+       M2: 실패와 '값 없음'을 구별하기 위해 { ok, value } 를 반환한다. */
     function rawGet(key) {
-      if (Object.prototype.hasOwnProperty.call(mem, key)) return mem[key];
+      if (Object.prototype.hasOwnProperty.call(mem, key)) return { ok: true, value: mem[key] };
       if (ls) {
-        try { return ls.getItem(key); } catch (e) { fail('get', key, e); }
+        try { return { ok: true, value: ls.getItem(key) }; }
+        catch (e) { fail('get', key, e); return { ok: false, value: null }; }
       }
-      return null;
+      return { ok: true, value: null };
     }
     function rawSet(key, str) {
       if (ls) {
@@ -156,7 +158,8 @@ var SafetyLogic = (function () {
     /* 삭제는 '실제로 지워진 곳'만 지운다.
        폴백 모드(ls 없음)에서는 mem 이 곧 저장소이므로 mem 을 지우는 것이 삭제 그 자체다.
        실 localStorage 모드에서 removeItem 이 실패하면 오버레이도 남긴다 — 여기서 mem 만 지우면
-       다음 읽기가 ls 에 남은 (오버레이보다 낡은) 값을 되살려 상태가 갈라진다. */
+       다음 읽기가 ls 에 남은 (오버레이보다 낡은) 값을 되살려 상태가 갈라진다.
+       M1-b: 반환값으로 성공/실패를 알린다(fail 함수가 lastError 를 설정하고 false 를 반환함). */
     function rawRemove(key) {
       if (!ls) { delete mem[key]; return true; }
       try { ls.removeItem(key); } catch (e) { return fail('remove', key, e); }
@@ -174,9 +177,8 @@ var SafetyLogic = (function () {
       var base = key + CORRUPT_SUFFIX;
       for (var i = 1; i <= MAX_CORRUPT_BACKUPS; i++) {
         var bkey = (i === 1) ? base : (base + '_' + i);
-        var existing = null;
-        try { existing = rawGet(bkey); } catch (e) { existing = null; }
-        if (existing !== null && existing !== undefined) continue;   /* 찬 슬롯은 덮어쓰지 않는다 */
+        var existing = rawGet(bkey);
+        if (existing.ok && existing.value !== null && existing.value !== undefined) continue;   /* 찬 슬롯은 덮어쓰지 않는다 */
         var saved = false;
         try { saved = rawSet(bkey, raw); } catch (e2) { saved = fail('backup', bkey, e2); }
         return { key: bkey, saved: saved, full: false };
@@ -184,11 +186,30 @@ var SafetyLogic = (function () {
       /* 슬롯 소진 — 새 손상본을 버릴지언정 기존 백업을 밀어내지 않는다 */
       return { key: base, saved: false, full: true };
     }
-    function loadJSON(key, fallback) {
-      var raw = rawGet(key);
-      if (raw === null || raw === undefined) return fallback;
+    /* M3: 저장된 값이 배열·null·문자열이면 손상으로 간주한다 (순수 객체만 맵이다). */
+    function isPlainMap(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+
+    /* M2: 읽기 결과와 읽기 실패를 구분한다. 읽기가 실패하면 { ok: false } 를 반환.
+       호출자는 ok === false 일 때 쓰기를 중단하고 false/lastError 를 반환해야 한다.
+       validateMap 은 M3을 위해 drafts 맵만 검증(queue/masters/plans는 배열/임의 형태 허용). */
+    function loadJSON(key, fallback, validateMap) {
+      var rawResult = rawGet(key);
+      if (!rawResult.ok) return { ok: false, value: null };   /* 읽기 실패 */
+      var raw = rawResult.value;
+      if (raw === null || raw === undefined) return { ok: true, value: fallback };
       try {
-        return JSON.parse(raw);
+        var parsed = JSON.parse(raw);
+        if (validateMap && !isPlainMap(parsed)) {
+          /* M3: 배열/null/문자열/숫자 → 손상으로 간주 (drafts 맵만) */
+          var b = backupCorrupt(key, raw);
+          api.lastError = {
+            op: 'type', key: key, backup_key: b.key,
+            backup_saved: b.saved, backup_full: b.full,
+            message: '저장된 값이 객체가 아니다 (배열=' + Array.isArray(parsed) + ')'
+          };
+          return { ok: true, value: fallback };
+        }
+        return { ok: true, value: parsed };
       } catch (e) {
         /* 손상 원본을 백업해 둔다 — 다음 save 가 덮어써도 복구 기회가 남는다 */
         var b = backupCorrupt(key, raw);
@@ -196,51 +217,114 @@ var SafetyLogic = (function () {
           op: 'parse', key: key, backup_key: b.key,
           backup_saved: b.saved, backup_full: b.full, message: msgOf(e)
         };
-        return fallback;
+        return { ok: true, value: fallback };
       }
     }
 
-    api.loadAllDrafts = function () { api.lastError = null; return loadJSON(DRAFTS_KEY, {}) || {}; };
+    /* M4: UUID v4 형태와 'adhoc' 만 유효한 키다. */
+    function isValidDraftKey(k) {
+      if (k === 'adhoc') return true;
+      if (typeof k !== 'string') return false;
+      /* UUID v4: 8-4-4-4-12 hex 자리 + 버전 4 + variant 10xxxxxx */
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(k);
+    }
+
+    api.loadAllDrafts = function () {
+      var result = loadJSON(DRAFTS_KEY, {}, true);  /* M3: 맵 검증 */
+      if (!result.ok) return {};   /* 읽기 실패 → 비어 있는 것으로 간주하되 lastError 유지 */
+      return result.value || {};
+    };
     api.loadDraft = function (key) {
-      api.lastError = null;
-      var all = loadJSON(DRAFTS_KEY, {}) || {};
+      var result = loadJSON(DRAFTS_KEY, {}, true);  /* M3: 맵 검증 */
+      if (!result.ok) return null;   /* 읽기 실패 → null, lastError 유지 */
+      var all = result.value || {};
       return Object.prototype.hasOwnProperty.call(all, key) ? all[key] : null;
     };
     api.saveDraft = function (key, draft) {
+      /* M4: 키 검증 */
+      if (!isValidDraftKey(key)) {
+        api.lastError = { op: 'key', key: key, message: '키는 adhoc 또는 UUID v4 형식이어야 한다' };
+        return false;
+      }
+      /* M2: 읽기 전에 lastError 를 정리하되, 읽기 실패 시 그 오류를 덮지 않는다 */
+      var preReadError = api.lastError;
       api.lastError = null;
-      var all = loadJSON(DRAFTS_KEY, {}) || {};
+      var result = loadJSON(DRAFTS_KEY, {}, true);  /* M3: 맵 검증 */
+      if (!result.ok) { /* 읽기 실패 → 아무 것도 쓰지 않는다(M2) */
+        /* lastError 는 이미 loadJSON 에서 설정됨 */
+        return false;
+      }
+      var all = result.value || {};
       all[key] = draft;
       return saveJSON(DRAFTS_KEY, all);
     };
     api.clearDraft = function (key) {
+      /* M4: 키 검증 */
+      if (!isValidDraftKey(key)) {
+        api.lastError = { op: 'key', key: key, message: '키는 adhoc 또는 UUID v4 형식이어야 한다' };
+        return false;
+      }
+      /* M2: 읽기 전에 lastError 를 정리하되, 읽기 실패 시 그 오류를 덮지 않는다 */
       api.lastError = null;
-      var all = loadJSON(DRAFTS_KEY, {}) || {};
+      var result = loadJSON(DRAFTS_KEY, {}, true);  /* M3: 맵 검증 */
+      if (!result.ok) { /* 읽기 실패 → 아무 것도 쓰지 않는다(M2) */
+        /* lastError 는 이미 loadJSON 에서 설정됨 */
+        return false;
+      }
+      var all = result.value || {};
       if (!Object.prototype.hasOwnProperty.call(all, key)) return true;
       delete all[key];
       return saveJSON(DRAFTS_KEY, all);
     };
     /* 옛 단일 슬롯(sc_draft) → sc_drafts['adhoc'].
-       저장이 실패하면 옛 키를 지우지 않는다 — 옮기기 전에 원본을 잃으면 복구할 수 없다.
-       이미 adhoc 이 있으면 덮지 않는다(진행 중인 작성이 우선). */
+       M1: 충돌 감지 및 처리 — adhoc 이 이미 있으면 옮기지도 지우지도 않는다.
+       M1-b: 저장은 성공했지만 지우기가 실패하면 'copied' 를 반환 — 두 벌이 남아 있음을 알린다.
+       저장이 실패하면 옛 키를 지우지 않는다 — 옮기기 전에 원본을 잃으면 복구할 수 없다. */
     api.migrateLegacyDraft = function () {
       api.lastError = null;
-      var old = loadJSON(DRAFT_KEY, null);
+      var oldResult = loadJSON(DRAFT_KEY, null, true);  /* M3: 맵 검증 */
+      if (!oldResult.ok) return 'failed';  /* 읽기 실패 */
+      var old = oldResult.value;
       if (!old) return 'none';
-      var all = loadJSON(DRAFTS_KEY, {}) || {};
-      if (!Object.prototype.hasOwnProperty.call(all, 'adhoc')) all.adhoc = old;
+
+      var allResult = loadJSON(DRAFTS_KEY, {}, true);  /* M3: 맵 검증 */
+      if (!allResult.ok) return 'failed';  /* 읽기 실패 */
+      var all = allResult.value || {};
+
+      /* M1: adhoc 충돌 감지 */
+      if (Object.prototype.hasOwnProperty.call(all, 'adhoc')) {
+        api.lastError = {
+          op: 'migrate', key: DRAFT_KEY,
+          message: 'adhoc 슬롯 충돌 — 옛 임시저장을 보존했다'
+        };
+        return 'collision';
+      }
+
+      all.adhoc = old;
       if (!saveJSON(DRAFTS_KEY, all)) return 'failed';
-      rawRemove(DRAFT_KEY);
+
+      /* M1-b: 지우기 실패 처리 */
+      if (!rawRemove(DRAFT_KEY)) return 'copied';  /* 사본은 만들었으나 옛 키가 남았다 */
       return 'migrated';
     };
     api.saveQueue = function (queue) { api.lastError = null; return saveJSON(QUEUE_KEY, queue); };
-    api.loadQueue = function () { api.lastError = null; return loadJSON(QUEUE_KEY, []); };
+    api.loadQueue = function () {
+      var result = loadJSON(QUEUE_KEY, []);
+      return result.ok ? result.value : [];
+    };
     /* 마스터/계획 캐시 — draft/queue 와 같은 방식(saveJSON/loadJSON, 예외 없이 false/lastError).
        app.js 가 이 래퍼를 거치지 않고 window.localStorage 를 직접 만지면 안 된다(감사 지적,
        tests-js/wiring.test.mjs §18c). 값 형태는 호출자(app.js) 자유 — 여기서는 불투명 JSON 블롭이다. */
     api.saveMasters = function (entry) { api.lastError = null; return saveJSON(MASTERS_KEY, entry); };
-    api.loadMasters = function () { api.lastError = null; return loadJSON(MASTERS_KEY, null); };
+    api.loadMasters = function () {
+      var result = loadJSON(MASTERS_KEY, null);
+      return result.ok ? result.value : null;
+    };
     api.savePlans = function (entry) { api.lastError = null; return saveJSON(PLANS_KEY, entry); };
-    api.loadPlans = function () { api.lastError = null; return loadJSON(PLANS_KEY, null); };
+    api.loadPlans = function () {
+      var result = loadJSON(PLANS_KEY, null);
+      return result.ok ? result.value : null;
+    };
     return api;
   }
 
