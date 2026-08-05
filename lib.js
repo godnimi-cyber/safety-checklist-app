@@ -171,7 +171,7 @@ var SafetyLib = (function () {
     }
 
     var tpl = (masters.templates || []).filter(function (t) {
-      return t.template_id === p.template_id && Number(t.ver) === Number(p.template_ver); })[0];
+      return t.template_id === p.template_id && Number(t.ver) === Number(p.template_ver) && t.active !== false; })[0];
     if (!tpl) errors.push({ code: 'ITEMS_MISMATCH', msg: '양식/버전 없음' });
 
     if (errors.length) return { ok: false, errors: errors, snapshots: null };
