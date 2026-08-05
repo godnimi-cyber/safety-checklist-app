@@ -36,32 +36,15 @@
         <section class="queue-card" id="home-plans">
           <div class="queue-header">
             <h2 class="section-title" style="margin-bottom:0">예정된 점검</h2>
-            <button type="button" class="btn btn-outline" id="btn-open-plan-form">사전등록</button>
+            <div class="queue-header-actions">
+              <button type="button" class="btn btn-outline" id="btn-open-plan-manage">관리</button>
+              <button type="button" class="btn btn-outline" id="btn-open-plan-form">사전등록</button>
+            </div>
           </div>
           <p class="sync-line" id="home-plans-sync-line">예정 점검 동기화 안 됨</p>
           <div id="home-plans-banner" class="banner" hidden></div>
           <p class="muted" id="home-plans-empty">예정된 점검이 없습니다.</p>
           <div class="plan-list" id="home-plans-list"></div>
-
-          <div class="plan-cancel-panel" id="plan-cancel-panel" hidden>
-            <p class="muted" id="plan-cancel-target"></p>
-            <div class="field">
-              <label class="field-label" for="pc-team">등록자 · 소속팀</label>
-              <select class="input" id="pc-team"></select>
-            </div>
-            <div class="field">
-              <label class="field-label" for="pc-inspector">등록자 · 표시명</label>
-              <select class="input" id="pc-inspector" disabled></select>
-            </div>
-            <div class="field">
-              <label class="field-label" for="pc-pin">PIN (4자리)</label>
-              <input class="input" type="tel" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" id="pc-pin" autocomplete="off">
-            </div>
-            <div class="plan-cancel-actions">
-              <button type="button" class="btn btn-outline" id="btn-plan-cancel-close">닫기</button>
-              <button type="button" class="btn btn-primary" id="btn-plan-cancel-confirm">취소 확정</button>
-            </div>
-          </div>
         </section>
 
         <div>
@@ -225,6 +208,39 @@
         <button type="button" class="btn btn-primary" id="btn-plan-create">등록</button>
       </footer>
     </section>
+
+    <!-- ⑤ 예정 점검 관리(예정일 변경 · 취소). 탭 바가 없는 앱이라 화면 하나를 더한다 -->
+    <section class="screen" id="screen-manage" data-screen="manage" hidden>
+      <div class="screen-body">
+        <p class="muted">예정일을 미루거나 잘못 등록한 계획을 취소합니다. 명부에 있는 점검자면 자기 PIN 으로 처리할 수 있습니다.</p>
+        <p class="muted" id="manage-empty">예정된 점검이 없습니다.</p>
+        <div class="plan-list" id="manage-plans-list"></div>
+
+        <div class="plan-manage-panel" id="plan-manage-panel" hidden>
+          <p class="muted" id="plan-manage-target"></p>
+          <div class="field" id="pm-date-field" hidden>
+            <label class="field-label" for="pm-date">새 점검예정일</label>
+            <input class="input" type="date" id="pm-date">
+          </div>
+          <div class="field">
+            <label class="field-label" for="pm-team">점검자 · 소속팀</label>
+            <select class="input" id="pm-team"></select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="pm-inspector">점검자 · 표시명</label>
+            <select class="input" id="pm-inspector" disabled></select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="pm-pin">PIN (4자리)</label>
+            <input class="input" type="tel" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" id="pm-pin" autocomplete="off">
+          </div>
+          <div class="plan-manage-actions">
+            <button type="button" class="btn btn-outline" id="btn-plan-manage-close">닫기</button>
+            <button type="button" class="btn btn-primary" id="btn-plan-manage-confirm">확정</button>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -280,6 +296,21 @@
     </div>
     <div class="plan-actions">
       <button type="button" class="btn btn-primary plan-btn-start">작성 시작</button>
+    </div>
+  </div>
+</template>
+
+<!-- 관리 화면 행 — 홈 행과 달리 '작성 시작'이 없다(관리는 일정만 손댄다) -->
+<template id="tpl-manage-plan-row">
+  <div class="plan-row">
+    <div class="plan-row-info">
+      <span class="plan-date"></span>
+      <span class="plan-project"></span>
+      <span class="plan-company"></span>
+      <span class="plan-note" hidden></span>
+    </div>
+    <div class="plan-actions">
+      <button type="button" class="btn btn-outline plan-btn-edit">예정일 변경</button>
       <button type="button" class="btn btn-outline plan-btn-cancel">취소</button>
     </div>
   </div>

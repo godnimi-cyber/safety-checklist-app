@@ -74,8 +74,11 @@
     /* 사전등록 화면 진입 시 1회 생성해 재시도에도 같은 값을 쓰는 plan_id(서버 멱등의 전제) */
     planFormId: null,
     creatingPlan: false,
-    cancelingPlan: null,
-    cancelingPlanBusy: false,
+    /* 관리 화면에서 손대고 있는 계획과 그 방식('edit' 예정일 변경 / 'cancel' 취소).
+       두 동작이 패널 하나를 공유하므로 어느 쪽인지가 상태로 있어야 한다. */
+    managingPlan: null,
+    managingMode: null,
+    managingPlanBusy: false,
     queue: [],
     currentScreen: 'home',
     writeStep: 1,
@@ -456,6 +459,32 @@
       }, 200);
     });
   }
+  function updatePlanOnServer(payload) {
+    return CONFIG.MOCK ? mockPlanUpdate(payload) : realPlanUpdate(payload);
+  }
+  function realPlanUpdate(payload) {
+    return requestJson(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'plan_update', k: CONFIG.SHARED_KEY, payload: payload }),
+      redirect: 'follow'
+    });
+  }
+  /* MOCK plan_update: 서버의 멱등 규칙(같은 날짜면 updated:false)만 흉내 낸다 — PIN 은 검증하지
+     않는다(데모 목적, 서버가 검증할 자리가 없다. mockPlanCancel 과 같은 수준). */
+  function mockPlanUpdate(payload) {
+    // eslint-disable-next-line no-console
+    console.log('[MOCK plan_update]', payload);
+    return new Promise(function (resolve) {
+      setTimeout(function () {
+        var hit = ensureMockPlans().filter(function (p) { return p.plan_id === payload.plan_id; })[0];
+        if (!hit) { resolve({ ok: false, error: { code: 'VALIDATION', message: 'PLAN_NOT_FOUND' } }); return; }
+        var same = hit.planned_date === payload.planned_date;
+        hit.planned_date = payload.planned_date;
+        resolve({ ok: true, data: { updated: !same, planned_date: payload.planned_date } });
+      }, 200);
+    });
+  }
 
   /* ---------- 배너 ---------- */
   function showBanner(level, text) {
@@ -512,10 +541,12 @@
     $('screen-write').hidden = name !== 'write';
     $('screen-review').hidden = name !== 'review';
     $('screen-plan').hidden = name !== 'plan';
+    $('screen-manage').hidden = name !== 'manage';
     updateTopbar(name);
     if (name === 'home') { renderHome(); flushQueue(); }
     else if (name === 'write') { renderWrite(); }
     else if (name === 'review') { renderReview(); }
+    else if (name === 'manage') { renderManage(); }
     window.scrollTo(0, 0);
   }
   function updateTopbar(name) {
@@ -525,6 +556,7 @@
     else if (name === 'write') { title.textContent = state.writeStep === 1 ? '작성 · 기본정보' : '작성 · 항목점검'; back.hidden = false; }
     else if (name === 'review') { title.textContent = '검토'; back.hidden = false; }
     else if (name === 'plan') { title.textContent = '점검 사전등록'; back.hidden = false; }
+    else if (name === 'manage') { title.textContent = '예정 점검 관리'; back.hidden = false; }
   }
   function onBack() {
     if (state.submitting) return; /* 제출 진행 중 화면 이탈 금지 — 완료 전 draft가 다른 화면 편집으로 덮이는 경합 방지 */
@@ -538,7 +570,11 @@
        이탈을 막으면 애초에 "늦게 온 응답이 남의 화면을 홈으로 튕기는" 경합 창을 좁힌다.
        (onCreatePlan 의 sameContext 판정이 최종 방어선이고, 이건 보조다.) */
     if (state.currentScreen === 'plan' && state.creatingPlan) return;
-    if (state.currentScreen === 'plan') { show('home'); }
+    if (state.currentScreen === 'plan') { show('home'); return; }
+    /* H9 와 같은 이유 — 수정·취소 요청이 떠 있는 동안 이탈을 막는다. 떠나도 요청은 흐르지만,
+       응답이 늦게 와 남의 화면에 배너를 던지는 경합 창을 좁힌다. */
+    if (state.currentScreen === 'manage' && state.managingPlanBusy) return;
+    if (state.currentScreen === 'manage') { closePlanManagePanel(); show('home'); }
   }
 
   /* ================= 홈 ================= */
@@ -769,8 +805,6 @@
         startBtn.addEventListener('click', function () { startFromPlan(p); });
       }
 
-      node.querySelector('.plan-btn-cancel').addEventListener('click', function () { openPlanCancelPanel(p); });
-
       wrap.appendChild(node);
     });
   }
@@ -786,83 +820,174 @@
     el.className = 'banner banner-' + state.plansBanner.level;
     el.textContent = state.plansBanner.text;
   }
-  function openPlanCancelPanel(plan) {
-    state.cancelingPlan = plan;
-    /* H7: 이 계획으로 이미 작성 중인 임시저장이 있으면 취소와 함께 사라진다는 걸 미리 알린다 —
-       계획별 임시저장의 유일한 진입점이 이 행의 '이어서 작성' 버튼이라, 계획이 목록에서
-       빠지는 순간 도달할 방법이 없어진다(내 기기의 draft. 다른 기기·PIN 없는 draft 는 범위 밖). */
+  /* ================= 예정 점검 관리 화면 =================
+     설계 2026-08-05-plan-manage §4. 탭 바가 없는 앱이라 화면 하나를 더한다.
+     권한은 서버와 같다 — 명부에 있는 점검자면 자기 PIN 으로 남의 계획도 손댈 수 있다(등록자
+     구속을 하면 등록자가 휴가·퇴사일 때 계획이 굳는다). 누가 바꿨는지는 시트 이력에 남는다. */
+  function renderManage() {
+    var wrap = $('manage-plans-list');
+    wrap.innerHTML = '';
+    var today = todayStr();
+    var queued = queuedPlanIdSet(state.queue);
+    /* 관리 화면은 예정일 오름차순 하나로만 정렬한다 — 홈의 3그룹 정렬(지남/오늘/다가옴)은
+       '무엇부터 수행하나'를 위한 것이고, 여기서는 '언제 것을 손보나'라 날짜순이 곧 찾는 순서다. */
+    var plans = (state.plans || []).slice().sort(function (a, b) {
+      if (a.planned_date < b.planned_date) return -1;
+      if (a.planned_date > b.planned_date) return 1;
+      return 0;
+    });
+    $('manage-empty').hidden = plans.length !== 0;
+    plans.forEach(function (p) {
+      var node = $('tpl-manage-plan-row').content.firstElementChild.cloneNode(true);
+      var overdue = p.planned_date < today;
+      var dateEl = node.querySelector('.plan-date');
+      dateEl.textContent = p.planned_date + (overdue ? ' · 지남' : '');
+      dateEl.classList.toggle('plan-overdue', overdue);
+      node.querySelector('.plan-project').textContent = p.project_name;
+      node.querySelector('.plan-company').textContent = p.company_name;
+
+      var editBtn = node.querySelector('.plan-btn-edit');
+      var cancelBtn = node.querySelector('.plan-btn-cancel');
+      var noteEl = node.querySelector('.plan-note');
+      /* 이 기기에서 이미 제출을 내보낸 계획(T1 tombstone)은 서버에서 done 이라 수정·취소가
+         반드시 실패한다 — 실패할 걸 알면서 누르게 두지 않는다(K3 의 '막다른 길 금지'와 같은 취지:
+         여기서 막아도 다른 탈출로가 있다. 재작성이 필요하면 홈의 '새 점검'이 열려 있다). */
+      var isConsumed = !!(state.consumedPlanIds && state.consumedPlanIds[p.plan_id]);
+      if (isConsumed) {
+        editBtn.disabled = true;
+        cancelBtn.disabled = true;
+        noteEl.hidden = false;
+        noteEl.textContent = '이미 작성해 전송한 계획입니다 — 일정 변경·취소를 할 수 없습니다.';
+      } else {
+        editBtn.addEventListener('click', function () { openPlanManagePanel(p, 'edit'); });
+        cancelBtn.addEventListener('click', function () { openPlanManagePanel(p, 'cancel'); });
+        if (queued[p.plan_id]) {
+          /* 큐에 든 계획도 손댈 수는 있다(서버 linkPlanDone_ 은 bestEffort 라 취소된 계획으로
+             제출이 들어와도 점검 기록 자체는 남는다) — 다만 무슨 일이 벌어지는지는 알린다. */
+          noteEl.hidden = false;
+          noteEl.textContent = '이 계획으로 작성한 제출이 미전송 목록에 있습니다.';
+        } else {
+          noteEl.hidden = true;
+        }
+      }
+      wrap.appendChild(node);
+    });
+  }
+  function openPlanManagePanel(plan, mode) {
+    state.managingPlan = plan;
+    state.managingMode = mode;
+    var isEdit = mode === 'edit';
+    /* H7(취소에만 해당): 이 계획으로 작성 중인 임시저장이 있으면 취소와 함께 사라진다는 걸
+       미리 알린다 — 계획이 목록에서 빠지면 '이어서 작성' 진입점 자체가 없어지기 때문이다.
+       예정일 변경은 계획이 남으므로 임시저장도 그대로 살아 있다. */
     var hasDraft = !!(state.drafts && state.drafts[plan.plan_id]);
-    $('plan-cancel-target').textContent = plan.planned_date + ' · ' + plan.company_name + ' · ' + plan.project_name
-      + ' 계획을 취소합니다. 등록자 인증 후 확정됩니다.'
-      + (hasDraft ? ' 이 계획에 작성 중인 내용이 있으며 취소하면 함께 삭제됩니다.' : '');
-    populateTeamSelect('pc-team');
-    $('pc-team').value = '';
-    populateInspectorSelect('', 'pc-inspector');
-    $('pc-pin').value = '';
-    $('plan-cancel-panel').hidden = false;
-    $('plan-cancel-panel').scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+    $('plan-manage-target').textContent = plan.planned_date + ' · ' + plan.company_name + ' · ' + plan.project_name
+      + (isEdit ? ' 계획의 예정일을 변경합니다. 점검자 인증 후 확정됩니다.'
+                : ' 계획을 취소합니다. 점검자 인증 후 확정됩니다.')
+      + (!isEdit && hasDraft ? ' 이 계획에 작성 중인 내용이 있으며 취소하면 함께 삭제됩니다.' : '');
+    $('pm-date-field').hidden = !isEdit;
+    $('pm-date').value = isEdit ? plan.planned_date : '';
+    populateTeamSelect('pm-team');
+    $('pm-team').value = '';
+    populateInspectorSelect('', 'pm-inspector');
+    $('pm-pin').value = '';
+    $('btn-plan-manage-confirm').textContent = isEdit ? '변경 확정' : '취소 확정';
+    $('plan-manage-panel').hidden = false;
+    $('plan-manage-panel').scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
   }
-  function closePlanCancelPanel() {
-    state.cancelingPlan = null;
-    $('plan-cancel-panel').hidden = true;
+  function closePlanManagePanel() {
+    state.managingPlan = null;
+    state.managingMode = null;
+    $('plan-manage-panel').hidden = true;
   }
-  function onPlanCancelConfirm() {
-    if (state.cancelingPlanBusy || !state.cancelingPlan) return;
-    var plan = state.cancelingPlan;
-    var inspectorId = $('pc-inspector').value;
-    var pin = $('pc-pin').value;
+  /* 서버 오류 코드를 사용자가 고칠 수 있는 말로 옮긴다(Task 3 findings F4/F5 와 같은 관용구).
+     수정·취소가 같은 코드 집합을 쓰므로 한 곳에 둔다 — 한쪽만 고쳐 문구가 갈라지지 않게. */
+  function friendlyPlanError(message) {
+    return /PLAN_ALREADY_DONE/.test(message) ? '이미 완료된 점검입니다. 목록을 새로고침하세요.'
+      : /PLAN_ALREADY_CANCELED/.test(message) ? '이미 취소된 계획입니다. 목록을 새로고침하세요.'
+      : /PLAN_NOT_FOUND/.test(message) ? '이미 처리되었거나 없는 계획입니다. 목록을 새로고침하세요.'
+      : /PLAN_DATE_INVALID/.test(message) ? '예정일이 허용 범위(오늘 기준 ±1년)를 벗어났습니다.'
+      : /PIN_MISMATCH/.test(message) ? 'PIN이 일치하지 않습니다.'
+      : message;
+  }
+  function onPlanManageConfirm() {
+    if (state.managingPlanBusy || !state.managingPlan) return;
+    var plan = state.managingPlan;
+    var isEdit = state.managingMode === 'edit';
+    var newDate = $('pm-date').value;
+    var inspectorId = $('pm-inspector').value;
+    var pin = $('pm-pin').value;
     var missing = [], focusId = null;
-    if (!inspectorId) { missing.push('등록자'); focusId = focusId || 'pc-inspector'; }
-    if (!/^\d{4}$/.test(pin || '')) { missing.push('PIN(4자리)'); focusId = focusId || 'pc-pin'; }
+    if (isEdit && !newDate) { missing.push('새 점검예정일'); focusId = focusId || 'pm-date'; }
+    if (!inspectorId) { missing.push('점검자'); focusId = focusId || 'pm-inspector'; }
+    if (!/^\d{4}$/.test(pin || '')) { missing.push('PIN(4자리)'); focusId = focusId || 'pm-pin'; }
     if (missing.length) {
-      /* #banner-region 은 문서 최상단·비-sticky 다(H5) — 취소 패널은 scrollIntoView 로 화면
-         가운데로 끌려와 있어, 배너만 띄우면 위쪽으로 스크롤된 실패 사실을 못 본다. */
+      /* #banner-region 은 문서 최상단·비-sticky 다(H5) — 패널은 scrollIntoView 로 화면 가운데에
+         있어, 배너만 띄우면 위로 스크롤된 실패 사실을 못 본다. */
       showBanner('error', '다음 항목을 확인하세요: ' + missing.join(', '));
       window.scrollTo(0, 0);
       if (focusId) { var fel = $(focusId); if (fel && !fel.disabled) fel.focus(); }
       return;
     }
-    state.cancelingPlanBusy = true;
-    var btn = $('btn-plan-cancel-confirm');
+    /* 오프라인이어도 큐에 넣지 않는다(설계 §4) — 나중에 보내면 의미가 옅어지고, 갇힌 요청이
+       중복 조작을 만든다. 실패하면 화면에 머무르며 사유를 보인다. */
+    state.managingPlanBusy = true;
+    var btn = $('btn-plan-manage-confirm');
+    var label = btn.textContent;
     btn.disabled = true;
-    btn.textContent = '취소 처리 중...';
-    cancelPlanOnServer({ plan_id: plan.plan_id, inspector_id: inspectorId, pin: pin }).then(function (result) {
+    btn.textContent = isEdit ? '변경 처리 중...' : '취소 처리 중...';
+    var req = isEdit
+      ? updatePlanOnServer({ plan_id: plan.plan_id, planned_date: newDate, inspector_id: inspectorId, pin: pin })
+      : cancelPlanOnServer({ plan_id: plan.plan_id, inspector_id: inspectorId, pin: pin });
+    req.then(function (result) {
       if (result.ok) {
-        state.plans = state.plans.filter(function (p) { return p.plan_id !== plan.plan_id; });
-        persistPlansCache();
-        /* H7: 계획이 사라지면 그 계획의 임시저장(PIN 포함)이 도달 불가·삭제 불가로 남는다 —
-           행이 없어지면 '이어서 작성' 진입점 자체가 사라지기 때문이다. 여기서 함께 정리한다.
-           clearDraft 의 반환값을 본다(계약 K4) — 삭제 실패를 조용히 삼키지 않는다. */
-        var hadDraft = !!(state.drafts && state.drafts[plan.plan_id]);
-        var clearedOk = true;
-        if (hadDraft) {
-          clearedOk = state.storage.clearDraft(plan.plan_id);
-          delete state.drafts[plan.plan_id];
-          if (state.draftKey === plan.plan_id) { state.draft = null; state.draftKey = null; }
-        }
-        closePlanCancelPanel();
-        showBanner(clearedOk ? 'success' : 'error',
-          '점검 계획을 취소했습니다.' + (hadDraft ? (clearedOk ? ' 작성 중이던 내용도 삭제했습니다.'
-            : ' 다만 이 기기의 임시저장 삭제에 실패했습니다 — 저장소를 확인하세요.' + saveErrorSuffix()) : ''));
-        renderHome();
+        if (isEdit) applyPlanUpdated(plan, newDate);
+        else applyPlanCanceled(plan);
         return;
       }
       var err = normalizeError(result.error);
-      /* Task 3 인계 문구(findings F4/F5) — 사용자가 고칠 수 있는 사유로 번역한다 */
-      var friendly = /PLAN_ALREADY_DONE/.test(err.message) ? '이미 완료된 점검입니다. 목록을 새로고침하세요.'
-        : /PLAN_NOT_FOUND/.test(err.message) ? '이미 처리되었거나 없는 계획입니다. 목록을 새로고침하세요.'
-        : /PIN_MISMATCH/.test(err.message) ? 'PIN이 일치하지 않습니다.'
-        : err.message;
-      showBanner('error', '취소에 실패했습니다: ' + friendly + ' (' + err.code + ')');
+      showBanner('error', (isEdit ? '예정일 변경에 실패했습니다: ' : '취소에 실패했습니다: ')
+        + friendlyPlanError(err.message) + ' (' + err.code + ')');
+      window.scrollTo(0, 0);
+    }).catch(function (e) {
+      showBanner('error', (isEdit ? '예정일 변경 중 오류가 발생했습니다: ' : '취소 처리 중 오류가 발생했습니다: ')
+        + ((e && e.message) || e));
       window.scrollTo(0, 0);
     }).finally(function () {
-      state.cancelingPlanBusy = false;
+      state.managingPlanBusy = false;
       btn.disabled = false;
-      btn.textContent = '취소 확정';
-    }).catch(function (e) {
-      showBanner('error', '취소 처리 중 오류가 발생했습니다: ' + ((e && e.message) || e));
-      window.scrollTo(0, 0);
+      btn.textContent = label;
     });
+  }
+  /* 성공 후 로컬 진실을 먼저 맞추고(오프라인 전환·재조회 실패에도 화면이 거짓말하지 않게),
+     서버 재조회는 보조 정합으로 뒤에 돌린다 — upsertPlan/removePlanLocally 와 같은 원칙(H4). */
+  function applyPlanUpdated(plan, newDate) {
+    (state.plans || []).forEach(function (p) { if (p.plan_id === plan.plan_id) p.planned_date = newDate; });
+    persistPlansCache();
+    closePlanManagePanel();
+    showBanner('success', '예정일을 ' + newDate + ' 로 변경했습니다.');
+    renderManage();
+    refreshPlans();   /* 서버 진실로 최종 정합(성공해도 실패해도 위에서 이미 로컬은 맞다) */
+  }
+  function applyPlanCanceled(plan) {
+    state.plans = (state.plans || []).filter(function (p) { return p.plan_id !== plan.plan_id; });
+    persistPlansCache();
+    /* H7: 계획이 사라지면 그 계획의 임시저장(PIN 포함)이 도달 불가·삭제 불가로 남는다 —
+       행이 없어지면 '이어서 작성' 진입점 자체가 사라지기 때문이다. 여기서 함께 정리한다.
+       clearDraft 의 반환값을 본다(계약 K4) — 삭제 실패를 조용히 삼키지 않는다. */
+    var hadDraft = !!(state.drafts && state.drafts[plan.plan_id]);
+    var clearedOk = true;
+    if (hadDraft) {
+      clearedOk = state.storage.clearDraft(plan.plan_id);
+      delete state.drafts[plan.plan_id];
+      if (state.draftKey === plan.plan_id) { state.draft = null; state.draftKey = null; }
+    }
+    closePlanManagePanel();
+    showBanner(clearedOk ? 'success' : 'error',
+      '점검 계획을 취소했습니다.' + (hadDraft ? (clearedOk ? ' 작성 중이던 내용도 삭제했습니다.'
+        : ' 다만 이 기기의 임시저장 삭제에 실패했습니다 — 저장소를 확인하세요.' + saveErrorSuffix()) : ''));
+    renderManage();
+    refreshPlans();
   }
   /* T1: state.plans/plansSyncedAt/consumedPlanIds 셋을 한 번에 sc_plans 캐시로 영속한다.
      이 헬퍼 하나로 몰아야 하는 이유 — savePlans 호출부가 여러 곳(재조회·로컬 제거·upsert·계획
@@ -1890,10 +2015,11 @@
     $('p-project').addEventListener('change', onPlanProjectChange);
     $('p-team').addEventListener('change', onPlanTeamChange);
     $('p-pin').addEventListener('input', clampPinInput);
-    $('pc-team').addEventListener('change', function (e) { populateInspectorSelect(e.target.value, 'pc-inspector'); });
-    $('pc-pin').addEventListener('input', clampPinInput);
-    $('btn-plan-cancel-close').addEventListener('click', closePlanCancelPanel);
-    $('btn-plan-cancel-confirm').addEventListener('click', onPlanCancelConfirm);
+    $('btn-open-plan-manage').addEventListener('click', function () { clearBanner(); show('manage'); });
+    $('pm-team').addEventListener('change', function (e) { populateInspectorSelect(e.target.value, 'pm-inspector'); });
+    $('pm-pin').addEventListener('input', clampPinInput);
+    $('btn-plan-manage-close').addEventListener('click', closePlanManagePanel);
+    $('btn-plan-manage-confirm').addEventListener('click', onPlanManageConfirm);
 
     $('btn-step1-next').addEventListener('click', onStep1Next);
     $('f-company').addEventListener('change', onCompanyChange);
