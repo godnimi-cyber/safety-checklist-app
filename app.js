@@ -1453,6 +1453,11 @@
      반환: 실제로 바뀐 item_id 배열. 이미 해당없음이던 것은 빼므로 멱등이고 알림 개수도 정확하다. */
   function cascadeNaToCategory(groupItem) {
     var changed = [];
+    /* 분류가 비어 있으면 일괄하지 않는다. 아래 비교는 양쪽 빈 값을 '' 로 합치므로,
+       분류 없는 양식(T1·T2 는 전 항목이 category='')에 group 행이 하나라도 생기면
+       그것을 해당없음으로 고르는 순간 **양식 전체**가 해당없음이 된다.
+       지금 데이터엔 그런 group 이 없어 발화하지 않지만, 항목 개정 한 번이면 열린다. */
+    if (!(groupItem.category || '')) return changed;
     getCurrentTemplateItems().forEach(function (it) {
       if (it.type !== 'item') return;
       if ((it.category || '') !== (groupItem.category || '')) return;
@@ -1555,6 +1560,12 @@
           cascaded = cascadeNaToCategory(it);
           cascaded.forEach(function (id) { if (cardPainters[id]) cardPainters[id](); });
         }
+        invalidateAck();
+        /* paint() 를 안내보다 **먼저** 부른다. 부적합(사유 미입력) 상태의 그룹을 해당없음으로
+           바꾸는 순서에서, paint() 가 늦으면 .is-invalid 틴트 배경이 남은 채 안내가 먼저 붙는다.
+           같은 이벤트 안이라 화면에 그려지지는 않지만, 그 조합의 대비는 4.5:1 을 밑돈다
+           — 불변식이 순간이라도 깨지지 않게 순서로 막는다. */
+        paint();
         if (cascadeNote) {
           if (cascaded.length) {
             cascadeNote.textContent = '이 분류의 하위 ' + cascaded.length +
@@ -1564,8 +1575,6 @@
             cascadeNote.hidden = true;
           }
         }
-        invalidateAck();
-        paint();
         if (r === 'N') {
           textarea.value = prevNote;
           counter.textContent = prevNote.length + '/300';
