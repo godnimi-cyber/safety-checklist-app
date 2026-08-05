@@ -245,12 +245,17 @@ var SafetyLogic = (function () {
     /* M2: 읽기 결과와 읽기 실패를 구분한다. 읽기가 실패하면 { ok: false } 를 반환.
        호출자는 ok === false 일 때 쓰기를 중단하고 false/lastError 를 반환해야 한다.
        validateMap 은 M3을 위해 drafts 맵만 검증(queue/masters/plans는 배열/임의 형태 허용).
-       P2: 백업 실패 시 cannotWrite:true 를 반환해 호출자에게 쓰기 금지를 신호한다. */
+       P2: 백업 실패 시 cannotWrite:true 를 반환해 호출자에게 쓰기 금지를 신호한다.
+       F4: volatile:true 는 '지금 읽은 이 값이 영속되지 못한 세션 오버레이'라는 뜻이다.
+       rawGet 은 mem 오버레이를 우선하므로, 영속 저장이 실패한 직후의 읽기는 '저장이 된 것처럼'
+       보인다 — 그 착시 위에서 원본을 지우거나 성공을 보고하면 새로고침 때 기록이 사라진다.
+       (백업 슬롯에는 R2 에서 이미 같은 판정을 넣었다. 주 저장 맵에도 같은 함정이 있다.) */
     function loadJSON(key, fallback, validateMap) {
       var rawResult = rawGet(key);
       if (!rawResult.ok) return { ok: false, value: null };   /* 읽기 실패 */
+      var vol = isVolatile(key);
       var raw = rawResult.value;
-      if (raw === null || raw === undefined) return { ok: true, value: fallback };
+      if (raw === null || raw === undefined) return { ok: true, value: fallback, volatile: vol };
       try {
         var parsed = JSON.parse(raw);
         if (validateMap && !isPlainMap(parsed)) {
@@ -268,11 +273,11 @@ var SafetyLogic = (function () {
              R1: corrupt 는 '값을 잃고 fallback 으로 대체했다'는 사실 자체 — 백업이 성공해도 남는다.
              (fallback 을 '원래 비어 있었다'로 착각하면 안 되는 호출자가 본다) */
           if (!b.saved || b.full || b.unreadable) {
-            return { ok: true, value: fallback, cannotWrite: true, corrupt: true };
+            return { ok: true, value: fallback, cannotWrite: true, corrupt: true, volatile: vol };
           }
-          return { ok: true, value: fallback, corrupt: true };
+          return { ok: true, value: fallback, corrupt: true, volatile: vol };
         }
-        return { ok: true, value: parsed };
+        return { ok: true, value: parsed, volatile: vol };
       } catch (e) {
         /* 손상 원본을 백업해 둔다 — 다음 save 가 덮어써도 복구 기회가 남는다 */
         var b = backupCorrupt(key, raw);
@@ -284,9 +289,9 @@ var SafetyLogic = (function () {
         };
         /* P2: 백업이 실패했거나 꽉 찼으면, 호출자가 쓰기를 피하도록 신호 */
         if (!b.saved || b.full || b.unreadable) {
-          return { ok: true, value: fallback, cannotWrite: true, corrupt: true };
+          return { ok: true, value: fallback, cannotWrite: true, corrupt: true, volatile: vol };
         }
-        return { ok: true, value: fallback, corrupt: true };
+        return { ok: true, value: fallback, corrupt: true, volatile: vol };
       }
     }
 
@@ -356,7 +361,14 @@ var SafetyLogic = (function () {
         return false;
       }
       var all = result.value || {};
-      if (!Object.prototype.hasOwnProperty.call(all, key)) return true;
+      if (!Object.prototype.hasOwnProperty.call(all, key)) {
+        /* F4: '맵에 없다'는 것도, 그 맵 자체가 영속되지 못한 오버레이라면 영속된 사실이 아니다.
+           앞선 삭제의 저장이 실패해 {} 오버레이만 남은 상태에서 그냥 true 를 돌려주면,
+           영속 저장소에는 draft 가 그대로 있는데 사용자에게 "지웠다"고 거짓 보고하게 된다.
+           현재 맵의 영속 재시도 결과를 그대로 반환한다. */
+        if (result.volatile) return saveJSON(DRAFTS_KEY, all);
+        return true;
+      }
       delete all[key];
       return saveJSON(DRAFTS_KEY, all);
     };
@@ -389,6 +401,12 @@ var SafetyLogic = (function () {
         /* P3: 값이 같으면 이미 이전이 완료된 상태 (이전 호출에서 저장만 성공하고 지우기 실패)
            R3: 키 순서에 흔들리지 않는 결정적 직렬화로 비교한다 — 'collision' 은 값이 진짜 다를 때만. */
         if (stableStringify(old) === stableStringify(all.adhoc)) {
+          /* F4: '값이 같다'가 곧 '이전이 끝났다'는 아니다. 앞선 호출의 saveJSON 이 실패했다면
+             그 사본은 mem 오버레이에만 있고(rawGet 이 오버레이를 우선하므로 저장된 것처럼 보인다)
+             영속 저장소에는 없다. 그 상태에서 옛 키를 지우면 새로고침 순간 오버레이도 함께
+             사라져 점검 기록이 통째로 없어진다 — 영속 재시도가 성공했을 때만 지운다.
+             (ls 가 없는 폴백 모드는 mem 이 곧 저장소라 volatile 이 아니다 → 여기 걸리지 않는다.) */
+          if (allResult.volatile && !saveJSON(DRAFTS_KEY, all)) return 'failed';
           /* 지우기만 재시도 */
           if (!rawRemove(DRAFT_KEY)) return 'copied';
           return 'migrated';
