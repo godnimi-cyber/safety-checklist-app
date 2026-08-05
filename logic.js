@@ -172,12 +172,14 @@ var SafetyLogic = (function () {
       return rawSet(key, str);
     }
     /* 손상 원본을 빈 백업 슬롯에 넣는다. 이미 값이 있는 슬롯은 건드리지 않으므로
-       최초 원본은 무슨 일이 있어도 남는다. 반환: {key, saved, full} */
+       최초 원본은 무슨 일이 있어도 남는다. 반환: {key, saved, full, unreadable} */
     function backupCorrupt(key, raw) {
       var base = key + CORRUPT_SUFFIX;
       for (var i = 1; i <= MAX_CORRUPT_BACKUPS; i++) {
         var bkey = (i === 1) ? base : (base + '_' + i);
         var existing = rawGet(bkey);
+        /* P1: 읽기 실패 = '비었다' 가 아니라 '모른다'. 모르는 슬롯에 쓰면 실제로 있던 백업을 파괴한다(P1). */
+        if (!existing.ok) return { key: bkey, saved: false, full: false, unreadable: true };
         if (existing.ok && existing.value !== null && existing.value !== undefined) continue;   /* 찬 슬롯은 덮어쓰지 않는다 */
         var saved = false;
         try { saved = rawSet(bkey, raw); } catch (e2) { saved = fail('backup', bkey, e2); }
@@ -191,7 +193,8 @@ var SafetyLogic = (function () {
 
     /* M2: 읽기 결과와 읽기 실패를 구분한다. 읽기가 실패하면 { ok: false } 를 반환.
        호출자는 ok === false 일 때 쓰기를 중단하고 false/lastError 를 반환해야 한다.
-       validateMap 은 M3을 위해 drafts 맵만 검증(queue/masters/plans는 배열/임의 형태 허용). */
+       validateMap 은 M3을 위해 drafts 맵만 검증(queue/masters/plans는 배열/임의 형태 허용).
+       P2: 백업 실패 시 cannotWrite:true 를 반환해 호출자에게 쓰기 금지를 신호한다. */
     function loadJSON(key, fallback, validateMap) {
       var rawResult = rawGet(key);
       if (!rawResult.ok) return { ok: false, value: null };   /* 읽기 실패 */
@@ -207,6 +210,8 @@ var SafetyLogic = (function () {
             backup_saved: b.saved, backup_full: b.full,
             message: '저장된 값이 객체가 아니다 (배열=' + Array.isArray(parsed) + ')'
           };
+          /* P2: 백업이 실패했거나 꽉 찼으면, 호출자가 쓰기를 피하도록 신호 */
+          if (!b.saved || b.full || b.unreadable) return { ok: true, value: fallback, cannotWrite: true };
           return { ok: true, value: fallback };
         }
         return { ok: true, value: parsed };
@@ -217,6 +222,8 @@ var SafetyLogic = (function () {
           op: 'parse', key: key, backup_key: b.key,
           backup_saved: b.saved, backup_full: b.full, message: msgOf(e)
         };
+        /* P2: 백업이 실패했거나 꽉 찼으면, 호출자가 쓰기를 피하도록 신호 */
+        if (!b.saved || b.full || b.unreadable) return { ok: true, value: fallback, cannotWrite: true };
         return { ok: true, value: fallback };
       }
     }
@@ -246,11 +253,15 @@ var SafetyLogic = (function () {
         api.lastError = { op: 'key', key: key, message: '키는 adhoc 또는 UUID v4 형식이어야 한다' };
         return false;
       }
-      /* M2: 읽기 전에 lastError 를 정리하되, 읽기 실패 시 그 오류를 덮지 않는다 */
-      var preReadError = api.lastError;
+      /* P4: 읽기 중 발생한 P1·P2 오류(손상/읽기실패)를 보존하되 직전 호출의 낡은 오류는 지운다 */
       api.lastError = null;
       var result = loadJSON(DRAFTS_KEY, {}, true);  /* M3: 맵 검증 */
       if (!result.ok) { /* 읽기 실패 → 아무 것도 쓰지 않는다(M2) */
+        /* lastError 는 이미 loadJSON 에서 설정됨 */
+        return false;
+      }
+      /* P2: 백업이 실패했으면 쓰기를 중단한다 */
+      if (result.cannotWrite) {
         /* lastError 는 이미 loadJSON 에서 설정됨 */
         return false;
       }
@@ -264,10 +275,15 @@ var SafetyLogic = (function () {
         api.lastError = { op: 'key', key: key, message: '키는 adhoc 또는 UUID v4 형식이어야 한다' };
         return false;
       }
-      /* M2: 읽기 전에 lastError 를 정리하되, 읽기 실패 시 그 오류를 덮지 않는다 */
+      /* P4: 읽기 중 발생한 P1·P2 오류(손상/읽기실패)를 보존하되 직전 호출의 낡은 오류는 지운다 */
       api.lastError = null;
       var result = loadJSON(DRAFTS_KEY, {}, true);  /* M3: 맵 검증 */
       if (!result.ok) { /* 읽기 실패 → 아무 것도 쓰지 않는다(M2) */
+        /* lastError 는 이미 loadJSON 에서 설정됨 */
+        return false;
+      }
+      /* P2: 백업이 실패했으면 쓰기를 중단한다 */
+      if (result.cannotWrite) {
         /* lastError 는 이미 loadJSON 에서 설정됨 */
         return false;
       }
@@ -279,6 +295,7 @@ var SafetyLogic = (function () {
     /* 옛 단일 슬롯(sc_draft) → sc_drafts['adhoc'].
        M1: 충돌 감지 및 처리 — adhoc 이 이미 있으면 옮기지도 지우지도 않는다.
        M1-b: 저장은 성공했지만 지우기가 실패하면 'copied' 를 반환 — 두 벌이 남아 있음을 알린다.
+       P3: adhoc 이 이미 있더라도 값이 같으면 수렴(converged)으로 간주, 지우기만 재시도한다.
        저장이 실패하면 옛 키를 지우지 않는다 — 옮기기 전에 원본을 잃으면 복구할 수 없다. */
     api.migrateLegacyDraft = function () {
       api.lastError = null;
@@ -291,8 +308,15 @@ var SafetyLogic = (function () {
       if (!allResult.ok) return 'failed';  /* 읽기 실패 */
       var all = allResult.value || {};
 
-      /* M1: adhoc 충돌 감지 */
+      /* M1: adhoc 충돌 감지 — P3: 수렴 여부 검사 */
       if (Object.prototype.hasOwnProperty.call(all, 'adhoc')) {
+        /* P3: 값이 같으면 이미 이전이 완료된 상태 (이전 호출에서 저장만 성공하고 지우기 실패) */
+        if (JSON.stringify(old) === JSON.stringify(all.adhoc)) {
+          /* 지우기만 재시도 */
+          if (!rawRemove(DRAFT_KEY)) return 'copied';
+          return 'migrated';
+        }
+        /* P3: 값이 다르면 실제 충돌 */
         api.lastError = {
           op: 'migrate', key: DRAFT_KEY,
           message: 'adhoc 슬롯 충돌 — 옛 임시저장을 보존했다'
