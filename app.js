@@ -2273,7 +2273,24 @@
       : (err.backup_full ? '(백업 슬롯이 가득 차 이번 손상본은 보관하지 못했습니다)' : '(백업 저장에도 실패했습니다)');
     return subject + ' 손상되어 백업에 보관했습니다' + where;
   }
+  /* 서비스워커 등록 — 설치 아이콘과 오프라인 콜드스타트를 얻는다(sw.js 주석 참고).
+     **앱 시작을 막지 않는다**: 등록이 실패해도(사설 인증서·시크릿 모드·구형 브라우저)
+     앱은 그대로 돌아야 한다. 오프라인 콜드스타트만 안 될 뿐 지금까지와 같다.
+     실패를 배너로 띄우지도 않는다 — 사용자가 할 수 있는 게 없고, 매번 뜨면 진짜 경고를 가린다. */
+  function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    try {
+      navigator.serviceWorker.register('./sw.js').catch(function (e) {
+        // eslint-disable-next-line no-console
+        console.warn('서비스워커 등록 실패(앱은 정상 동작):', e);
+      });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('서비스워커를 쓸 수 없는 환경(앱은 정상 동작):', e);
+    }
+  }
   function init() {
+    registerServiceWorker();
     state.storage = SafetyLogic.storage(window);
     state.queue = state.storage.loadQueue();
     /* lastError 는 '직전 호출'의 결과다 — 다음 호출이 첫 줄에서 null 로 덮어쓰므로 여기서 먼저 읽는다 */
