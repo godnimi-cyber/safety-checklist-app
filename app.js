@@ -149,9 +149,25 @@
     var i = state.masters && (state.masters.inspectors || []).filter(function (x) { return x.inspector_id === inspectorId; })[0];
     return i ? i.team : '';
   }
+  /* W1: template_id 뿐 아니라 ver 까지 함께 대조한다 — getCurrentTemplateItems·startFromPlan·
+     renderPlanList 세 곳이 공유한다(한 곳만 고치면 나머지가 옛 기준(id 만)으로 남아 같은
+     결함이 다른 자리에서 재발한다). 못 찾으면 null. */
+  function findCurrentTemplate(templateId, ver) {
+    return ((state.masters && state.masters.templates) || []).filter(function (t) {
+      return t.template_id === templateId && t.ver === ver;
+    })[0] || null;
+  }
   function getCurrentTemplateItems() {
     if (!state.masters || !state.draft) return [];
-    var tpl = (state.masters.templates || []).filter(function (t) { return t.template_id === state.draft.template_id; })[0];
+    var d = state.draft;
+    /* W1: 정상 경로는 (id, ver) 정확 일치로 찾는다 — lib.js validateSubmission 의 ITEMS_MISMATCH
+       판정과 같은 기준이어야, 화면에 그려지는 항목과 실제 제출 판본이 어긋나지 않는다.
+       template_ver 가 없는 draft(옛 마이그레이션 경로, adhoc 이라도 newDraft 는 항상 ver 를
+       채우므로 이 경우는 그 옛 경로뿐)는 예전처럼 id 만으로 찾는다 — 지시("막지 마라")대로
+       여기서 막지 않는다. */
+    var tpl = (d.template_ver == null)
+      ? (state.masters.templates || []).filter(function (t) { return t.template_id === d.template_id; })[0]
+      : findCurrentTemplate(d.template_id, d.template_ver);
     return tpl ? tpl.items : [];
   }
   /* companies/inspectors 와 동일한 방어적 대칭(§renderHome 주석 참고) — MOCK 경로는 서버를
@@ -727,6 +743,10 @@
          재작성(→ 새 submission_id → 점검대장 2행)을 막는다 — queued 만 보면 큐 삭제로 이
          방어가 풀린다. */
       var isConsumed = !!(state.consumedPlanIds && state.consumedPlanIds[p.plan_id]);
+      /* W1: queued/isConsumed 와 같은 표시 방식을 재사용한다(판단 — 이미 검증된 패턴, 새 UI를
+         안 만들어도 된다) — masters 미수신·p.template_ver 없음(옛 계획)은 판정하지 않는다
+         (startFromPlan 의 진입 시점 검사와 같은 기준, 오판 방지). */
+      var isVersionMismatch = !!(state.masters && p.template_ver != null && !findCurrentTemplate(p.template_id, p.template_ver));
       if (queued[p.plan_id]) {
         startBtn.textContent = '전송 대기 중';
         startBtn.disabled = true;
@@ -737,6 +757,11 @@
         startBtn.disabled = true;
         noteEl.hidden = false;
         noteEl.textContent = '이미 작성해 전송했습니다 — 다시 작성하지 마세요. 다시 열어야 하면 관리자에게 문의하세요.';
+      } else if (isVersionMismatch) {
+        startBtn.textContent = '작성 불가';
+        startBtn.disabled = true;
+        noteEl.hidden = false;
+        noteEl.textContent = "이 계획의 점검 양식이 개정되었습니다 — '새 점검 시작'으로 작성하거나 관리자에게 문의하세요.";
       } else {
         startBtn.textContent = hasDraft ? '이어서 작성' : '작성 시작';
         startBtn.disabled = false;
@@ -968,8 +993,24 @@
     show('write');
   }
   /* 계획에서 시작 — 이미 임시저장이 있으면 이어서, 없으면 계획 정보(점검일·협력회사·공사)로
-     새 draft 를 만든다(설계 §6-3, renderWriteStep1 이 이 필드들을 잠근다). */
+     새 draft 를 만든다(설계 §6-3, renderWriteStep1 이 이 필드들을 잠근다).
+     W1: 계획에 박힌 plan.template_ver 가 지금의 활성 양식 판본과 다르면(양식 개정 창을 걸친
+     계획 — 스펙 §4-1 이 미래 365일 등록을 허용해 실제로 생긴다) 화면엔 새 판본 항목이
+     그려지는데(getCurrentTemplateItems, 위) payload 는 옛 template_ver 를 실어 제출 순간
+     lib.js validateSubmission 이 ITEMS_MISMATCH 로 거절한다 — 점검일·회사·공사가 잠겨 있고
+     양식도 고를 수 없어(renderWriteStep1) 사용자가 화면 안에서 고칠 방법이 없다. 140문항을
+     다 채운 뒤가 아니라 여기, 누르는 순간 막는다. 이미 작성 중이던 draft(이어서 작성)도
+     같은 이유로 막는다 — 그대로 들여보내면 getCurrentTemplateItems 가 빈 배열을 돌려줘
+     "이 양식에 등록된 항목이 없습니다"라는 더 헷갈리는 화면이 된다(작성한 내용 자체는 안
+     지운다 — state.drafts 에 그대로 남아 있어 나중에 코드가 더 나아지면 복구할 여지가
+     있다 — 여기서는 들어가는 문만 잠근다). masters 미수신·plan.template_ver 없음(옛 계획)은
+     판정하지 않고 기존 동작 그대로 둔다(오판으로 정상 진입까지 막으면 안 된다). */
   function startFromPlan(plan) {
+    if (state.masters && plan.template_ver != null && !findCurrentTemplate(plan.template_id, plan.template_ver)) {
+      showBanner('error', "이 계획의 점검 양식이 개정되었습니다 — '새 점검 시작'으로 작성하거나 관리자에게 문의하세요.");
+      window.scrollTo(0, 0);
+      return;
+    }
     var existing = state.drafts && state.drafts[plan.plan_id];
     if (existing) {
       state.draft = existing;
