@@ -213,6 +213,8 @@
     <section class="screen" id="screen-manage" data-screen="manage" hidden>
       <div class="screen-body">
         <p class="muted">예정일을 미루거나 잘못 등록한 계획을 취소합니다. 명부에 있는 점검자면 자기 PIN 으로 처리할 수 있습니다.</p>
+        <!-- 동기화 실패를 이 화면에서도 보여준다 — 홈의 #home-plans-banner 와 같은 자리·같은 규칙 -->
+        <div id="manage-banner" class="banner" hidden></div>
         <p class="muted" id="manage-empty">예정된 점검이 없습니다.</p>
         <div class="plan-list" id="manage-plans-list"></div>
 

@@ -108,7 +108,8 @@
     return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
   }
   /* todayStr() 을 days 만큼 이동한 KST 날짜 문자열 — MOCK 계획 목록을 "오늘" 기준 상대값으로
-     시딩해 데모가 언제 열어도(지난/오늘/다가옴 3그룹이 항상 보이게) 의미 있게 유지되도록 한다. */
+     시딩하고(데모가 언제 열어도 지난/오늘/다가옴 3그룹이 보이게), 관리 화면 날짜칸의 ±365
+     경계(min·max)를 서버 규칙과 같은 값으로 계산한다. */
   function shiftDateStr(days) {
     var d = new Date(toKst(new Date()).getTime() + days * 86400000);
     return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
@@ -825,6 +826,15 @@
      권한은 서버와 같다 — 명부에 있는 점검자면 자기 PIN 으로 남의 계획도 손댈 수 있다(등록자
      구속을 하면 등록자가 휴가·퇴사일 때 계획이 굳는다). 누가 바꿨는지는 시트 이력에 남는다. */
   function renderManage() {
+    /* 동기화 실패를 이 화면에서도 드러낸다(K4) — 홈의 renderPlansBanner 와 같은 상태를 읽는다.
+       이게 없으면 관리 화면에서는 목록이 왜 안 바뀌는지 알 방법이 없다. */
+    var bn = $('manage-banner');
+    if (!state.plansBanner) { bn.hidden = true; }
+    else {
+      bn.hidden = false;
+      bn.className = 'banner banner-' + state.plansBanner.level;
+      bn.textContent = state.plansBanner.text;
+    }
     var wrap = $('manage-plans-list');
     wrap.innerHTML = '';
     var today = todayStr();
@@ -849,31 +859,60 @@
       var editBtn = node.querySelector('.plan-btn-edit');
       var cancelBtn = node.querySelector('.plan-btn-cancel');
       var noteEl = node.querySelector('.plan-note');
-      /* 이 기기에서 이미 제출을 내보낸 계획(T1 tombstone)은 서버에서 done 이라 수정·취소가
-         반드시 실패한다 — 실패할 걸 알면서 누르게 두지 않는다(K3 의 '막다른 길 금지'와 같은 취지:
-         여기서 막아도 다른 탈출로가 있다. 재작성이 필요하면 홈의 '새 점검'이 열려 있다). */
+      /* 어떤 상태에서도 버튼을 막지 않는다. tombstone(consumedPlanIds)은 "서버가 완료했다"가
+         아니라 "이 기기에서 내보냈다(큐 적재 포함)"는 뜻이다 — 사용자가 큐 항목을 지우면
+         서버 계획은 여전히 planned 인데 표식만 남는다. 그때 버튼을 막으면 이 기기에서는
+         영영 못 고치는 막다른 길이 된다(K3 위반. Codex 렌즈B #4 로 발각).
+         서버가 최종 판정을 하고(done 이면 PLAN_ALREADY_DONE), 앱은 그것을 사람 말로 옮긴다.
+         대신 무슨 일이 벌어질지는 미리 알린다. */
       var isConsumed = !!(state.consumedPlanIds && state.consumedPlanIds[p.plan_id]);
+      editBtn.addEventListener('click', function () { openPlanManagePanel(p, 'edit'); });
+      cancelBtn.addEventListener('click', function () { openPlanManagePanel(p, 'cancel'); });
       if (isConsumed) {
-        editBtn.disabled = true;
-        cancelBtn.disabled = true;
         noteEl.hidden = false;
-        noteEl.textContent = '이미 작성해 전송한 계획입니다 — 일정 변경·취소를 할 수 없습니다.';
+        noteEl.textContent = '이 기기에서 이미 제출을 내보낸 계획입니다 — 서버가 완료 처리했다면 변경·취소가 거절됩니다.';
+      } else if (queued[p.plan_id]) {
+        /* 큐에 든 계획도 손댈 수 있다(서버 linkPlanDone_ 은 bestEffort 라 취소된 계획으로
+           제출이 들어와도 점검 기록 자체는 남는다) — 다만 무슨 일이 벌어지는지는 알린다. */
+        noteEl.hidden = false;
+        noteEl.textContent = '이 계획으로 작성한 제출이 미전송 목록에 있습니다.';
       } else {
-        editBtn.addEventListener('click', function () { openPlanManagePanel(p, 'edit'); });
-        cancelBtn.addEventListener('click', function () { openPlanManagePanel(p, 'cancel'); });
-        if (queued[p.plan_id]) {
-          /* 큐에 든 계획도 손댈 수는 있다(서버 linkPlanDone_ 은 bestEffort 라 취소된 계획으로
-             제출이 들어와도 점검 기록 자체는 남는다) — 다만 무슨 일이 벌어지는지는 알린다. */
-          noteEl.hidden = false;
-          noteEl.textContent = '이 계획으로 작성한 제출이 미전송 목록에 있습니다.';
-        } else {
-          noteEl.hidden = true;
-        }
+        noteEl.hidden = true;
       }
       wrap.appendChild(node);
     });
+
+    /* 재조회가 state.plans 를 새 배열로 갈면, 열려 있던 패널은 **옛 객체**를 잡고 있다.
+       그대로 두면 다른 기기에서 취소된 계획을 계속 편집하게 되고(확정해야 서버 오류로 알게 된다),
+       날짜가 바뀐 계획은 패널이 옛 날짜를 보인다. plan_id 로 새 객체에 다시 묶고, 사라졌으면
+       닫고 알린다(Codex 렌즈B #2). 처리 중에는 건드리지 않는다 — 진행 중인 요청의 대상이다. */
+    if (state.managingPlan && !state.managingPlanBusy) {
+      var cur = state.managingPlan;
+      var fresh = plans.filter(function (x) { return x.plan_id === cur.plan_id; })[0];
+      if (!fresh) {
+        closePlanManagePanel();
+        showBanner('warn', '편집 중이던 계획이 목록에서 사라졌습니다 — 다른 기기에서 처리되었을 수 있습니다.');
+      } else if (fresh.planned_date !== cur.planned_date) {
+        /* 값이 실제로 달라졌을 때만 다시 연다 — 무조건 다시 열면 입력 중이던 PIN·점검자가
+           재조회 한 번에 지워진다. 날짜가 바뀌었으면 보고 있는 값이 거짓이므로 다시 여는 게 맞다. */
+        openPlanManagePanel(fresh, state.managingMode);
+        showBanner('warn', '이 계획의 예정일이 ' + fresh.planned_date + ' 로 바뀌었습니다 — 확인 후 진행하세요.');
+      } else {
+        state.managingPlan = fresh;   /* 참조만 새 객체로 — 입력 중인 값은 건드리지 않는다 */
+      }
+    }
   }
   function openPlanManagePanel(plan, mode) {
+    /* 처리 중에는 다른 대상·다른 모드로 갈아타지 못하게 막는다. 안 막으면 응답이 오기 전에
+       패널이 다른 계획으로 바뀌고, finally 가 옛 버튼 문구('변경 확정')를 되살려 취소 모드
+       패널에 변경 문구가 뜬다 — 사용자가 의도하지 않은 취소를 누를 수 있다.
+       (요청 자체는 클로저의 plan 을 쓰므로 서버로 가는 값은 어긋나지 않는다. 막는 것은 화면의 거짓말이다.) */
+    if (state.managingPlanBusy) {
+      /* 무시하고 끝내면 눌러도 아무 일이 없는 버튼이 된다(K4) — 왜 안 되는지 말한다. */
+      showBanner('warn', '앞선 요청을 처리하는 중입니다 — 끝난 뒤 다시 눌러 주세요.');
+      window.scrollTo(0, 0);
+      return;
+    }
     state.managingPlan = plan;
     state.managingMode = mode;
     var isEdit = mode === 'edit';
@@ -886,6 +925,10 @@
                 : ' 계획을 취소합니다. 점검자 인증 후 확정됩니다.')
       + (!isEdit && hasDraft ? ' 이 계획에 작성 중인 내용이 있으며 취소하면 함께 삭제됩니다.' : '');
     $('pm-date-field').hidden = !isEdit;
+    /* 서버와 같은 ±365일을 입력칸에도 건다 — 서버가 최종 판정이지만, 오프라인·느린 회선에서
+       왕복 한 번을 기다린 뒤에야 "범위 밖"을 아는 것은 막다른 길처럼 느껴진다. */
+    $('pm-date').min = shiftDateStr(-365);
+    $('pm-date').max = shiftDateStr(365);
     $('pm-date').value = isEdit ? plan.planned_date : '';
     populateTeamSelect('pm-team');
     $('pm-team').value = '';
@@ -927,6 +970,15 @@
       showBanner('error', '다음 항목을 확인하세요: ' + missing.join(', '));
       window.scrollTo(0, 0);
       if (focusId) { var fel = $(focusId); if (fel && !fel.disabled) fel.focus(); }
+      return;
+    }
+    /* 서버와 같은 ±365 를 여기서도 본다(min/max 는 브라우저마다 강제력이 다르고 직접 입력을
+       막지 못한다). 오프라인이면 왕복 자체가 없어 서버 판정이 오지 않는다 — 그때 "범위 밖"을
+       알려주는 것은 이 검사뿐이다(Codex 렌즈B #6). 최종 판정은 여전히 서버다. */
+    if (isEdit && (newDate < shiftDateStr(-365) || newDate > shiftDateStr(365))) {
+      showBanner('error', '예정일은 오늘 기준 ±1년 안에서만 지정할 수 있습니다.');
+      window.scrollTo(0, 0);
+      var del = $('pm-date'); if (del && !del.disabled) del.focus();
       return;
     }
     /* 오프라인이어도 큐에 넣지 않는다(설계 §4) — 나중에 보내면 의미가 옅어지고, 갇힌 요청이
@@ -1087,7 +1139,11 @@
           ? { level: 'warn', text: '예정된 점검 동기화 실패 — 마지막 저장본 사용 (' + result.error.code + ')' }
           : { level: 'error', text: '예정된 점검을 불러오지 못했습니다 (' + result.error.code + ')' };
       }
+      /* 계획을 보여주는 화면은 둘이다 — 홈과 관리. 홈만 다시 그리면 관리 화면에 머무는 동안
+         state.plans 가 새 배열로 갈렸는데 화면은 옛 목록을 계속 보인다(다른 사람이 취소·추가한
+         계획이 안 보이거나 이미 사라진 계획이 남는다). */
       if (state.currentScreen === 'home') renderHome();
+      else if (state.currentScreen === 'manage') renderManage();
     });
   }
 
