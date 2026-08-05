@@ -33,6 +33,37 @@
         <div id="home-storage-banner" class="banner" role="alert" hidden></div>
         <div id="home-master-banner" class="banner" hidden></div>
 
+        <section class="queue-card" id="home-plans">
+          <div class="queue-header">
+            <h2 class="section-title" style="margin-bottom:0">예정된 점검</h2>
+            <button type="button" class="btn btn-outline" id="btn-open-plan-form">사전등록</button>
+          </div>
+          <p class="sync-line" id="home-plans-sync-line">예정 점검 동기화 안 됨</p>
+          <div id="home-plans-banner" class="banner" hidden></div>
+          <p class="muted" id="home-plans-empty">예정된 점검이 없습니다.</p>
+          <div class="plan-list" id="home-plans-list"></div>
+
+          <div class="plan-cancel-panel" id="plan-cancel-panel" hidden>
+            <p class="muted" id="plan-cancel-target"></p>
+            <div class="field">
+              <label class="field-label" for="pc-team">등록자 · 소속팀</label>
+              <select class="input" id="pc-team"></select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="pc-inspector">등록자 · 표시명</label>
+              <select class="input" id="pc-inspector" disabled></select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="pc-pin">PIN (4자리)</label>
+              <input class="input" type="tel" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" id="pc-pin" autocomplete="off">
+            </div>
+            <div class="plan-cancel-actions">
+              <button type="button" class="btn btn-outline" id="btn-plan-cancel-close">닫기</button>
+              <button type="button" class="btn btn-primary" id="btn-plan-cancel-confirm">취소 확정</button>
+            </div>
+          </div>
+        </section>
+
         <div>
           <h2 class="section-title">새 점검</h2>
           <div class="template-list" id="home-template-list"></div>
@@ -147,6 +178,50 @@
         <button type="button" class="btn btn-primary" id="btn-submit" disabled>제출</button>
       </footer>
     </section>
+
+    <!-- ④ 사전등록 -->
+    <section class="screen" id="screen-plan" data-screen="plan" hidden>
+      <div class="screen-body">
+        <div class="field">
+          <label class="field-label" for="p-date">점검예정일</label>
+          <input class="input" type="date" id="p-date">
+        </div>
+        <div class="field">
+          <label class="field-label" for="p-company">협력회사</label>
+          <select class="input" id="p-company"></select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="p-project">공사</label>
+          <select class="input" id="p-project" disabled></select>
+          <div class="tmp-project-wrap" id="p-project-new-wrap" hidden>
+            <label class="field-label" for="p-project-new">새 공사명</label>
+            <input class="input" type="text" id="p-project-new" placeholder="공사명을 입력하세요" maxlength="60">
+            <p class="field-hint">새 공사는 등록 즉시 공사대장에 추가됩니다.</p>
+          </div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="p-template">양식</label>
+          <select class="input" id="p-template" hidden></select>
+          <p class="muted" id="p-template-single" hidden></p>
+        </div>
+        <div class="field">
+          <label class="field-label" for="p-team">등록자 · 소속팀</label>
+          <select class="input" id="p-team"></select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="p-inspector">등록자 · 표시명</label>
+          <select class="input" id="p-inspector" disabled></select>
+        </div>
+        <div class="field">
+          <label class="field-label" for="p-pin">등록 PIN (4자리)</label>
+          <input class="input" type="tel" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" id="p-pin" autocomplete="off">
+        </div>
+      </div>
+      <footer class="action-bar">
+        <button type="button" class="btn btn-outline" id="btn-plan-form-cancel">취소</button>
+        <button type="button" class="btn btn-primary" id="btn-plan-create">등록</button>
+      </footer>
+    </section>
   </main>
 </div>
 
@@ -185,6 +260,20 @@
     <span class="finding-category"></span>
     <p class="finding-text"></p>
     <p class="finding-note"></p>
+  </div>
+</template>
+
+<template id="tpl-plan-row">
+  <div class="plan-row">
+    <div class="plan-row-info">
+      <span class="plan-date"></span>
+      <span class="plan-project"></span>
+      <span class="plan-company"></span>
+    </div>
+    <div class="plan-actions">
+      <button type="button" class="btn btn-primary plan-btn-start">작성 시작</button>
+      <button type="button" class="btn btn-outline plan-btn-cancel">취소</button>
+    </div>
   </div>
 </template>
 

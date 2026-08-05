@@ -3,6 +3,8 @@ var SafetyLogic = (function () {
   var DRAFT_KEY = 'sc_draft';
   var DRAFTS_KEY = 'sc_drafts';
   var QUEUE_KEY = 'sc_queue';
+  var MASTERS_KEY = 'sc_masters';
+  var PLANS_KEY = 'sc_plans';
 
   function hasWebCrypto() {
     return typeof globalThis !== 'undefined' && !!globalThis.crypto;
@@ -232,6 +234,13 @@ var SafetyLogic = (function () {
     };
     api.saveQueue = function (queue) { api.lastError = null; return saveJSON(QUEUE_KEY, queue); };
     api.loadQueue = function () { api.lastError = null; return loadJSON(QUEUE_KEY, []); };
+    /* 마스터/계획 캐시 — draft/queue 와 같은 방식(saveJSON/loadJSON, 예외 없이 false/lastError).
+       app.js 가 이 래퍼를 거치지 않고 window.localStorage 를 직접 만지면 안 된다(감사 지적,
+       tests-js/wiring.test.mjs §18c). 값 형태는 호출자(app.js) 자유 — 여기서는 불투명 JSON 블롭이다. */
+    api.saveMasters = function (entry) { api.lastError = null; return saveJSON(MASTERS_KEY, entry); };
+    api.loadMasters = function () { api.lastError = null; return loadJSON(MASTERS_KEY, null); };
+    api.savePlans = function (entry) { api.lastError = null; return saveJSON(PLANS_KEY, entry); };
+    api.loadPlans = function () { api.lastError = null; return loadJSON(PLANS_KEY, null); };
     return api;
   }
 

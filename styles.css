@@ -338,6 +338,41 @@ select.input {
   word-break: break-all;
 }
 
+/* ---------- 예정된 점검(사전등록 계획) ---------- */
+#home-plans .plan-list { display: flex; flex-direction: column; gap: var(--space-2); }
+/* 흰 배경(--color-surface) 위에 지난 계획을 --color-danger 텍스트로 표시한다 —
+   대비비 4.83:1(WCAG AA 본문 4.5:1 하한 통과, 계산: task-4-report.md 참고).
+   .queue-row 처럼 회색 틴트(--tint-neutral) 배경을 쓰면 4.15:1 로 AA 미달이라 여기서는 쓰지 않는다. */
+#home-plans .plan-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--tint-neutral-strong);
+}
+#home-plans .plan-row-info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+#home-plans .plan-date { font-weight: 700; }
+#home-plans .plan-overdue { color: var(--color-danger); }
+#home-plans .plan-project { font-weight: 600; }
+#home-plans .plan-company { color: var(--color-neutral); }
+/* 375px 폭에서 버튼 2개(작성 시작/이어서 작성 · 취소)가 겹치지 않도록 wrap 허용, 48px 규격은 .btn 그대로 */
+#home-plans .plan-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+#home-plans .plan-actions .btn { flex: 1 1 120px; }
+
+#home-plans .plan-cancel-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--tint-primary-strong);
+  border-radius: var(--radius-md);
+}
+#home-plans .plan-cancel-actions { display: flex; gap: var(--space-3); }
+#home-plans .plan-cancel-actions .btn { flex: 1; }
+
 /* ---------- 작성: step1 ---------- */
 #write-step1[hidden], #write-step2[hidden] { display: none; }
 .tmp-project-wrap { display: flex; flex-direction: column; gap: var(--space-2); }

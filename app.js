@@ -33,6 +33,24 @@
     }],
     rev: 1
   };
+  /* MOCK 계획 목록(사전등록 데모용) — todayStr() 기준 상대일로 지연 생성해 지난/오늘/다가옴
+     3그룹을 언제 열어도 재현한다. MOCK 의 plan_create/plan_cancel 이 이 배열을 직접 갱신한다. */
+  var MOCK_PLANS = null;
+  function ensureMockPlans() {
+    if (MOCK_PLANS) return MOCK_PLANS;
+    MOCK_PLANS = [
+      { plan_id: 'aaaaaaaa-bbbb-4ccc-8ddd-000000000001', planned_date: shiftDateStr(-5),
+        company_id: 'MC1', company_name: '(주)한빛건설', project_key: 'MP1', project_name: '본관 3층 배관교체 공사',
+        template_id: 'MOCK', template_ver: 1 },
+      { plan_id: 'aaaaaaaa-bbbb-4ccc-8ddd-000000000002', planned_date: shiftDateStr(0),
+        company_id: 'MC2', company_name: '대성설비', project_key: 'MP2', project_name: '옥외 변전실 증설 공사',
+        template_id: 'MOCK', template_ver: 1 },
+      { plan_id: 'aaaaaaaa-bbbb-4ccc-8ddd-000000000003', planned_date: shiftDateStr(5),
+        company_id: 'MC1', company_name: '(주)한빛건설', project_key: 'MP1', project_name: '본관 3층 배관교체 공사',
+        template_id: 'MOCK', template_ver: 1 }
+    ];
+    return MOCK_PLANS;
+  }
 
   /* ---------- state ---------- */
   var state = {
@@ -40,7 +58,20 @@
     masters: null,
     mastersSyncedAt: null,
     masterBanner: null,
+    /* drafts: 계획별 임시저장 맵({ <plan_id|'adhoc'>: draft }) — sc_drafts 를 그대로 메모리에 올려 둔다.
+       draft/draftKey: 현재 작성 화면이 붙잡고 있는 1건. draft 는 drafts[draftKey] 와 같은 객체
+       참조라 입력이 바뀌면 drafts 도 자동으로 따라온다(별도 동기화 불필요, persistDraft 만 저장한다). */
+    drafts: {},
     draft: null,
+    draftKey: null,
+    plans: [],
+    plansSyncedAt: null,
+    plansBanner: null,
+    /* 사전등록 화면 진입 시 1회 생성해 재시도에도 같은 값을 쓰는 plan_id(서버 멱등의 전제) */
+    planFormId: null,
+    creatingPlan: false,
+    cancelingPlan: null,
+    cancelingPlanBusy: false,
     queue: [],
     currentScreen: 'home',
     writeStep: 1,
@@ -67,6 +98,12 @@
   }
   function todayStr() {
     var d = toKst(new Date());
+    return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
+  }
+  /* todayStr() 을 days 만큼 이동한 KST 날짜 문자열 — MOCK 계획 목록을 "오늘" 기준 상대값으로
+     시딩해 데모가 언제 열어도(지난/오늘/다가옴 3그룹이 항상 보이게) 의미 있게 유지되도록 한다. */
+  function shiftDateStr(days) {
+    var d = new Date(toKst(new Date()).getTime() + days * 86400000);
     return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
   }
   function formatDateTime(iso) {
@@ -112,6 +149,17 @@
     if (!state.masters || !state.draft) return [];
     var tpl = (state.masters.templates || []).filter(function (t) { return t.template_id === state.draft.template_id; })[0];
     return tpl ? tpl.items : [];
+  }
+  /* companies/inspectors 와 동일한 방어적 대칭(§renderHome 주석 참고) — MOCK 경로는 서버를
+     거치지 않으므로 클라에서도 active 필터링한다. 홈 템플릿 목록·사전등록 양식 선택 공용. */
+  function activeTemplates() {
+    return ((state.masters && state.masters.templates) || []).filter(function (t) { return t.active !== false; });
+  }
+  /* PIN 입력칸 공통 규격(숫자만·4자리) — f-pin/p-pin/pc-pin 3곳이 공유한다. */
+  function clampPinInput(e) {
+    var digits = e.target.value.replace(/\D/g, '').slice(0, 4);
+    e.target.value = digits;
+    return digits;
   }
   function withInjectedPin(masters, inspectorId, pin) {
     /* masters 응답에는 pin이 없다 — 클라 사전검증이 PIN_MISMATCH로 오탐하지 않도록
@@ -184,11 +232,20 @@
     showBanner('error', what + ' 저장에 실패했습니다 — 새로고침하거나 탭을 닫으면 이 기록이 사라집니다.' + saveErrorSuffix());
   }
   function persistDraft() {
-    if (!state.draft) return true;
-    var ok = state.storage.saveDraft(state.draft);
+    if (!state.draft || !state.draftKey) return true;
+    var ok = state.storage.saveDraft(state.draftKey, state.draft);
     if (ok) state.lastSaveFailureKey = null;
     else notifySaveFailure('작성 중인 점검', 'draft');
     return ok;
+  }
+  /* 제출 성공(또는 큐 적재 후 홈 복귀) 경로 공용 — 현재 붙잡고 있는 draft 를 drafts 맵과
+     storage 양쪽에서 지운다(계획별 임시저장, 설계 §6-4). */
+  function clearActiveDraft() {
+    if (!state.draftKey) return;
+    state.storage.clearDraft(state.draftKey);
+    if (state.drafts) delete state.drafts[state.draftKey];
+    state.draft = null;
+    state.draftKey = null;
   }
   function persistQueue() {
     var ok = state.storage.saveQueue(state.queue);
@@ -273,6 +330,86 @@
       }, 300);
     });
   }
+  function loadPlansFromNetwork() {
+    return CONFIG.MOCK ? mockPlansList() : fetchPlansRemote();
+  }
+  function fetchPlansRemote() {
+    return requestJson(CONFIG.API_URL + '?action=plans&k=' + CONFIG.SHARED_KEY, null);
+  }
+  function mockPlansList() {
+    return new Promise(function (resolve) {
+      setTimeout(function () { resolve({ ok: true, data: { plans: ensureMockPlans().slice() } }); }, 150);
+    });
+  }
+  function createPlanOnServer(payload) {
+    return CONFIG.MOCK ? mockPlanCreate(payload) : realPlanCreate(payload);
+  }
+  function realPlanCreate(payload) {
+    return requestJson(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'plan_create', k: CONFIG.SHARED_KEY, payload: payload }),
+      redirect: 'follow'
+    });
+  }
+  /* MOCK plan_create: 실제 gas/main.gs handlePlanCreate_ 의 신규 공사 재사용 규칙(회사별
+     정규화 비교)만 흉내 낸다 — 데모 목적, PIN 은 검증하지 않는다(서버가 검증할 자리가 없다). */
+  function mockPlanCreate(payload) {
+    // eslint-disable-next-line no-console
+    console.log('[MOCK plan_create]', payload);
+    return new Promise(function (resolve) {
+      setTimeout(function () {
+        var comp = ((state.masters && state.masters.companies) || []).filter(function (c) { return c.company_id === payload.company_id; })[0];
+        var reused = false, created = null, projectKey = payload.project_key, projectName = '';
+        if (projectKey) {
+          var proj = ((state.masters && state.masters.projects) || []).filter(function (p) { return p.project_id === projectKey; })[0];
+          projectName = proj ? proj.name : '';
+        } else {
+          var norm = function (s) { return String(s || '').replace(/\s+/g, ' ').trim().toLowerCase(); };
+          var want = norm(payload.new_project_name);
+          var existing = ((state.masters && state.masters.projects) || []).filter(function (p) {
+            return p.company_id === payload.company_id && norm(p.name) === want;
+          })[0];
+          if (existing) {
+            projectKey = existing.project_id; projectName = existing.name; reused = true;
+          } else {
+            projectKey = 'MOCK-P' + Math.floor(100 + Math.random() * 900);
+            projectName = payload.new_project_name;
+            created = { project_id: projectKey, name: projectName };
+          }
+        }
+        var plan = {
+          plan_id: payload.plan_id, planned_date: payload.planned_date,
+          company_id: payload.company_id, company_name: comp ? comp.name : '',
+          project_key: projectKey, project_name: projectName,
+          template_id: payload.template_id, template_ver: payload.template_ver
+        };
+        ensureMockPlans().push(plan);
+        resolve({ ok: true, data: { dup: false, reused_project: reused, created_project: created, plan: plan } });
+      }, 300);
+    });
+  }
+  function cancelPlanOnServer(payload) {
+    return CONFIG.MOCK ? mockPlanCancel(payload) : realPlanCancel(payload);
+  }
+  function realPlanCancel(payload) {
+    return requestJson(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'plan_cancel', k: CONFIG.SHARED_KEY, payload: payload }),
+      redirect: 'follow'
+    });
+  }
+  function mockPlanCancel(payload) {
+    // eslint-disable-next-line no-console
+    console.log('[MOCK plan_cancel]', payload);
+    return new Promise(function (resolve) {
+      setTimeout(function () {
+        MOCK_PLANS = ensureMockPlans().filter(function (p) { return p.plan_id !== payload.plan_id; });
+        resolve({ ok: true, data: { canceled: true } });
+      }, 200);
+    });
+  }
 
   /* ---------- 배너 ---------- */
   function showBanner(level, text) {
@@ -328,6 +465,7 @@
     $('screen-home').hidden = name !== 'home';
     $('screen-write').hidden = name !== 'write';
     $('screen-review').hidden = name !== 'review';
+    $('screen-plan').hidden = name !== 'plan';
     updateTopbar(name);
     if (name === 'home') { renderHome(); flushQueue(); }
     else if (name === 'write') { renderWrite(); }
@@ -340,6 +478,7 @@
     if (name === 'home') { title.textContent = '안전점검'; back.hidden = true; }
     else if (name === 'write') { title.textContent = state.writeStep === 1 ? '작성 · 기본정보' : '작성 · 항목점검'; back.hidden = false; }
     else if (name === 'review') { title.textContent = '검토'; back.hidden = false; }
+    else if (name === 'plan') { title.textContent = '점검 사전등록'; back.hidden = false; }
   }
   function onBack() {
     if (state.submitting) return; /* 제출 진행 중 화면 이탈 금지 — 완료 전 draft가 다른 화면 편집으로 덮이는 경합 방지 */
@@ -347,7 +486,9 @@
     if (state.currentScreen === 'write') {
       if (state.writeStep === 2) { state.writeStep = 1; show('write'); }
       else { show('home'); }
+      return;
     }
+    if (state.currentScreen === 'plan') { show('home'); }
   }
 
   /* ================= 홈 ================= */
@@ -357,12 +498,13 @@
       : '마스터 동기화 안 됨';
     renderStorageBanner();
     renderMasterBanner();
+    renderPlansSyncLine();
+    renderPlansBanner();
+    renderPlanList();
 
     var list = $('home-template-list');
     list.innerHTML = '';
-    /* companies/inspectors와 동일한 방어적 대칭 — 서버(gas/main.gs loadMasters_)는 이미
-       active=TRUE 템플릿만 내려보내지만, MOCK 경로는 서버를 거치지 않으므로 클라에서도 필터링한다. */
-    var templates = ((state.masters && state.masters.templates) || []).filter(function (t) { return t.active !== false; });
+    var templates = activeTemplates();
     if (!templates.length) {
       var p = document.createElement('p');
       p.className = 'muted';
@@ -379,11 +521,14 @@
       });
     }
 
+    /* '이어쓰기' 카드는 adhoc(계획 없이 시작한) 임시저장 전용이다(설계 §6-4) — 계획별 임시저장은
+       각 계획 행의 '이어서 작성' 버튼으로 들어간다(renderPlanList). */
     var contWrap = $('home-continue-wrap');
-    if (state.draft) {
+    var adhocDraft = state.drafts && state.drafts.adhoc;
+    if (adhocDraft) {
       contWrap.hidden = false;
-      var tpl = (state.masters && state.masters.templates || []).filter(function (t) { return t.template_id === state.draft.template_id; })[0];
-      $('home-continue-label').textContent = '작성 중: ' + (tpl ? tpl.name : state.draft.template_id) + ' (' + state.draft.inspect_date + ')';
+      var tpl = (state.masters && state.masters.templates || []).filter(function (t) { return t.template_id === adhocDraft.template_id; })[0];
+      $('home-continue-label').textContent = '작성 중: ' + (tpl ? tpl.name : adhocDraft.template_id) + ' (' + adhocDraft.inspect_date + ')';
     } else {
       contWrap.hidden = true;
     }
@@ -489,12 +634,138 @@
     btn.setAttribute('aria-expanded', open ? 'true' : 'false');
     btn.textContent = open ? '상세 닫기' : '상세';
   }
+
+  /* ---------- 홈: 예정된 점검(사전등록 계획) ---------- */
+  /* 정렬 그룹: 지난 미완(예정일 < 오늘) → 오늘 → 다가오는 것(설계 §6-1). 그룹 안에서는 예정일 오름차순 —
+     planned_date 가 yyyy-MM-dd 라 문자열 비교가 곧 날짜 비교다. */
+  function planGroup(p, today) {
+    if (p.planned_date < today) return 0;
+    if (p.planned_date === today) return 1;
+    return 2;
+  }
+  function renderPlanList() {
+    var wrap = $('home-plans-list');
+    wrap.innerHTML = '';
+    var today = todayStr();
+    var plans = (state.plans || []).slice().sort(function (a, b) {
+      var ga = planGroup(a, today), gb = planGroup(b, today);
+      if (ga !== gb) return ga - gb;
+      if (a.planned_date < b.planned_date) return -1;
+      if (a.planned_date > b.planned_date) return 1;
+      return 0;
+    });
+    $('home-plans-empty').hidden = plans.length !== 0;
+    plans.forEach(function (p) {
+      var node = $('tpl-plan-row').content.firstElementChild.cloneNode(true);
+      var overdue = p.planned_date < today;
+      var dateEl = node.querySelector('.plan-date');
+      dateEl.textContent = p.planned_date + (overdue ? ' · 지남' : '');
+      dateEl.classList.toggle('plan-overdue', overdue);
+      node.querySelector('.plan-project').textContent = p.project_name;
+      node.querySelector('.plan-company').textContent = p.company_name;
+
+      var hasDraft = !!(state.drafts && state.drafts[p.plan_id]);
+      var startBtn = node.querySelector('.plan-btn-start');
+      startBtn.textContent = hasDraft ? '이어서 작성' : '작성 시작';
+      startBtn.addEventListener('click', function () { startFromPlan(p); });
+
+      node.querySelector('.plan-btn-cancel').addEventListener('click', function () { openPlanCancelPanel(p); });
+
+      wrap.appendChild(node);
+    });
+  }
+  function renderPlansSyncLine() {
+    $('home-plans-sync-line').textContent = state.plansSyncedAt
+      ? ('예정 점검 동기화: ' + formatDateTime(state.plansSyncedAt))
+      : '예정 점검 동기화 안 됨';
+  }
+  function renderPlansBanner() {
+    var el = $('home-plans-banner');
+    if (!state.plansBanner) { el.hidden = true; return; }
+    el.hidden = false;
+    el.className = 'banner banner-' + state.plansBanner.level;
+    el.textContent = state.plansBanner.text;
+  }
+  function openPlanCancelPanel(plan) {
+    state.cancelingPlan = plan;
+    $('plan-cancel-target').textContent = plan.planned_date + ' · ' + plan.company_name + ' · ' + plan.project_name + ' 계획을 취소합니다. 등록자 인증 후 확정됩니다.';
+    populateTeamSelect('pc-team');
+    $('pc-team').value = '';
+    populateInspectorSelect('', 'pc-inspector');
+    $('pc-pin').value = '';
+    $('plan-cancel-panel').hidden = false;
+    $('plan-cancel-panel').scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+  }
+  function closePlanCancelPanel() {
+    state.cancelingPlan = null;
+    $('plan-cancel-panel').hidden = true;
+  }
+  function onPlanCancelConfirm() {
+    if (state.cancelingPlanBusy || !state.cancelingPlan) return;
+    var plan = state.cancelingPlan;
+    var inspectorId = $('pc-inspector').value;
+    var pin = $('pc-pin').value;
+    var missing = [];
+    if (!inspectorId) missing.push('등록자');
+    if (!/^\d{4}$/.test(pin || '')) missing.push('PIN(4자리)');
+    if (missing.length) { showBanner('error', '다음 항목을 확인하세요: ' + missing.join(', ')); return; }
+    state.cancelingPlanBusy = true;
+    var btn = $('btn-plan-cancel-confirm');
+    btn.disabled = true;
+    btn.textContent = '취소 처리 중...';
+    cancelPlanOnServer({ plan_id: plan.plan_id, inspector_id: inspectorId, pin: pin }).then(function (result) {
+      if (result.ok) {
+        state.plans = state.plans.filter(function (p) { return p.plan_id !== plan.plan_id; });
+        state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt });
+        closePlanCancelPanel();
+        showBanner('success', '점검 계획을 취소했습니다.');
+        renderHome();
+        return;
+      }
+      var err = normalizeError(result.error);
+      /* Task 3 인계 문구(findings F4/F5) — 사용자가 고칠 수 있는 사유로 번역한다 */
+      var friendly = /PLAN_ALREADY_DONE/.test(err.message) ? '이미 완료된 점검입니다. 목록을 새로고침하세요.'
+        : /PLAN_NOT_FOUND/.test(err.message) ? '이미 처리되었거나 없는 계획입니다. 목록을 새로고침하세요.'
+        : /PIN_MISMATCH/.test(err.message) ? 'PIN이 일치하지 않습니다.'
+        : err.message;
+      showBanner('error', '취소에 실패했습니다: ' + friendly + ' (' + err.code + ')');
+    }).finally(function () {
+      state.cancelingPlanBusy = false;
+      btn.disabled = false;
+      btn.textContent = '취소 확정';
+    }).catch(function (e) {
+      showBanner('error', '취소 처리 중 오류가 발생했습니다: ' + ((e && e.message) || e));
+    });
+  }
+  function refreshPlans() {
+    return loadPlansFromNetwork().then(function (result) {
+      if (result.ok) {
+        state.plans = (result.data && result.data.plans) || [];
+        state.plansSyncedAt = new Date().toISOString();
+        state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt });
+        state.plansBanner = null;
+      } else {
+        /* F7(Task 3 인계, 계약 K2): CONFIG(탭 없음·헤더 손상) 등 실패라도 캐시를 빈 목록으로
+           덮어쓰지 않는다 — state.plans 를 건드리지 않고 마지막 저장본 + 동기화 시각을 그대로 보여준다. */
+        state.plansBanner = (state.plans.length || state.plansSyncedAt)
+          ? { level: 'warn', text: '예정된 점검 동기화 실패 — 마지막 저장본 사용 (' + result.error.code + ')' }
+          : { level: 'error', text: '예정된 점검을 불러오지 못했습니다 (' + result.error.code + ')' };
+      }
+      if (state.currentScreen === 'home') renderHome();
+    });
+  }
+
+  /* ---------- 홈: 새 점검/이어쓰기(계획 없이, adhoc) ---------- */
   function startNewInspection(template) {
-    if (state.draft) {
+    if (state.drafts && state.drafts.adhoc) {
       var ok = window.confirm('작성 중인 임시 점검이 있습니다. 새로 시작하면 기존 임시 점검은 삭제됩니다. 계속할까요?');
       if (!ok) return;
     }
-    state.draft = SafetyLogic.newDraft(template.template_id, template.ver, todayStr());
+    var draft = SafetyLogic.newDraft(template.template_id, template.ver, todayStr());
+    state.draft = draft;
+    state.draftKey = 'adhoc';
+    state.drafts = state.drafts || {};
+    state.drafts.adhoc = draft;
     state.writeStep = 1;
     clearBanner();
     state.lastSaveFailureKey = null;   /* 새 점검 = 새 고지 기회 */
@@ -502,10 +773,162 @@
     show('write');
   }
   function continueDraft() {
-    if (!state.draft) return;
+    var d = state.drafts && state.drafts.adhoc;
+    if (!d) return;
+    state.draft = d;
+    state.draftKey = 'adhoc';
     state.writeStep = 2;
     clearBanner();
     show('write');
+  }
+  /* 계획에서 시작 — 이미 임시저장이 있으면 이어서, 없으면 계획 정보(점검일·협력회사·공사)로
+     새 draft 를 만든다(설계 §6-3, renderWriteStep1 이 이 필드들을 잠근다). */
+  function startFromPlan(plan) {
+    var existing = state.drafts && state.drafts[plan.plan_id];
+    if (existing) {
+      state.draft = existing;
+      state.draftKey = plan.plan_id;
+      state.writeStep = 1;
+      clearBanner();
+      show('write');
+      return;
+    }
+    var draft = SafetyLogic.newDraft(plan.template_id, plan.template_ver, plan.planned_date);
+    draft.plan_id = plan.plan_id;
+    draft.company_id = plan.company_id;
+    draft.project_key = plan.project_key;
+    draft.project_name = plan.project_name;
+    state.draft = draft;
+    state.draftKey = plan.plan_id;
+    state.drafts = state.drafts || {};
+    state.drafts[plan.plan_id] = draft;
+    state.writeStep = 1;
+    clearBanner();
+    state.lastSaveFailureKey = null;
+    persistDraft();
+    show('write');
+  }
+
+  /* ---------- 사전등록 화면 ---------- */
+  function openPlanForm() {
+    state.planFormId = SafetyLogic.uuid();   /* 화면 진입 시 1회 — 재시도해도 같은 값(서버 멱등 전제) */
+    $('p-date').value = todayStr();
+    populateCompanySelect('p-company');
+    $('p-company').value = '';
+    populateProjectSelect('', { selectId: 'p-project', extraValue: '__NEW__', extraLabel: '새 공사 등록' });
+    $('p-project-new-wrap').hidden = true;
+    $('p-project-new').value = '';
+    populatePlanTemplateSelect();
+    populateTeamSelect('p-team');
+    $('p-team').value = '';
+    populateInspectorSelect('', 'p-inspector');
+    $('p-pin').value = '';
+    clearBanner();
+    show('plan');
+  }
+  /* 활성 양식이 2개 이상일 때만 select 를 노출한다. 1개면 자동 선택하고 이름만 보여준다(브리프 §6-2). */
+  function populatePlanTemplateSelect() {
+    var tpls = activeTemplates();
+    var sel = $('p-template');
+    var single = $('p-template-single');
+    if (tpls.length >= 2) {
+      sel.hidden = false;
+      single.hidden = true;
+      sel.innerHTML = '';
+      sel.appendChild(placeholderOption('양식 선택'));
+      tpls.forEach(function (t) {
+        var opt = document.createElement('option');
+        opt.value = t.template_id; opt.textContent = t.name;
+        sel.appendChild(opt);
+      });
+    } else {
+      sel.hidden = true;
+      single.hidden = false;
+      single.textContent = tpls.length === 1 ? ('양식: ' + tpls[0].name) : '등록된 활성 양식이 없습니다.';
+    }
+  }
+  function currentPlanTemplate() {
+    var tpls = activeTemplates();
+    var id = tpls.length === 1 ? tpls[0].template_id : $('p-template').value;
+    return tpls.filter(function (t) { return t.template_id === id; })[0] || null;
+  }
+  function onPlanCompanyChange(e) {
+    populateProjectSelect(e.target.value, { selectId: 'p-project', extraValue: '__NEW__', extraLabel: '새 공사 등록' });
+    $('p-project-new-wrap').hidden = true;
+    $('p-project-new').value = '';
+  }
+  function onPlanProjectChange(e) {
+    var isNew = e.target.value === '__NEW__';
+    $('p-project-new-wrap').hidden = !isNew;
+    if (!isNew) $('p-project-new').value = '';
+  }
+  function onPlanTeamChange(e) {
+    populateInspectorSelect(e.target.value, 'p-inspector');
+  }
+  function onCreatePlan() {
+    if (state.creatingPlan) return;
+    var date = $('p-date').value;
+    var companyId = $('p-company').value;
+    var projectSel = $('p-project').value;
+    var isNewProject = projectSel === '__NEW__';
+    var newProjectName = $('p-project-new').value.trim();
+    var tpl = currentPlanTemplate();
+    var inspectorId = $('p-inspector').value;
+    var pin = $('p-pin').value;
+
+    var missing = [];
+    if (!date) missing.push('점검예정일');
+    if (!companyId) missing.push('협력회사');
+    if (!projectSel || (isNewProject && !newProjectName)) missing.push('공사');
+    if (!tpl) missing.push('양식');
+    if (!inspectorId) missing.push('등록자');
+    if (!/^\d{4}$/.test(pin || '')) missing.push('PIN(4자리)');
+    if (missing.length) { showBanner('error', '다음 항목을 확인하세요: ' + missing.join(', ')); return; }
+
+    var payload = {
+      plan_id: state.planFormId,
+      planned_date: date,
+      company_id: companyId,
+      project_key: isNewProject ? '' : projectSel,
+      new_project_name: isNewProject ? newProjectName : '',
+      template_id: tpl.template_id,
+      template_ver: tpl.ver,
+      inspector_id: inspectorId,
+      pin: pin
+    };
+    /* 제출과 동일하게 PIN 을 주입한 마스터 사본으로 사전 검증한다(브리프 §6-2) */
+    var mastersForValidate = withInjectedPin(state.masters || { inspectors: [] }, inspectorId, pin);
+    var v = SafetyLib.validatePlan(payload, mastersForValidate, todayStr());
+    if (!v.ok) {
+      showBanner('error', v.errors.map(function (e) { return e.msg + '(' + e.code + ')'; }).join(' / '));
+      return;
+    }
+    state.creatingPlan = true;
+    var btn = $('btn-plan-create');
+    btn.disabled = true;
+    btn.textContent = '등록 중...';
+    createPlanOnServer(payload).then(function (result) {
+      if (result.ok) {
+        state.planFormId = null;
+        showBanner('success', (result.data && result.data.reused_project)
+          ? '이미 등록된 공사라 기존 공사로 연결했습니다.'
+          : '점검이 등록되었습니다.');
+        refreshPlans();
+        show('home');
+        return;
+      }
+      /* 설계 §7: 계획 등록 실패는 큐에 넣지 않는다 — 화면에 머무르며 사유를 보여준다. */
+      var err = normalizeError(result.error);
+      var friendly = /PLAN_DUP/.test(err.message) ? '이미 처리된 계획입니다. 새로고침 후 다시 등록해 주세요.' : err.message;
+      showBanner('error', '등록에 실패했습니다: ' + friendly + ' (' + err.code + ')');
+      window.scrollTo(0, 0);
+    }).finally(function () {
+      state.creatingPlan = false;
+      btn.disabled = false;
+      btn.textContent = '등록';
+    }).catch(function (e) {
+      showBanner('error', '등록 처리 중 오류가 발생했습니다: ' + ((e && e.message) || e));
+    });
   }
   /* 자동 재시도 대상 — 영구 실패(VALIDATION)는 재전송해도 같은 결과라 무한 재시도를 여기서 끊는다.
      그 항목은 큐 행의 '다시 시도'(사람의 명시적 의사)로만 다시 흐른다. */
@@ -560,11 +983,16 @@
 
   function renderWriteStep1() {
     var draft = state.draft;
+    /* 계획에서 시작한 작성은 점검일·협력회사·공사를 잠근다(읽기 전용) — 설계 §6-3.
+       점검자·PIN·수검자는 계획에 없다(누가 갈지는 작성 시점에 정한다, 설계 §1) — 그대로 편집. */
+    var locked = !!draft.plan_id;
     $('f-date').value = draft.inspect_date || todayStr();
     $('f-date').max = todayStr();
+    $('f-date').disabled = locked;
 
     populateCompanySelect();
     $('f-company').value = draft.company_id || '';
+    $('f-company').disabled = locked;
     populateProjectSelect(draft.company_id);
     if (/^TMP-/.test(draft.project_key || '')) {
       $('f-project').value = '__TMP__';
@@ -574,6 +1002,7 @@
       $('f-project').value = draft.project_key || '';
       $('f-project-tmp-wrap').hidden = true;
     }
+    if (locked) { $('f-project').disabled = true; $('f-project-tmp').disabled = true; }
 
     populateTeamSelect();
     var team = teamOf(draft.inspector_id);
@@ -584,8 +1013,10 @@
     $('f-pin').value = draft.pin || '';
     $('f-auditee').value = draft.auditee || '';
   }
-  function populateCompanySelect() {
-    var sel = $('f-company');
+  /* selectId 는 선택: 작성 화면(f-*)이 기본이고, 사전등록 화면(p-*)·계획 취소 패널(pc-*)이
+     같은 채움 로직을 재사용한다(기존 호출부는 인자 없이 그대로 동작한다). */
+  function populateCompanySelect(selectId) {
+    var sel = $(selectId || 'f-company');
     sel.innerHTML = '';
     sel.appendChild(placeholderOption('협력회사 선택'));
     ((state.masters && state.masters.companies) || []).filter(function (c) { return c.active !== false; })
@@ -595,8 +1026,12 @@
         sel.appendChild(opt);
       });
   }
-  function populateProjectSelect(companyId) {
-    var sel = $('f-project');
+  /* opts.selectId 기본 f-project. opts.extraValue/extraLabel 로 목록 끝 특수 옵션을 바꾼다 —
+     작성 화면은 '미등록 공사(직접 입력)'(TMP, 오프라인 탈출구), 사전등록 화면은
+     '새 공사 등록'(정식 공사만 만든다, 설계 §5) — 값·문구가 다르므로 하드코딩하지 않는다. */
+  function populateProjectSelect(companyId, opts) {
+    opts = opts || {};
+    var sel = $(opts.selectId || 'f-project');
     sel.innerHTML = '';
     sel.appendChild(placeholderOption('공사 선택'));
     ((state.masters && state.masters.projects) || [])
@@ -606,13 +1041,14 @@
         opt.value = p.project_id; opt.textContent = p.name;
         sel.appendChild(opt);
       });
-    var tmpOpt = document.createElement('option');
-    tmpOpt.value = '__TMP__'; tmpOpt.textContent = '미등록 공사(직접 입력)';
-    sel.appendChild(tmpOpt);
+    var extraOpt = document.createElement('option');
+    extraOpt.value = opts.extraValue || '__TMP__';
+    extraOpt.textContent = opts.extraLabel || '미등록 공사(직접 입력)';
+    sel.appendChild(extraOpt);
     sel.disabled = !companyId;
   }
-  function populateTeamSelect() {
-    var sel = $('f-team');
+  function populateTeamSelect(selectId) {
+    var sel = $(selectId || 'f-team');
     sel.innerHTML = '';
     sel.appendChild(placeholderOption('소속팀 선택'));
     var teams = [];
@@ -626,8 +1062,8 @@
       sel.appendChild(opt);
     });
   }
-  function populateInspectorSelect(team) {
-    var sel = $('f-inspector');
+  function populateInspectorSelect(team, selectId) {
+    var sel = $(selectId || 'f-inspector');
     sel.innerHTML = '';
     sel.appendChild(placeholderOption('점검자 선택'));
     sel.disabled = !team;
@@ -683,8 +1119,7 @@
     persistDraft();
   }
   function onPinInput(e) {
-    var digits = e.target.value.replace(/\D/g, '').slice(0, 4);
-    e.target.value = digits;
+    var digits = clampPinInput(e);
     state.draft.pin = digits;
     invalidateAck();
     persistDraft();
@@ -921,6 +1356,7 @@
     if (state.submitting || !state.draft) return;
     var draft = state.draft;
     var payload = SafetyLogic.draftToPayload(draft, CONFIG, (state.masters && state.masters.rev) || 0);
+    if (draft.plan_id) payload.plan_id = draft.plan_id;   /* 서버가 성공 시 이 계획을 done 으로 전이한다(Task 3) */
     var mastersForValidate = withInjectedPin(state.masters || { inspectors: [] }, draft.inspector_id, draft.pin);
     var v = SafetyLib.validateSubmission(payload, mastersForValidate, todayStr());
     if (!v.ok) {
@@ -934,8 +1370,7 @@
     $('btn-review-back').disabled = true;
     submitToServer(payload).then(function (result) {
       if (result.ok) {
-        state.storage.clearDraft();
-        state.draft = null;
+        clearActiveDraft();
         showBanner('success', (result.data && result.data.dup) ? '이미 처리된 제출입니다(중복 확인됨).' : '제출 완료.');
         show('home');
         return;
@@ -964,8 +1399,7 @@
         window.scrollTo(0, 0);
         return;
       }
-      state.storage.clearDraft();
-      state.draft = null;
+      clearActiveDraft();
       showBanner('error', isAdminError(err.code)
         ? ('전송 실패 — 큐에 보관됨. 관리자 확인이 필요합니다. 해결되면 자동으로 전송됩니다: ' + err.message + ' (' + err.code + ')')
         : ('전송 실패 — 큐에 보관됨: ' + err.message + ' (' + err.code + ')'));
@@ -980,37 +1414,12 @@
   }
 
   /* ================= 기동 ================= */
-  /* 마스터 캐시도 draft·queue 와 같은 폴백 계약을 따른다(계약 K4의 전제):
-     localStorage 접근이 던지는 기기에서는 아예 손대지 않고 세션 메모리로만 유지한다.
-     (logic.js 의 storage 래퍼는 draft/queue 전용 API 만 노출하므로 같은 규칙을 여기서 지킨다 —
-      래퍼에 범용 키 API 가 생기면 이 블록은 그대로 대체된다.) */
-  var MASTERS_KEY = 'sc_masters';
-  var mastersMemCache = null;   /* 저장소를 못 쓸 때의 세션 한정 폴백 */
-  function storageUsable() {
-    return !!(state.storage && state.storage.available);
-  }
-  function readMastersCache() {
-    if (mastersMemCache) return mastersMemCache;
-    if (!storageUsable()) return null;
-    try {
-      var raw = window.localStorage.getItem(MASTERS_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch (e) {
-      return null;   /* 캐시 파싱/접근 실패 = 캐시 없음 취급(마스터는 네트워크에서 다시 받는다) */
-    }
-  }
-  function writeMastersCache(entry) {
-    mastersMemCache = entry;
-    if (!storageUsable()) return false;
-    try {
-      window.localStorage.setItem(MASTERS_KEY, JSON.stringify(entry));
-      return true;
-    } catch (e) {
-      return false;   /* 저장 공간 부족 등 — 세션 캐시로 계속 진행(기록이 아니라 사본이라 고지하지 않는다) */
-    }
-  }
+  /* 마스터·계획 캐시는 draft·queue 와 같은 storage 래퍼(logic.js)를 거친다 — window.localStorage
+     직접 접근 금지(감사 지적, tests-js/wiring.test.mjs §18c 가 app.js 전체를 스캔해 검사한다).
+     래퍼가 이미 폴백(available:false 기기에서 세션 메모리로 계속 동작)·예외 무발생을 보장하므로
+     여기서 별도 try/catch·메모리 캐시를 두지 않는다(계약 K4 전제 그대로 승계). */
   function loadCachedMasters() {
-    var cached = readMastersCache();
+    var cached = state.storage.loadMasters();
     if (cached && cached.data) { state.masters = cached.data; state.mastersSyncedAt = cached.syncedAt || null; }
   }
   function refreshMasters() {
@@ -1018,7 +1427,7 @@
       if (result.ok) {
         state.masters = result.data;
         state.mastersSyncedAt = new Date().toISOString();
-        writeMastersCache({ data: state.masters, syncedAt: state.mastersSyncedAt });
+        state.storage.saveMasters({ data: state.masters, syncedAt: state.mastersSyncedAt });
         state.masterBanner = CONFIG.MOCK ? { level: 'info', text: 'MOCK 모드 — 내장 목 데이터 사용 중(서버 미연결)' } : null;
       } else {
         state.masterBanner = state.masters
@@ -1028,11 +1437,28 @@
       if (state.currentScreen === 'home') renderHome();
     });
   }
+  /* 계획 캐시(sc_plans) — 마스터와 같은 패턴({data, syncedAt}) */
+  function loadCachedPlans() {
+    var cached = state.storage.loadPlans();
+    if (cached && cached.data) { state.plans = cached.data; state.plansSyncedAt = cached.syncedAt || null; }
+  }
 
   function wireEvents() {
     $('btn-back').addEventListener('click', onBack);
     $('btn-continue-draft').addEventListener('click', continueDraft);
     $('btn-sync-now').addEventListener('click', flushQueue);
+
+    $('btn-open-plan-form').addEventListener('click', openPlanForm);
+    $('btn-plan-form-cancel').addEventListener('click', function () { clearBanner(); show('home'); });
+    $('btn-plan-create').addEventListener('click', onCreatePlan);
+    $('p-company').addEventListener('change', onPlanCompanyChange);
+    $('p-project').addEventListener('change', onPlanProjectChange);
+    $('p-team').addEventListener('change', onPlanTeamChange);
+    $('p-pin').addEventListener('input', clampPinInput);
+    $('pc-team').addEventListener('change', function (e) { populateInspectorSelect(e.target.value, 'pc-inspector'); });
+    $('pc-pin').addEventListener('input', clampPinInput);
+    $('btn-plan-cancel-close').addEventListener('click', closePlanCancelPanel);
+    $('btn-plan-cancel-confirm').addEventListener('click', onPlanCancelConfirm);
 
     $('btn-step1-next').addEventListener('click', onStep1Next);
     $('f-company').addEventListener('change', onCompanyChange);
@@ -1065,18 +1491,28 @@
   function init() {
     state.storage = SafetyLogic.storage(window);
     state.queue = state.storage.loadQueue();
-    /* lastError 는 '직전 호출'의 결과다 — loadDraft 가 첫 줄에서 null 로 덮어쓰므로 여기서 먼저 읽는다 */
+    /* lastError 는 '직전 호출'의 결과다 — 다음 호출이 첫 줄에서 null 로 덮어쓰므로 여기서 먼저 읽는다 */
     var queueErr = state.storage.lastError;
-    state.draft = state.storage.loadDraft();
-    var draftErr = state.storage.lastError;
+    /* 옛 단일 슬롯(sc_draft)을 sc_drafts['adhoc']으로 이전 — loadAllDrafts 보다 먼저 호출해야
+       이전된 값이 바로 아래 로드에 반영된다(설계 §6-4). */
+    var migrated = state.storage.migrateLegacyDraft();
+    var migrateErr = state.storage.lastError;
+    state.drafts = state.storage.loadAllDrafts();
+    var draftsErr = state.storage.lastError;
     loadCachedMasters();
+    loadCachedPlans();
     wireEvents();
     show('home');
     var notices = [];
     if (queueErr && queueErr.op === 'parse') notices.push(corruptNotice('미전송 목록이', queueErr));
-    if (draftErr && draftErr.op === 'parse') notices.push(corruptNotice('작성 중이던 점검이', draftErr));
+    if (migrated === 'failed') {
+      notices.push('이전 버전 임시저장을 옮기지 못했습니다' +
+        (migrateErr ? (' (' + migrateErr.op + ': ' + migrateErr.message + ')') : ''));
+    }
+    if (draftsErr && draftsErr.op === 'parse') notices.push(corruptNotice('작성 중이던 점검이', draftsErr));
     if (notices.length) showBanner('error', notices.join(' / '));
     refreshMasters();
+    refreshPlans();
   }
 
   document.addEventListener('DOMContentLoaded', init);
