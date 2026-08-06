@@ -725,11 +725,14 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
 #print-sheet { display: none; }
 
 @media print {
-  /* A4 한 장에 70줄을 넣는다(사용자 요청). 실측 근거:
-     본문 폭 198mm 중 내용 열 68% = 135mm → 6pt 에서 한 줄 63자.
-     항목 문구 평균 47자·최장 102자라 줄바꿈이 생기는 행을 더해도 총 78줄,
-     표 높이 약 247mm 로 가용 265mm(297 - 여백 12 - 머리부 20) 안에 들어간다.
-     6pt 는 작지만 원본 수기 양식도 이 정도였다 — 더 줄이면 현장에서 못 읽는다. */
+  /* A4 한 장에 70줄을 넣는다(사용자 요청). 본문 폭 198mm 중 내용 열 71% = 140mm →
+     6pt 에서 한 줄 66자. 6pt 는 작지만 원본 수기 양식도 이 정도였다 — 더 줄이면 현장에서 못 읽는다.
+
+     **한 장은 조건부다** — 크로미움 실측(T3 70항목, 부적합 사유 24자):
+       부적합 0건 → 1쪽 · 12건 → 2쪽 · 23건 → 2쪽
+     사유가 두 줄로 접히는 행이 늘면 넘어간다. 부적합이 많은 날 2쪽이 되는 것은
+     결함이 아니라 종이의 한계다(이 수치는 아래 폭 규칙을 고치기 **전과 후가 같다** — 확인함).
+     다시 재려면: python tools/print-probe/probe.py [부적합주기] */
   @page { size: A4 portrait; margin: 6mm 6mm; }
 
   .app-shell, #banner-region { display: none !important; }
@@ -775,10 +778,24 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
   .print-items tr { break-inside: avoid; page-break-inside: avoid; }
 
   /* 점검기준 열은 인쇄하지 않는다(사용자 요청) — 그 폭을 내용에 돌렸다.
-     내용 68% / 판정 3칸 12% / 부적합 내용 20% */
-  .print-items .c-text { width: 68%; }
-  .print-items .c-res  { width: 4%; text-align: center; font-weight: 700; }
-  .print-items .c-note { width: 20%; }
+     폭은 **colgroup 에서만** 정한다. th 에 걸면 table-layout:fixed 가 병합 칸(colspan=3)의
+     폭을 세 칸으로 쪼개 판정 칸이 2.9mm 가 되고 `N/A` 가 두 줄로 잘린다(실측).
+     합이 정확히 100% 여야 브라우저가 비례 확대를 하지 않아 계산대로 나온다.
+     본문 폭 198mm 기준 — 내용 71%(140mm) / Y·N 각 2.5%(5.0mm) / N/A 4%(7.9mm) /
+     부적합 20%. `N/A` 는 6pt 굵게 약 3.5mm + 좌우 여백 1.6mm + 테두리 0.3mm ≈ 5.4mm 라
+     7.9mm 면 기기 폰트가 조금 넓어도 견딘다. */
+  .print-items .col-text { width: 71%; }
+  .print-items .col-yn   { width: 2.5%; }
+  .print-items .col-na   { width: 4%; }
+  .print-items .col-note { width: 20%; }
+  /* 판정 칸은 절대 줄바꿈하지 않는다 — 위 폭 계산이 어긋나도 `N/A` 가 쪼개지지 않게.
+     (기본값 word-break: break-all 이 `N/` + `A` 로 끊는 것을 여기서 되돌린다.) */
+  .print-items .c-res {
+    text-align: center;
+    font-weight: 700;
+    white-space: nowrap;
+    word-break: keep-all;
+  }
 
   .print-head th,
   .print-items thead th,

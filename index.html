@@ -284,6 +284,12 @@
     <tr><th>점검자</th><td id="print-inspector"></td><th>확인</th><td id="print-ack"></td></tr>
   </table>
   <table class="print-items">
+    <!-- 열 폭은 여기서만 정한다. th 에 폭을 걸면 table-layout:fixed 가 병합 칸(colspan=3)의
+         폭을 세 칸으로 쪼개 판정 칸이 2.9mm 가 되고 `N/A` 가 두 줄로 잘린다(실측).
+         colgroup 이면 Y·N 은 좁게, N/A 만 넓게 줄 수 있다. -->
+    <colgroup>
+      <col class="col-text"><col class="col-yn"><col class="col-yn"><col class="col-na"><col class="col-note">
+    </colgroup>
     <thead>
       <tr>
         <th class="c-text">내　용</th>
@@ -291,7 +297,8 @@
         <th class="c-note">부적합 내용</th>
       </tr>
       <tr class="sub">
-        <th class="c-text"></th><th>Y</th><th>N</th><th>N/A</th>
+        <th class="c-text"></th>
+        <th class="c-res">Y</th><th class="c-res">N</th><th class="c-res">N/A</th>
         <th class="c-note"></th>
       </tr>
     </thead>
