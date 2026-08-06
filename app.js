@@ -1303,24 +1303,58 @@
      조회는 시작 시점의 세대를 기억했다가, 응답 시점에 세대가 그대로일 때만 반영한다. */
   /* 설치·오프라인이 막혔을 때 **어느 층에서** 막혔는지 태블릿에서 읽을 수 있게 한다.
      원격에서 볼 수 없는 값들이라, 이게 없으면 추측밖에 할 수 없다. */
-  function diagRows() {
-    var installed = false;
+  /* **지금 이 창**이 독립 실행인지. 설치해 두고 브라우저 탭에서 열면 false 다 —
+     그래서 이것만으로 "설치됐는가" 를 판단하면 안 된다(그게 첫 판의 오탐이었다). */
+  function inStandalone() {
     try {
-      installed = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
-                  window.navigator.standalone === true;
-    } catch (e) { installed = false; }
+      return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+             window.navigator.standalone === true;
+    } catch (e) { return false; }
+  }
+  /* **기기에** 설치되어 있는가. manifest 의 related_applications 에 자기 자신을 넣어 두고
+     브라우저에 되묻는다. 못 묻는 브라우저에서는 null(모름) — 모르는 것을 안다고 하지 않는다. */
+  function probeInstalled() {
+    if (inStandalone()) { state.appInstalled = true; return; }
+    if (!navigator.getInstalledRelatedApps) { state.appInstalled = null; return; }
+    try {
+      navigator.getInstalledRelatedApps().then(function (apps) {
+        state.appInstalled = !!(apps && apps.length);
+        if (state.currentScreen === 'home') renderDiagnostics();
+      }).catch(function () { state.appInstalled = null; });
+    } catch (e) { state.appInstalled = null; }
+  }
+  function installRow_() {
+    if (state.installPrompt) return { v: '받음 — 아래 버튼으로 설치할 수 있습니다', bad: false };
+    /* 브라우저는 **이미 설치된 사이트에 신호를 다시 보내지 않는다.** 그러니 "못 받음" 은
+       그 자체로는 고장이 아니다. **설치가 아니라고 아는 경우에만** 빨갛게 칠한다 —
+       아직 안 물어봤거나(undefined) 물을 수 없는 브라우저(null)는 단정할 근거가 없다.
+       독립 실행 창이면 창 자체가 증거라 물어볼 것도 없다. */
+    if (state.appInstalled === true || inStandalone()) {
+      return { v: '안 옴 — 이미 설치되어 있어서 정상입니다', bad: false };
+    }
+    if (state.appInstalled === false) {
+      return { v: '못 받음 — 설치되어 있지 않은데 신호가 안 옵니다. 기기 정책이 막고 있을 수 있습니다',
+               bad: true };
+    }
+    return { v: '못 받음 — 이미 설치되었거나, 브라우저·기기 정책이 막고 있습니다(이 브라우저에서는 구분 불가)',
+             bad: false };
+  }
+  function diagRows() {
+    var standalone = inStandalone();
     var secure = (typeof window.isSecureContext === 'boolean')
       ? window.isSecureContext : (location.protocol === 'https:');
+    var run = standalone ? '설치됨(독립 실행)'
+      : (state.appInstalled === true ? '설치됨 — 지금은 브라우저에서 보는 중'
+                                     : '브라우저에서 실행 중');
+    var inst = installRow_();
     return [
       { k: '앱 버전', v: CONFIG.APP_VER, bad: false },
-      { k: '실행 방식', v: installed ? '설치됨(독립 실행)' : '브라우저에서 실행 중', bad: false },
+      { k: '실행 방식', v: run, bad: false },
       { k: '보안 연결', v: secure ? '정상(HTTPS)' : '아님 — 설치도 오프라인도 불가',
         bad: !secure },
       { k: '서비스워커', v: (state.swState || '확인 중') + (state.swDetail ? ' — ' + state.swDetail : ''),
         bad: state.swState === '실패' || state.swState === '미지원' },
-      { k: '설치 신호', v: state.installPrompt ? '받음 — 아래 버튼으로 설치할 수 있습니다'
-          : (installed ? '이미 설치됨' : '못 받음 — 브라우저나 기기 정책이 막고 있을 수 있습니다'),
-        bad: !state.installPrompt && !installed },
+      { k: '설치 신호', v: inst.v, bad: inst.bad },
       { k: '주소', v: location.origin + location.pathname, bad: false },
       { k: '브라우저', v: navigator.userAgent, bad: false }
     ];
@@ -1348,7 +1382,7 @@
     body.hidden = !open;
     $('btn-diag-toggle').textContent = open ? '접기' : '펼치기';
     $('btn-diag-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
-    if (open) renderDiagnostics();
+    if (open) { probeInstalled(); renderDiagnostics(); }
   }
   /* 브라우저 메뉴의 「설치」가 숨거나 막힌 환경이 있다 — 이벤트를 잡아 두면 앱 안의 버튼에서
      같은 설치를 띄울 수 있다. 이벤트 자체가 안 오면 설치 조건이나 기기 정책 문제다. */
@@ -2513,6 +2547,7 @@
     window.addEventListener('beforeinstallprompt', onInstallPrompt);
     window.addEventListener('appinstalled', function () {
       state.installPrompt = null;
+      state.appInstalled = true;
       $('diag-install-hint').textContent = '설치가 끝났습니다. 홈 화면 아이콘으로 여세요.';
       if (state.currentScreen === 'home') renderDiagnostics();
     });
@@ -2565,6 +2600,7 @@
   }
   function init() {
     registerServiceWorker();
+    probeInstalled();   /* 「앱 상태」를 처음 펼쳤을 때 곧바로 맞는 값이 보이게 미리 물어 둔다 */
     state.storage = SafetyLogic.storage(window);
     state.queue = state.storage.loadQueue();
     /* lastError 는 '직전 호출'의 결과다 — 다음 호출이 첫 줄에서 null 로 덮어쓰므로 여기서 먼저 읽는다 */
