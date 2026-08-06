@@ -827,7 +827,10 @@
     renderPlanTeams();
     renderPlanList();
   }
-  function onPlanTeamChange() { setPlanTeamFilter($('home-plans-team').value); }
+  /* 이름을 onPlanTeamChange 로 두면 안 된다 — 사전등록 폼의 동명 함수(등록자 소속팀 →
+     표시명 채우기)가 **뒤에 선언돼 이긴다**. 그러면 필터는 아무 일도 안 하고, 팀을 고를
+     때마다 사전등록 폼의 점검자 목록이 조용히 덮어써진다(실측 결함). */
+  function onPlansFilterChange() { setPlanTeamFilter($('home-plans-team').value); }
   function renderPlanList() {
     var wrap = $('home-plans-list');
     wrap.innerHTML = '';
@@ -2613,7 +2616,7 @@
       state.writeStep = 2; show('write');
     });
     $('btn-print').addEventListener('click', function () { printSheet(printDataFromDraft()); });
-    $('home-plans-team').addEventListener('change', onPlanTeamChange);
+    $('home-plans-team').addEventListener('change', onPlansFilterChange);
     $('btn-diag-toggle').addEventListener('click', toggleDiagnostics);
     $('btn-install').addEventListener('click', doInstall);
     window.addEventListener('beforeinstallprompt', onInstallPrompt);
