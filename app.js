@@ -608,6 +608,7 @@
     renderMasterBanner();
     renderPlansSyncLine();
     renderPlansBanner();
+    renderPlanTeams();
     renderPlanList();
     renderSentList();
 
@@ -769,6 +770,57 @@
     if (p.planned_date === today) return 1;
     return 2;
   }
+  var ALL_TEAMS = '__all__';
+  /* 팀 목록을 코드에 박지 않는다 — 빠진 팀의 예정 점검이 어느 필터에서도 안 보이게 되고,
+     그건 이 앱에서 가장 나쁜 고장이다(점검을 통째로 놓친다). 마스터의 팀과 **실제 계획에
+     들어 있는 팀**의 합집합으로 만든다: 마스터에 없는 팀(퇴사·소속 변경)도 사라지지 않는다. */
+  function planTeams() {
+    var seen = {}, out = [];
+    function add(t) {
+      var v = String(t || '');
+      if (!v || seen[v]) return;
+      seen[v] = 1; out.push(v);
+    }
+    ((state.masters && state.masters.inspectors) || []).forEach(function (i) { add(i.team); });
+    (state.plans || []).forEach(function (p) { add(p.team); });
+    out.sort();
+    /* 팀을 알 수 없는 계획(등록자가 마스터에서 사라졌거나 옛 서버) — 칩이 없으면 '전체'
+       외에는 어디에도 안 보인다. 있을 때만 맨 뒤에 둔다. */
+    if ((state.plans || []).some(function (p) { return !String(p.team || ''); })) out.push('');
+    return out;
+  }
+  function planMatchesTeam(p) {
+    /* `||` 를 쓰면 안 된다 — 「팀 미상」의 값은 빈 문자열이라 falsy 여서 전체로 새어 나간다
+       (실측: 팀 미상을 골랐는데 전부 나왔다). 고르지 않은 상태(null/undefined)만 전체다. */
+    var f = (state.planTeamFilter == null) ? ALL_TEAMS : state.planTeamFilter;
+    if (f === ALL_TEAMS) return true;
+    return String(p.team || '') === f;
+  }
+  function renderPlanTeams() {
+    var wrap = $('home-plans-teams');
+    var teams = planTeams();
+    wrap.innerHTML = '';
+    /* 팀이 하나뿐이면 고를 것이 없다 — 칩 줄만 자리를 먹는다. */
+    wrap.hidden = teams.length < 2;
+    if (wrap.hidden) return;
+    var cur = (state.planTeamFilter == null) ? ALL_TEAMS : state.planTeamFilter;   /* 빈 문자열 = 팀 미상 */
+    [{ v: ALL_TEAMS, label: '전체' }].concat(teams.map(function (t) {
+      return { v: t, label: t || '팀 미상' };
+    })).forEach(function (opt) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.textContent = opt.label;
+      b.setAttribute('aria-pressed', opt.v === cur ? 'true' : 'false');
+      b.addEventListener('click', function () { setPlanTeamFilter(opt.v); });
+      wrap.appendChild(b);
+    });
+  }
+  function setPlanTeamFilter(v) {
+    state.planTeamFilter = v;
+    renderPlanTeams();
+    renderPlanList();
+  }
   function renderPlanList() {
     var wrap = $('home-plans-list');
     wrap.innerHTML = '';
@@ -777,14 +829,26 @@
        두면 안 된다 — 새 submission_id 로 또 작성하면 서버 멱등에 안 걸려 점검대장에 2행이
        남는다(H1). 계획은 서버에서 아직 planned 이므로 목록에는 남기되 시작을 막는다. */
     var queued = queuedPlanIdSet(state.queue);
-    var plans = (state.plans || []).slice().sort(function (a, b) {
+    var all = (state.plans || []);
+    var plans = all.filter(planMatchesTeam).slice().sort(function (a, b) {
       var ga = planGroup(a, today), gb = planGroup(b, today);
       if (ga !== gb) return ga - gb;
       if (a.planned_date < b.planned_date) return -1;
       if (a.planned_date > b.planned_date) return 1;
       return 0;
     });
-    $('home-plans-empty').hidden = plans.length !== 0;
+    /* 건수는 **거르기 전 전체**를 보여준다 — 거른 수를 보이면 "예정 점검이 줄었다" 로 읽힌다. */
+    $('home-plans-badge').hidden = all.length === 0;
+    $('home-plans-badge').textContent = String(all.length);
+    /* 비었을 때 이유를 구분해 말한다. 거르기 때문에 비었는데 "예정된 점검이 없습니다" 라고
+       하면, 남은 점검을 없는 것으로 믿고 넘어간다 — 놓치는 경로다(K4). */
+    var emptyEl = $('home-plans-empty');
+    emptyEl.hidden = plans.length !== 0;
+    emptyEl.textContent = (all.length === 0)
+      ? '예정된 점검이 없습니다.'
+      : (state.planTeamFilter === ALL_TEAMS || state.planTeamFilter == null
+          ? '예정된 점검이 없습니다.'
+          : '이 팀의 예정 점검이 없습니다 — 다른 팀 것 ' + all.length + '건은 「전체」에서 볼 수 있습니다.');
     plans.forEach(function (p) {
       var node = $('tpl-plan-row').content.firstElementChild.cloneNode(true);
       var overdue = p.planned_date < today;
