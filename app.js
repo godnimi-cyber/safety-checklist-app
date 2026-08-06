@@ -858,6 +858,11 @@
       node.querySelector('.sent-project').textContent = s.project_name || '(공사 미상)';
       node.querySelector('.sent-company').textContent =
         (s.company_name || '') + (s.inspect_date ? ' · 점검일 ' + s.inspect_date : '');
+      /* 이 기능이 생기기 전에 보낸 기록에는 판정이 없다 — 뽑을 수 없는 버튼을 보이면
+         눌러 보고 오류만 만난다. 버튼을 아예 내지 않는다(하루면 자연히 사라진다). */
+      var pbtn = node.querySelector('.sent-btn-print');
+      pbtn.hidden = !s.template_id;
+      pbtn.addEventListener('click', function () { printSheet(printDataFromSent(s)); });
       node.querySelector('.sent-btn-void').addEventListener('click', function () { openVoidPanel(s); });
       wrap.appendChild(node);
     });
@@ -1196,6 +1201,9 @@
     if (!payload || !payload.submission_id) return;
     var today = todayStr();
     state.sent = (state.sent || []).filter(function (r) { return r.submission_id !== payload.submission_id; });
+    /* 인쇄에 필요한 것을 **그때 값으로** 함께 담는다. 나중에 마스터가 바뀌어도(퇴사·공사 종료)
+       종이에는 제출 당시의 이름이 나와야 한다 — 그게 그 점검의 사실이다.
+       results 는 70여 개라 하루치가 몇 KB 수준이고, 당일분만 보관하므로 쌓이지 않는다. */
     state.sent.push({
       submission_id: payload.submission_id,
       sent_date: today,
@@ -1203,7 +1211,13 @@
       inspect_date: payload.inspect_date || '',
       company_name: companyName(payload.company_id) || '',
       project_name: payload.project_name || projectName(payload.project_key) || '',
-      inspector_id: payload.inspector_id || ''
+      inspector_id: payload.inspector_id || '',
+      inspector_name: inspectorDisplay(payload.inspector_id) || '',
+      auditee: payload.auditee || '',
+      auditee_ack: !!payload.auditee_ack,
+      template_id: payload.template_id,
+      template_ver: payload.template_ver,
+      results: payload.results || []
     });
     state.storage.saveSent(state.sent, today);
   }
@@ -2098,17 +2112,51 @@
      원본 수기 양식과 같은 표를 만든다 — 내용 │ Y N N/A │ 내용(부적합 사유) │ 점검기준.
      화면 표시가 아니라 **종이 기록**이므로, 판정은 고른 것만 찍는다(원본은 셋 다 인쇄해 두고
      손으로 동그라미를 쳤지만, 이미 정해진 값을 셋 다 보여주면 무엇이 답인지 흐려진다). */
-  function renderPrintSheet() {
+  /* 검토 화면(작성 중)과 「오늘 보낸 점검」(제출 후)이 **같은 렌더를 쓴다** —
+     둘이 갈라지면 종이 두 종류가 생기고, 고칠 때 한쪽만 고치게 된다. */
+  function printDataFromDraft() {
     var d = state.draft;
+    if (!d) return null;
+    return {
+      items: getCurrentTemplateItems(),
+      inspect_date: d.inspect_date || '',
+      project_name: d.project_name || projectName(d.project_key) || '',
+      company_name: companyName(d.company_id) || '',
+      auditee: d.auditee || '',
+      inspector_name: inspectorDisplay(d.inspector_id) || '',
+      auditee_ack: !!d.auditee_ack,
+      byId: d.results || {}
+    };
+  }
+  /* 보낸 기록에서 — 이름은 **담아 둔 값**을 쓴다(마스터가 바뀌어도 그때의 사실이 나온다).
+     항목 문구는 그 제출이 쓴 (양식, 버전)에서 가져온다. */
+  function printDataFromSent(s) {
+    var tpl = findCurrentTemplate(s.template_id, s.template_ver);
+    if (!tpl) return null;                       /* 양식이 개정돼 그 버전이 없다 */
+    var byId = {};
+    (s.results || []).forEach(function (r) { if (r && r.i) byId[r.i] = { r: r.r, n: r.n }; });
+    return {
+      items: tpl.items || [],
+      inspect_date: s.inspect_date || '',
+      project_name: s.project_name || '',
+      company_name: s.company_name || '',
+      auditee: s.auditee || '',
+      inspector_name: s.inspector_name || '',
+      auditee_ack: !!s.auditee_ack,
+      byId: byId
+    };
+  }
+  function renderPrintSheet(data) {
+    var d = data;
     if (!d) return false;
-    var items = getCurrentTemplateItems();
+    var items = d.items || [];
     if (!items.length) return false;
 
     $('print-date').textContent = d.inspect_date || '';
-    $('print-project').textContent = d.project_name || projectName(d.project_key) || '';
-    $('print-company').textContent = companyName(d.company_id) || '';
+    $('print-project').textContent = d.project_name || '';
+    $('print-company').textContent = d.company_name || '';
     $('print-auditee').textContent = d.auditee || '';
-    $('print-inspector').textContent = inspectorDisplay(d.inspector_id) || '';
+    $('print-inspector').textContent = d.inspector_name || '';
     /* 수검자 확인은 앱의 기록이지 서명이 아니다 — 인쇄물에도 그대로 '확인함' 으로만 적는다
        (설계 §4: 서명란은 원본에 없고 만들지 않는다). */
     $('print-ack').textContent = d.auditee_ack ? '확인함' : '';
@@ -2133,7 +2181,7 @@
         tb.appendChild(tr);
         return;
       }
-      var entry = d.results[it.item_id];
+      var entry = d.byId[it.item_id];
       var r = entry && entry.r;
       ['Y', 'N', 'NA'].forEach(function (kind) {
         var td = document.createElement('td');
@@ -2154,9 +2202,9 @@
   }
   /* 인쇄는 브라우저 기능을 그대로 쓴다 — 외부 라이브러리 0(설계 §2).
      폰에서는 이 창이 '인쇄' 대화상자로 열리고 거기서 PDF 로 저장한다. */
-  function printSheet() {
-    if (!renderPrintSheet()) {
-      showBanner('error', '인쇄할 내용을 만들지 못했습니다 — 양식을 불러오지 못했을 수 있습니다.');
+  function printSheet(data) {
+    if (!renderPrintSheet(data)) {
+      showBanner('error', '인쇄할 내용을 만들지 못했습니다 — 이 점검이 쓴 양식 판본을 찾지 못했습니다.');
       window.scrollTo(0, 0);
       return;
     }
@@ -2385,7 +2433,7 @@
       if (state.submitting) return;
       state.writeStep = 2; show('write');
     });
-    $('btn-print').addEventListener('click', printSheet);
+    $('btn-print').addEventListener('click', function () { printSheet(printDataFromDraft()); });
     $('chk-ack').addEventListener('change', onAckChange);
     $('btn-submit').addEventListener('click', onSubmit);
   }
