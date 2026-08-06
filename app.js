@@ -2128,7 +2128,7 @@
       if (isNote) {
         /* 안내문은 판정이 없다 — 원본 70행([협력회사 SHE계획서 이행점검])과 같다.
            나머지 칸을 합쳐 문장이 잘리지 않게 한다. */
-        tdText.colSpan = 6;
+        tdText.colSpan = 5;
         tdText.className = 'c-text c-note-row';
         tb.appendChild(tr);
         return;
@@ -2145,10 +2145,9 @@
       tdNote.className = 'c-note';
       tdNote.textContent = (entry && entry.n) || '';
       tr.appendChild(tdNote);
-      var tdStd = document.createElement('td');
-      tdStd.className = 'c-std';
-      tdStd.textContent = it.criteria || '';
-      tr.appendChild(tdStd);
+      /* 점검기준 열은 인쇄하지 않는다(사용자 요청) — 점검자가 판정할 때 보는 참고자료지
+         기록의 일부가 아니다. 그 폭을 내용에 돌려 A4 한 장에 넣는다. 기준은 앱 화면과
+         시트 출력양식에 그대로 있다. */
       tb.appendChild(tr);
     });
     return true;

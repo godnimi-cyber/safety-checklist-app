@@ -724,19 +724,23 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
 #print-sheet { display: none; }
 
 @media print {
-  @page { size: A4 portrait; margin: 10mm 8mm; }
+  /* A4 한 장에 70줄을 넣는다(사용자 요청). 실측 근거:
+     본문 폭 198mm 중 내용 열 68% = 135mm → 6pt 에서 한 줄 63자.
+     항목 문구 평균 47자·최장 102자라 줄바꿈이 생기는 행을 더해도 총 78줄,
+     표 높이 약 247mm 로 가용 265mm(297 - 여백 12 - 머리부 20) 안에 들어간다.
+     6pt 는 작지만 원본 수기 양식도 이 정도였다 — 더 줄이면 현장에서 못 읽는다. */
+  @page { size: A4 portrait; margin: 6mm 6mm; }
 
   .app-shell, #banner-region { display: none !important; }
-  /* [hidden] 전역 가드가 !important 라 여기서도 !important 로 이긴다 */
   #print-sheet { display: block !important; }
 
   html, body { background: var(--color-surface); color: var(--color-text); }
 
   #print-title {
-    font-size: 13pt;
+    font-size: 11pt;
     font-weight: 700;
     text-align: center;
-    margin: 0 0 3mm;
+    margin: 0 0 2mm;
     letter-spacing: 0.5px;
   }
 
@@ -745,37 +749,36 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
     border-collapse: collapse;
     table-layout: fixed;
   }
-  .print-head { margin-bottom: 2.5mm; }
+  .print-head { margin-bottom: 1.5mm; }
   .print-head th, .print-head td {
     border: 0.4pt solid var(--color-text);
-    font-size: 8pt;
-    padding: 1mm 1.5mm;
+    font-size: 7pt;
+    padding: 0.6mm 1.2mm;
     text-align: left;
     vertical-align: middle;
   }
-  .print-head th { width: 16mm; font-weight: 700; }
+  .print-head th { width: 15mm; font-weight: 700; }
 
   .print-items th, .print-items td {
     border: 0.4pt solid var(--color-text);
-    font-size: 7pt;
-    line-height: 1.25;
-    padding: 0.6mm 1mm;
+    font-size: 6pt;
+    line-height: 1.15;
+    padding: 0.35mm 0.8mm;
     vertical-align: top;
     word-break: break-all;   /* 한글 긴 문장이 칸을 넘지 않게 */
   }
   .print-items thead th { text-align: center; font-weight: 700; }
-  /* 머리글은 쪽이 넘어가도 반복된다 — 2쪽부터 무슨 칸인지 모르게 되는 것을 막는다 */
+  /* 한 장에 들어가는 것이 목표지만, 항목이 늘어 넘칠 때를 대비해 남겨 둔다 —
+     그때 2쪽부터 무슨 칸인지 모르게 되는 것을 막는다. */
   .print-items thead { display: table-header-group; }
   .print-items tr { break-inside: avoid; page-break-inside: avoid; }
 
-  /* 열 폭 — 원본(내용 넓게 / 판정 좁게 / 사유·기준 중간)을 따른다 */
-  .print-items .c-text { width: 44%; }
-  .print-items .c-res  { width: 5%; text-align: center; font-weight: 700; }
-  .print-items .c-note { width: 18%; }
-  .print-items .c-std  { width: 18%; }
+  /* 점검기준 열은 인쇄하지 않는다(사용자 요청) — 그 폭을 내용에 돌렸다.
+     내용 68% / 판정 3칸 12% / 부적합 내용 20% */
+  .print-items .c-text { width: 68%; }
+  .print-items .c-res  { width: 4%; text-align: center; font-weight: 700; }
+  .print-items .c-note { width: 20%; }
 
-  /* 대분류·안내문 행 음영. 브라우저 기본값은 배경을 인쇄하지 않으므로 명시적으로 요청한다 —
-     꺼져 있어도 굵은 글씨와 테두리로 구분되므로 정보가 사라지지는 않는다. */
   .print-head th,
   .print-items thead th,
   .print-items tr.g .c-text,
