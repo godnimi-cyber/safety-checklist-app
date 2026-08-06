@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.3.1">
+<link rel="stylesheet" href="./styles.css?v=0.4.0">
 <title>현장 안전점검</title>
 </head>
 <body>
@@ -98,6 +98,21 @@
               <button type="button" class="btn btn-outline" id="btn-void-close">닫기</button>
               <button type="button" class="btn btn-primary" id="btn-void-confirm">취소 확정</button>
             </div>
+          </div>
+        </div>
+
+        <!-- 앱 상태 — 설치·오프라인이 안 될 때 **어느 층에서 막혔는지** 보는 곳.
+             내부 도구라 미관보다 상태 가시성이 우선이다(CLAUDE.md). 평소엔 접혀 있다. -->
+        <div class="queue-card">
+          <div class="queue-header">
+            <h2 class="section-title" style="margin-bottom:0">앱 상태</h2>
+            <button type="button" class="btn btn-outline" id="btn-diag-toggle"
+                    aria-expanded="false" aria-controls="diag-body">펼치기</button>
+          </div>
+          <div id="diag-body" hidden>
+            <dl class="diag-list" id="diag-list"></dl>
+            <button type="button" class="btn btn-primary" id="btn-install" hidden>앱 설치</button>
+            <p class="muted" id="diag-install-hint"></p>
           </div>
         </div>
       </div>
@@ -408,8 +423,8 @@
 </template>
 
 <script src="./config.js"></script>
-<script src="./lib.js?v=0.3.1"></script>
-<script src="./logic.js?v=0.3.1"></script>
-<script src="./app.js?v=0.3.1"></script>
+<script src="./lib.js?v=0.4.0"></script>
+<script src="./logic.js?v=0.4.0"></script>
+<script src="./app.js?v=0.4.0"></script>
 </body>
 </html>

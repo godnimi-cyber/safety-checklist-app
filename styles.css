@@ -403,6 +403,17 @@ select.input {
 .sent-when { font-weight: 700; }
 .sent-project { font-weight: 600; }
 .sent-company { color: var(--color-neutral); }
+/* 앱 상태 목록 — 이름/값 두 칸. 값이 길어도(UA) 줄바꿈해서 잘리지 않게 한다. */
+.diag-list { margin: var(--space-3) 0 0; font-size: 14px; }
+.diag-row { display: flex; gap: var(--space-3); padding: var(--space-2) 0; border-top: 1px solid var(--tint-neutral); }
+.diag-row:first-child { border-top: 0; }
+.diag-row dt { flex: 0 0 96px; color: var(--color-neutral); }
+.diag-row dd { flex: 1 1 auto; margin: 0; word-break: break-all; }
+.diag-row dd.bad { color: var(--color-danger-text); font-weight: 600; }
+.diag-row dd.ok { color: var(--color-text); }
+#btn-install { margin-top: var(--space-3); width: 100%; }
+#diag-install-hint { margin-top: var(--space-2); }
+
 .sent-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
 .sent-actions .btn { flex: 1 1 110px; }
 

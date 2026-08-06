@@ -1301,6 +1301,80 @@
      조회의 응답은 **바뀌기 전 목록**을 담고 있어, 늦게 도착하면 방금 바꾼 상태와 캐시를
      되돌린다(옛 날짜가 살아나고 취소한 계획이 다시 나타난다. 그 뒤 조회가 없으면 그대로 남는다).
      조회는 시작 시점의 세대를 기억했다가, 응답 시점에 세대가 그대로일 때만 반영한다. */
+  /* 설치·오프라인이 막혔을 때 **어느 층에서** 막혔는지 태블릿에서 읽을 수 있게 한다.
+     원격에서 볼 수 없는 값들이라, 이게 없으면 추측밖에 할 수 없다. */
+  function diagRows() {
+    var installed = false;
+    try {
+      installed = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+                  window.navigator.standalone === true;
+    } catch (e) { installed = false; }
+    var secure = (typeof window.isSecureContext === 'boolean')
+      ? window.isSecureContext : (location.protocol === 'https:');
+    return [
+      { k: '앱 버전', v: CONFIG.APP_VER, bad: false },
+      { k: '실행 방식', v: installed ? '설치됨(독립 실행)' : '브라우저에서 실행 중', bad: false },
+      { k: '보안 연결', v: secure ? '정상(HTTPS)' : '아님 — 설치도 오프라인도 불가',
+        bad: !secure },
+      { k: '서비스워커', v: (state.swState || '확인 중') + (state.swDetail ? ' — ' + state.swDetail : ''),
+        bad: state.swState === '실패' || state.swState === '미지원' },
+      { k: '설치 신호', v: state.installPrompt ? '받음 — 아래 버튼으로 설치할 수 있습니다'
+          : (installed ? '이미 설치됨' : '못 받음 — 브라우저나 기기 정책이 막고 있을 수 있습니다'),
+        bad: !state.installPrompt && !installed },
+      { k: '주소', v: location.origin + location.pathname, bad: false },
+      { k: '브라우저', v: navigator.userAgent, bad: false }
+    ];
+  }
+  function renderDiagnostics() {
+    var list = $('diag-list');
+    if (!list) return;
+    list.innerHTML = '';
+    diagRows().forEach(function (r) {
+      var row = document.createElement('div');
+      row.className = 'diag-row';
+      var dt = document.createElement('dt');
+      dt.textContent = r.k;
+      var dd = document.createElement('dd');
+      dd.className = r.bad ? 'bad' : 'ok';
+      dd.textContent = r.v;
+      row.appendChild(dt); row.appendChild(dd);
+      list.appendChild(row);
+    });
+    $('btn-install').hidden = !state.installPrompt;
+  }
+  function toggleDiagnostics() {
+    var body = $('diag-body');
+    var open = body.hidden;
+    body.hidden = !open;
+    $('btn-diag-toggle').textContent = open ? '접기' : '펼치기';
+    $('btn-diag-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) renderDiagnostics();
+  }
+  /* 브라우저 메뉴의 「설치」가 숨거나 막힌 환경이 있다 — 이벤트를 잡아 두면 앱 안의 버튼에서
+     같은 설치를 띄울 수 있다. 이벤트 자체가 안 오면 설치 조건이나 기기 정책 문제다. */
+  function onInstallPrompt(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    state.installPrompt = e;
+    if (state.currentScreen === 'home') renderDiagnostics();
+  }
+  function doInstall() {
+    var p = state.installPrompt;
+    if (!p) return;
+    state.installPrompt = null;
+    $('btn-install').hidden = true;
+    try {
+      p.prompt();
+      if (p.userChoice && p.userChoice.then) {
+        p.userChoice.then(function (r) {
+          $('diag-install-hint').textContent = (r && r.outcome === 'accepted')
+            ? '설치를 시작했습니다.'
+            : '설치를 취소했습니다. 「앱 상태」를 다시 펼치면 버튼이 돌아옵니다.';
+        });
+      }
+    } catch (e) {
+      $('diag-install-hint').textContent = '설치를 띄우지 못했습니다: ' + String((e && e.message) || e);
+    }
+  }
   function bumpPlansGeneration() { state.plansGen = (state.plansGen || 0) + 1; }
   /* 조회 응답의 역전을 막는 장치가 **둘** 필요하다(3차 검증 #8).
      - plansGen: 조회가 도는 동안 로컬 수정·취소가 성공하면 그 응답은 낡았다
@@ -2434,6 +2508,14 @@
       state.writeStep = 2; show('write');
     });
     $('btn-print').addEventListener('click', function () { printSheet(printDataFromDraft()); });
+    $('btn-diag-toggle').addEventListener('click', toggleDiagnostics);
+    $('btn-install').addEventListener('click', doInstall);
+    window.addEventListener('beforeinstallprompt', onInstallPrompt);
+    window.addEventListener('appinstalled', function () {
+      state.installPrompt = null;
+      $('diag-install-hint').textContent = '설치가 끝났습니다. 홈 화면 아이콘으로 여세요.';
+      if (state.currentScreen === 'home') renderDiagnostics();
+    });
     $('chk-ack').addEventListener('change', onAckChange);
     $('btn-submit').addEventListener('click', onSubmit);
   }
@@ -2460,16 +2542,26 @@
      앱은 그대로 돌아야 한다. 오프라인 콜드스타트만 안 될 뿐 지금까지와 같다.
      실패를 배너로 띄우지도 않는다 — 사용자가 할 수 있는 게 없고, 매번 뜨면 진짜 경고를 가린다. */
   function registerServiceWorker() {
-    if (!('serviceWorker' in navigator)) return;
+    if (!('serviceWorker' in navigator)) { setSwState('미지원', '이 브라우저에 서비스워커가 없습니다'); return; }
     try {
-      navigator.serviceWorker.register('./sw.js').catch(function (e) {
+      navigator.serviceWorker.register('./sw.js').then(function (reg) {
+        setSwState('등록됨', reg && reg.scope ? reg.scope : '');
+      }).catch(function (e) {
+        setSwState('실패', String((e && e.message) || e));
         // eslint-disable-next-line no-console
         console.warn('서비스워커 등록 실패(앱은 정상 동작):', e);
       });
     } catch (e) {
+      setSwState('실패', String((e && e.message) || e));
       // eslint-disable-next-line no-console
       console.warn('서비스워커를 쓸 수 없는 환경(앱은 정상 동작):', e);
     }
+  }
+  /* 등록 결과를 **기록만** 한다 — 배너로 띄우지 않는다(사용자가 당장 할 수 있는 게 없고,
+     매번 뜨면 진짜 경고를 가린다). 「앱 상태」를 펼쳤을 때만 보인다. */
+  function setSwState(s, detail) {
+    state.swState = s; state.swDetail = detail || '';
+    if (state.currentScreen === 'home') renderDiagnostics();
   }
   function init() {
     registerServiceWorker();
