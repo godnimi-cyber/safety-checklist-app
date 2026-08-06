@@ -796,31 +796,38 @@
     if (f === ALL_TEAMS) return true;
     return String(p.team || '') === f;
   }
+  /* 선택지에 건수를 붙인다 — 고르기 전에 어디에 몇 건이 있는지 보이고, 거르면 무엇이
+     가려지는지도 드러난다. 0건인 팀도 남긴다: 목록에서 빼면 "우리 팀이 사라졌다" 가 된다. */
+  function planTeamCount(team) {
+    return (state.plans || []).filter(function (p) {
+      return team === ALL_TEAMS || String(p.team || '') === team;
+    }).length;
+  }
   function renderPlanTeams() {
     var wrap = $('home-plans-teams');
+    var sel = $('home-plans-team');
     var teams = planTeams();
-    wrap.innerHTML = '';
-    /* 팀이 하나뿐이면 고를 것이 없다 — 칩 줄만 자리를 먹는다. */
+    sel.innerHTML = '';
+    /* 팀이 하나뿐이면 고를 것이 없다 — 필터 줄만 자리를 먹는다. */
     wrap.hidden = teams.length < 2;
     if (wrap.hidden) return;
     var cur = (state.planTeamFilter == null) ? ALL_TEAMS : state.planTeamFilter;   /* 빈 문자열 = 팀 미상 */
     [{ v: ALL_TEAMS, label: '전체' }].concat(teams.map(function (t) {
       return { v: t, label: t || '팀 미상' };
     })).forEach(function (opt) {
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'chip';
-      b.textContent = opt.label;
-      b.setAttribute('aria-pressed', opt.v === cur ? 'true' : 'false');
-      b.addEventListener('click', function () { setPlanTeamFilter(opt.v); });
-      wrap.appendChild(b);
+      var o = document.createElement('option');
+      o.value = opt.v;
+      o.textContent = opt.label + ' (' + planTeamCount(opt.v) + ')';
+      sel.appendChild(o);
     });
+    sel.value = cur;
   }
   function setPlanTeamFilter(v) {
     state.planTeamFilter = v;
     renderPlanTeams();
     renderPlanList();
   }
+  function onPlanTeamChange() { setPlanTeamFilter($('home-plans-team').value); }
   function renderPlanList() {
     var wrap = $('home-plans-list');
     wrap.innerHTML = '';
@@ -2606,6 +2613,7 @@
       state.writeStep = 2; show('write');
     });
     $('btn-print').addEventListener('click', function () { printSheet(printDataFromDraft()); });
+    $('home-plans-team').addEventListener('change', onPlanTeamChange);
     $('btn-diag-toggle').addEventListener('click', toggleDiagnostics);
     $('btn-install').addEventListener('click', doInstall);
     window.addEventListener('beforeinstallprompt', onInstallPrompt);

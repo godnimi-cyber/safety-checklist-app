@@ -407,25 +407,11 @@ select.input {
    17px/700 로 올리고 건수 배지를 붙여 시선의 닻을 만든다. */
 .card-title { font-size: 17px; font-weight: 700; color: var(--color-text); }
 
-/* 팀 칩 — 가로로 흐르고 줄바꿈한다. 터치 타깃 44px(Apple HIG 하한). */
-.chip-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.chip {
-  min-height: 44px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--tint-neutral-strong);
-  border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: 14px;
-  font-weight: 600;
-}
-.chip:hover { background: var(--tint-neutral); }
-.chip:active { transform: scale(0.97); }
-.chip[aria-pressed="true"] {
-  background: var(--color-primary);
-  border-color: var(--color-primary);
-  color: var(--color-surface);
-}
+/* 팀 거르기 한 줄 — 이름표는 옆에 붙여 세로 공간을 아낀다(칩 두 줄을 대체한 이유).
+   select 높이는 앱의 다른 입력과 같은 48px(.input 규격)을 그대로 쓴다. */
+.filter-row { display: flex; align-items: center; gap: var(--space-2); }
+.filter-label { flex: 0 0 auto; font-size: 14px; font-weight: 600; color: var(--color-neutral-text); }
+.filter-row .input { flex: 1 1 auto; min-width: 0; }
 
 /* 앱 상태 목록 — 이름/값 두 칸. 값이 길어도(UA) 줄바꿈해서 잘리지 않게 한다. */
 .diag-list { margin: var(--space-3) 0 0; font-size: 14px; }
