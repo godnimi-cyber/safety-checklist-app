@@ -70,11 +70,15 @@ self.addEventListener('activate', function (e) {
 
 self.addEventListener('fetch', function (e) {
   var req = e.request;
-  if (req.method !== 'GET') return;                       /* 제출(POST)은 앱의 큐가 맡는다 */
+  /* pdf_build(PDF 반출) 응답은 절대 캐시하지 않는다 — 실명·부적합 사유가 담긴 응답이 기기
+     캐시에 남으면 안 된다. pdf_build 는 다른 action 과 마찬가지로 POST 로만 나가므로(app.js
+     realPdfBuild) 바로 아래 GET 가드에서 이미 걸러진다 — 명시적으로 다시 적어 둔다: 이 경로가
+     network-first 캐시 로직을 절대 타지 않는다는 사실이 우연이 아니라 의도임을 남긴다. */
+  if (req.method !== 'GET') return;                       /* 제출(POST)·pdf_build 는 앱이 직접 처리한다 */
 
   var url;
   try { url = new URL(req.url); } catch (err) { return; }
-  if (url.origin !== self.location.origin) return;        /* API·외부 요청은 손대지 않는다 */
+  if (url.origin !== self.location.origin) return;        /* API(pdf_build 포함)·외부 요청은 손대지 않는다 */
 
   /* 캐시 키에서 버전 쿼리를 뗀다. index.html 이 styles.css?v=0.2.0 로 부르는데 캐시에는
      쿼리 없는 주소로 담겨 있어, 그대로 찾으면 오프라인에서 못 찾는다. */
