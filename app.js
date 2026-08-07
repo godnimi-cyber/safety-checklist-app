@@ -1101,9 +1101,13 @@
     $('btn-pdf-build').hidden = n !== 1;
     $('pdf-pin').disabled = n !== 1;
     /* 2단계에서 공유가 되는 기기면 보내기, 아니면 내려받기 — 둘 중 하나만 보인다.
-       canShare 는 **실제 File** 로 판정한다 — 파일 없는 개념적 호출은 판정이 아니다. */
+       canShare 는 **실제 File** 로 판정한다 — 파일 없는 개념적 호출은 판정이 아니다.
+       navigator.share 존재도 함께 본다(리뷰 Minor) — canShare 만 참이고 share 가 없으면
+       (일부 구형 브라우저) 보내기 버튼을 눌렀을 때 TypeError 로 조용히 죽고, onPdfShare 에
+       catch 가 없어 내려받기로도 못 떨어진다. */
     var file = state.pdf && state.pdf.file;
-    var canShare = n === 2 && !!file && !!navigator.canShare && navigator.canShare({ files: [file] });
+    var canShare = n === 2 && !!file && !!navigator.share
+      && !!navigator.canShare && navigator.canShare({ files: [file] });
     $('btn-pdf-share').hidden = !canShare;
     $('btn-pdf-download').hidden = !(n === 2 && !canShare);
   }
@@ -1125,7 +1129,6 @@
     setPdfBusy(true);            /* 더블탭이면 PDF 를 두 번 만들고 이력에 두 줄이 남는다 */
     pdfBuildOnServer({ submission_id: target.sent.submission_id,
       inspector_id: target.sent.inspector_id, pin: pin }).then(function (result) {
-      setPdfBusy(false);
       if (!(result && result.ok)) {
         showBanner('error', pdfErrorText(result));
         window.scrollTo(0, 0);
@@ -1139,6 +1142,13 @@
       showPdfStep(2);
       showBanner('success', 'PDF 를 만들었습니다 — 보낼 앱을 고르세요.');
       window.scrollTo(0, 0);
+    }).catch(function (e) {
+      /* requestJson 은 reject 하지 않지만 b64ToBytes/new File 이 던지면(손상된 b64 등) 여기가
+         아니면 배너 없이 조용히 아무 일도 안 일어난다 — onVoidConfirm 과 같은 대칭(리뷰 Minor). */
+      showBanner('error', 'PDF 생성 처리 중 오류가 발생했습니다: ' + ((e && e.message) || e));
+      window.scrollTo(0, 0);
+    }).finally(function () {
+      setPdfBusy(false);
     });
   }
   function onPdfShare() {
@@ -1166,6 +1176,11 @@
     var a = document.createElement('a');
     a.href = url; a.download = t.file.name;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    /* 내려받기 시작 뒤 회수한다(설계 §5) — 패널을 닫지 않아도 blob 이 페이지 수명 내내
+       남지 않게 한다. 0ms setTimeout 은 click() 이 시작한 다운로드가 큐에 들어간 뒤로
+       회수를 미루는 관용구다 — 동기로 바로 revoke 하면 다운로드가 막 시작된 URL 을
+       무효화할 위험이 있다. */
+    setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) { /* 무시 */ } }, 0);
     showBanner('warn', '내려받았습니다 — 이 파일은 기기의 다운로드 폴더와 백업에 남습니다. 보낸 뒤 직접 지우세요.');
     window.scrollTo(0, 0);
   }
@@ -1180,6 +1195,11 @@
     if (/NOT_YOUR_SUBMISSION/.test(m)) return '본인이 제출한 점검만 보낼 수 있습니다.';
     if (/EXPORT_WINDOW_CLOSED/.test(m)) return '오늘 보낸 점검만 앱에서 보낼 수 있습니다 — 관리자에게 요청하세요.';
     if (/PDF_TOO_LARGE/.test(m)) return 'PDF가 너무 큽니다 — 관리자에게 알리세요.';
+    /* 구간 3 재확인(설계 §4.1) — 렌더 중 취소가 들어오면 여기로 떨어진다. 이 기능이
+       자랑하는 방어라 영문 토큰을 그대로 보이면 안 된다(리뷰 Minor) — 무엇을 해야 하는지도
+       말해야 한다. friendlyVoidError 와 같은 문구(SUBMISSION_NOT_FOUND)로 맞춘다. */
+    if (/SUBMISSION_NOT_VALID/.test(m)) return '이 점검은 취소되었습니다 — 목록을 새로고침하세요.';
+    if (/SUBMISSION_NOT_FOUND/.test(m)) return '서버에 없는 제출입니다 — 목록을 새로고침하세요.';
     return m || 'PDF를 만들지 못했습니다.';
   }
   function friendlyVoidError(message) {
