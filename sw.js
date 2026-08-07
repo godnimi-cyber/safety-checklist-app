@@ -80,6 +80,12 @@ self.addEventListener('fetch', function (e) {
   try { url = new URL(req.url); } catch (err) { return; }
   if (url.origin !== self.location.origin) return;        /* API(pdf_build 포함)·외부 요청은 손대지 않는다 */
 
+  /* 대시보드는 network-only(웹 대시보드 스펙 §1) — 담지도, 대체하지도 않는다.
+     담으면 옛 대시보드가 새 서버 계약과 어긋난 채 박제되고, navigate 대체를 남기면
+     오프라인 첫 방문에 점검 앱(index.html)이 대신 뜬다. 온라인 전용 관리자 페이지라
+     오프라인엔 브라우저 표준 오류 화면이 정직하다. */
+  if (/\/dashboard\.(?:html|js)$/.test(url.pathname)) return;
+
   /* 캐시 키에서 버전 쿼리를 뗀다. index.html 이 styles.css?v=0.2.0 로 부르는데 캐시에는
      쿼리 없는 주소로 담겨 있어, 그대로 찾으면 오프라인에서 못 찾는다. */
   var keyUrl = url.origin + url.pathname;
