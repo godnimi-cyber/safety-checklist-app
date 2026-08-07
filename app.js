@@ -223,16 +223,16 @@
   }
   /* 오류 코드 3분류(계약 K2):
        VALIDATION — 제출 내용 자체의 결함. 같은 payload 는 몇 번을 보내도 거절된다 → 자동 재시도 금지
-       CONFIG·AUTH·QUOTA — 서버·시트 설정 / 키 불일치 / 메일 발송 한도 소진. 사용자가 고칠 수 없고
-         관리자가 고치거나(CONFIG·AUTH) 시간이 지나야(QUOTA, 다음 날 쿼터 리셋) 풀린다 → 큐 보관 + 자동 재시도
+       CONFIG·AUTH — 서버·시트 설정 / 키 불일치. 사용자가 고칠 수 없고 관리자가 고쳐야 풀린다
+         → 큐 보관 + 자동 재시도
        NETWORK·LOCK_TIMEOUT·SERVER·MOCK(그 외 전부) — 일시 오류 → 자동 재시도
      AUTH 를 영구로 두면 키 회전 사이에 쌓인 제출이 그대로 고착되므로 재시도 가능으로 분류한다.
-     QUOTA 는 email_pdf(설계 2026-08-07-email-pdf §5.2) 전용 코드다 — 이메일 발송 패널
-     (onEmailSend → emailPdfOnServer)이 email_pdf 를 호출한다. 큐 재시도 분류와는 별개로,
-     wiring 테스트(16번 b항)가 gas/main.gs 의 최상위 code 전체와 이 목록을 대조하므로
-     여기서도 분류해 둔다(관리자에게 알리는 배너 문구가 CONFIG·AUTH 와 같은 결이다). */
+     QUOTA 는 서버 발송(email_pdf, MailApp 쿼터) 전용 코드였다 — Task 2 가 서버 발송 기계를
+     걷어내며 gas/main.gs 가 QUOTA 를 더는 내보내지 않는다(설계 rev.5). wiring 테스트(16번 b항)가
+     gas/main.gs 의 최상위 code 전체와 이 목록을 대조하므로 여기서도 뺐다 — 남겨 두면 "서버가
+     내보내지 않는 코드를 클라이언트가 분류해 둔" 죽은 목록이 된다. */
   var PERMANENT_ERROR_CODES = ['VALIDATION'];
-  var ADMIN_ERROR_CODES = ['CONFIG', 'AUTH', 'QUOTA'];
+  var ADMIN_ERROR_CODES = ['CONFIG', 'AUTH'];
   function isPermanentError(code) {
     return PERMANENT_ERROR_CODES.indexOf(String(code || '').toUpperCase()) !== -1;
   }
