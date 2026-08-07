@@ -417,15 +417,25 @@
       }, 400);
     });
   }
-  /* base64 → 바이트. **청크로 돈다** — 한 번에 풀면 JSON 문자열·바이너리 문자열·Uint8Array 가
-     동시에 존재해 피크 메모리가 원본의 몇 배가 되고, 저사양 폰에서 그대로 죽는다. */
+  /* base64 → 바이트. **atob 자체를 쪼갠다** — 한 번에 통째로 atob 하면 디코딩된 전체
+     바이너리 문자열과 최종 Uint8Array 가 동시에 살아 있어(리뷰 Important 1), 8MB PDF 에서
+     20MB 넘게 상주하고 그게 이 함수가 막겠다던 저사양 폰 크래시 그 자체가 된다.
+     base64 는 4문자 = 3바이트이므로 자르는 단위는 반드시 **4의 배수**다 — 아니면 청크 경계에서
+     디코딩이 깨진다. 패딩('=')은 전체 문자열의 맨 끝에만 있을 수 있으므로, 4의 배수로 자르면
+     마지막 청크를 제외한 모든 청크는 패딩 없는 완전한 base64 조각이 되어 각각 독립적으로
+     atob 할 수 있다. */
   function b64ToBytes(b64) {
-    var bin = window.atob(String(b64 || ''));
-    var out = new Uint8Array(bin.length);
-    var CH = 8192;
-    for (var i = 0; i < bin.length; i += CH) {
-      var end = Math.min(i + CH, bin.length);
-      for (var j = i; j < end; j++) out[j] = bin.charCodeAt(j) & 0xff;
+    var s = String(b64 || '');
+    var CH = 8192 * 4;   // 4의 배수 유지 — 8192 는 임의 상수가 아니라 4로 나누어떨어지는 값이다
+    var padding = 0;
+    if (s.length && s.charAt(s.length - 1) === '=') padding++;
+    if (s.length > 1 && s.charAt(s.length - 2) === '=') padding++;
+    var total = s.length ? (Math.floor(s.length / 4) * 3 - padding) : 0;
+    var out = new Uint8Array(total);
+    var o = 0;
+    for (var i = 0; i < s.length; i += CH) {
+      var part = window.atob(s.slice(i, i + CH));   // 청크 하나만큼만 잠깐 살아 있다가 out 으로 옮겨진다
+      for (var j = 0; j < part.length; j++) out[o++] = part.charCodeAt(j) & 0xff;
     }
     return out;
   }
@@ -1070,6 +1080,10 @@
       window.scrollTo(0, 0);
       return;
     }
+    /* 모달이 아니라 인라인 패널이라 닫지 않은 채 다른 행의 'PDF 보내기'를 또 누를 수 있다 —
+       A 를 내려받아 blobUrl 이 생긴 채로 B 를 열면, 아래서 state.pdf 를 덮어쓰는 순간 A 의
+       blob URL 참조가 사라져 영원히 회수되지 않는다(closePdfPanel 과 같은 회수 로직). */
+    if (state.pdf && state.pdf.blobUrl) { try { URL.revokeObjectURL(state.pdf.blobUrl); } catch (e) { /* 무시 */ } }
     state.pdf = { sent: sent, file: null, blobUrl: null };
     $('pdf-target').textContent = (sent.project_name || '(공사 미상)') + ' · ' + (sent.company_name || '')
       + ' 점검표를 PDF 로 만듭니다.';
