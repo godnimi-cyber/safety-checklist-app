@@ -227,9 +227,10 @@
          관리자가 고치거나(CONFIG·AUTH) 시간이 지나야(QUOTA, 다음 날 쿼터 리셋) 풀린다 → 큐 보관 + 자동 재시도
        NETWORK·LOCK_TIMEOUT·SERVER·MOCK(그 외 전부) — 일시 오류 → 자동 재시도
      AUTH 를 영구로 두면 키 회전 사이에 쌓인 제출이 그대로 고착되므로 재시도 가능으로 분류한다.
-     QUOTA 는 email_pdf(설계 2026-08-07-email-pdf §5.2) 전용 코드다 — 이 앱은 아직 email_pdf 를
-     호출하지 않지만, wiring 테스트(16번 b항)가 gas/main.gs 의 최상위 code 전체와 이 목록을
-     대조하므로 여기서도 분류해 둔다(관리자에게 알리는 배너 문구가 CONFIG·AUTH 와 같은 결이다). */
+     QUOTA 는 email_pdf(설계 2026-08-07-email-pdf §5.2) 전용 코드다 — 이메일 발송 패널
+     (onEmailSend → emailPdfOnServer)이 email_pdf 를 호출한다. 큐 재시도 분류와는 별개로,
+     wiring 테스트(16번 b항)가 gas/main.gs 의 최상위 code 전체와 이 목록을 대조하므로
+     여기서도 분류해 둔다(관리자에게 알리는 배너 문구가 CONFIG·AUTH 와 같은 결이다). */
   var PERMANENT_ERROR_CODES = ['VALIDATION'];
   var ADMIN_ERROR_CODES = ['CONFIG', 'AUTH', 'QUOTA'];
   function isPermanentError(code) {
@@ -1141,11 +1142,32 @@
     }).then(function (result) {
       state.emailBusy = false;
       setEmailBusy(false);
-      if (result && result.ok) {
+      /* result.ok 만 보고 성공으로 분기하면 안 된다(리뷰 Critical 1) — 서버는 설계대로
+         실패했던 request_id 재요청에도 ok:true 를 돌려준다(gas/main.gs emailSubmissionCore_
+         의 duplicate 응답). data.sent 로 실제 발송 여부를 가른다. */
+      var ok = !!(result && result.ok);
+      var data = (ok && result.data) || {};
+      if (ok && data.sent) {
         rememberEmail(target.sent.inspector_id, target.to);   // 성공한 주소만 담는다
         closeEmailPanel();
         showBanner('success', target.to + ' 로 발송 요청했습니다.'
-          + (result.data && result.data.duplicate ? ' (이미 보낸 요청입니다 — 두 번 가지 않았습니다)' : ''));
+          + (data.duplicate ? ' (이미 보낸 요청입니다 — 두 번 가지 않았습니다)' : ''));
+      } else if (ok && data.duplicate && data.status === 'failed') {
+        /* 이 request_id 는 영구히 failed 로 막혀 있다 — 서버는 재발송하지 않고 이전 결과만
+           돌려준다(gas/main.gs emailSubmissionCore_ 의 멱등 응답). 같은 id 로 다시 눌러도
+           똑같은 duplicate 만 돌아오므로, request_id 를 비우고 1단계로 되돌려 확인부터
+           다시 받게 한다 — 패널을 닫아 버리면(설계상 새 request_id 를 만드는 유일한 길)
+           복창 없이 재시도할 수 있게 열어 둔 의미가 없어진다. */
+        target.request_id = null;
+        showEmailStep(1);
+        showBanner('error', target.to + ' 로 이전 발송 시도가 실패했습니다 — 주소를 확인하고 다시 눌러 주세요.'
+          + ' (실패한 요청은 가지 않았습니다 — 새로 시도해도 두 번 가지 않습니다)');
+      } else if (ok && data.duplicate && data.status === 'sending') {
+        /* 발송 여부가 불명이다(설계 §4.2 '정직한 불명') — 성공도 실패도 아니다. request_id 는
+           그대로 둔다: 같은 id 로 다시 눌러도 서버가 재발송하지 않고 최신 상태만 돌려주므로
+           안전하게 다시 물어볼 수 있다. 여기서 새 id 를 만들면 먼저 나간(또는 나갈) 메일과
+           겹쳐 두 통이 갈 수 있다. */
+        showBanner('warn', target.to + ' 로 보낸 결과를 확인하지 못했습니다 — 관리자에게 발송이력에서 이 건을 확인해 달라고 요청하세요.');
       } else {
         showBanner('error', emailErrorText(result));
       }
@@ -1168,6 +1190,10 @@
     if (err.code === 'NETWORK') return '결과를 확인하지 못했습니다 — 다시 눌러도 두 번 가지 않습니다.';
     if (err.code === 'QUOTA') return '오늘 보낼 수 있는 메일을 다 썼습니다 — 관리자에게 알리세요.';
     if (err.code === 'CONFIG') return '서버 설정이 끝나지 않았습니다 — 관리자에게 알리세요.';
+    /* email_pdf 의 짧은 락(10초) 대기 초과(리뷰 Important 4) — 분기가 없으면 아래 return m 으로
+       떨어져 영문 토큰 'LOCK_TIMEOUT' 이 현장 화면에 그대로 뜬다. request_id 멱등키가 있으므로
+       "두 번 가지 않는다"고 정직하게 말할 수 있다(설계 §5.2). */
+    if (err.code === 'LOCK_TIMEOUT') return '지금 접수가 몰려 있습니다 — 잠시 후 다시 눌러 주세요. 같은 요청은 두 번 가지 않습니다.';
     if (/PIN_MISMATCH/.test(m)) return 'PIN이 일치하지 않습니다.';
     if (/NOT_YOUR_SUBMISSION/.test(m)) return '본인이 제출한 점검만 보낼 수 있습니다.';
     if (/SEND_WINDOW_CLOSED/.test(m)) return '오늘 보낸 점검만 앱에서 보낼 수 있습니다 — 관리자에게 요청하세요.';

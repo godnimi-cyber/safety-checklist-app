@@ -130,6 +130,10 @@
               <p class="email-confirm-warn">
                 이 PDF 에는 <strong>수검자·점검자 실명과 부적합 사유 전문</strong>이 들어 있습니다.
               </p>
+              <!-- 이 단계에서 1단계로 되돌아갈 방법이 없다(app.js onEmailNext 주석 참고) —
+                   주소를 고치려면 닫고 다시 여는 수밖에 없고, 그러면 새 request_id 가 나오는
+                   게 맞다(오타 재확인 없이 이전 확인을 재사용하면 안 된다). -->
+              <p class="muted">주소를 고치려면 닫고 다시 여세요.</p>
             </div>
             <div class="plan-manage-actions">
               <button type="button" class="btn btn-outline" id="btn-email-close">닫기</button>
