@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1E40AF">
+<meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<link rel="stylesheet" href="./styles.css?v=0.5.3">
+<title>안전점검 대시보드</title>
+<style>
+/* 대시보드 전용 스타일 — 색은 styles.css :root 변수(승인 팔레트)만 쓴다.
+   앱 셸(.app-shell)과 무관한 독립 레이아웃. 내부 도구: 미관보다 상태 가시성. */
+.dash-shell { max-width: 1100px; margin: 0 auto; padding: 0 16px 48px; }
+.dash-topbar { position: sticky; top: 0; z-index: 10; background: var(--color-bg);
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 0; border-bottom: 1px solid var(--color-neutral); }
+.dash-topbar h1 { font-size: 1.15rem; color: var(--color-text); margin: 0; }
+#dash-generated { color: var(--color-neutral-text, #576478); font-size: .9rem; }
+.dash-topbar .spacer { flex: 1; }
+.dash-btn { min-height: 44px; padding: 0 16px; border: 1px solid var(--color-neutral);
+  border-radius: 8px; background: var(--color-surface); color: var(--color-text);
+  cursor: pointer; font-size: .95rem; transition: background .15s; }
+.dash-btn:hover { background: var(--color-bg); }
+.dash-btn:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.dash-btn-primary { background: var(--color-primary); border-color: var(--color-primary); color: #FFFFFF; }
+.dash-btn-primary:hover { background: var(--color-cta); }
+.dash-btn:disabled { opacity: .5; cursor: default; }
+.dash-controls { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; padding: 16px 0; }
+.dash-controls label { display: flex; flex-direction: column; gap: 4px;
+  font-size: .85rem; color: var(--color-neutral-text, #576478); }
+.dash-controls select, .dash-controls input { min-height: 44px; padding: 8px 12px;
+  border: 1px solid var(--color-neutral); border-radius: 8px; font-size: .95rem;
+  background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+.dash-controls select:focus-visible, .dash-controls input:focus-visible,
+#dash-key-input:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+#dash-key-screen { max-width: 420px; margin: 48px auto; display: flex; flex-direction: column; gap: 12px; }
+#dash-key-input { min-height: 44px; padding: 8px 12px; border: 1px solid var(--color-neutral);
+  border-radius: 8px; font-size: 1rem; }
+.dash-banner { padding: 12px 16px; border-radius: 8px; margin: 12px 0;
+  background: var(--color-surface); border: 1px solid var(--color-neutral); color: var(--color-text); }
+.dash-banner-error { border-color: var(--color-danger); color: var(--color-danger-text, #A11A1A); }
+.dash-block { margin: 24px 0; }
+.dash-block h2 { font-size: 1rem; color: var(--color-text); margin: 0 0 8px; }
+.dash-block .note { color: var(--color-neutral-text, #576478); font-size: .9rem; }
+.dash-tablewrap { overflow-x: auto; border: 1px solid var(--color-neutral); border-radius: 8px; }
+.dash-block table { border-collapse: collapse; width: 100%; background: var(--color-surface); }
+.dash-block th, .dash-block td { padding: 12px 16px; text-align: left; font-size: .92rem;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08); color: var(--color-text); white-space: nowrap; }
+.dash-block th { background: var(--color-bg); font-weight: 600; }
+.dash-block tr:last-child td { border-bottom: 0; }
+.dash-danger { color: var(--color-danger-text, #A11A1A); font-weight: 600; }
+.dash-csvrow { margin: 8px 0 0; }
+@media (prefers-reduced-motion: reduce) { .dash-btn { transition: none; } }
+</style>
+</head>
+<body>
+<noscript>이 페이지는 JavaScript가 필요합니다.</noscript>
+
+<div class="dash-shell">
+  <header class="dash-topbar">
+    <h1>안전점검 대시보드</h1>
+    <span id="dash-generated"></span>
+    <span class="spacer"></span>
+    <button type="button" class="dash-btn" id="btn-dash-refresh" hidden>새로고침</button>
+    <button type="button" class="dash-btn" id="btn-dash-clearkey" hidden>키 지우기</button>
+  </header>
+
+  <div id="dash-banner" aria-live="polite"></div>
+
+  <section id="dash-key-screen" hidden>
+    <label for="dash-key-input">대시보드 키</label>
+    <input type="password" id="dash-key-input" autocomplete="off"
+           placeholder="관리자에게 받은 키를 입력하세요">
+    <button type="button" class="dash-btn dash-btn-primary" id="btn-dash-keysave">열기</button>
+  </section>
+
+  <section id="dash-controls" class="dash-controls" hidden>
+    <label>팀
+      <select id="dash-team"></select>
+    </label>
+    <label>시작일
+      <input type="date" id="dash-from">
+    </label>
+    <label>종료일
+      <input type="date" id="dash-to">
+    </label>
+    <button type="button" class="dash-btn dash-btn-primary" id="btn-dash-query">조회</button>
+    <span class="note">비우면 최근 30일</span>
+  </section>
+
+  <main id="dash-blocks"></main>
+</div>
+
+<script src="./config.js?v=0.5.3"></script>
+<script src="./dashboard.js?v=0.5.3"></script>
+</body>
+</html>
