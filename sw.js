@@ -22,7 +22,7 @@
 
 /* 배포마다 바뀌어야 옛 캐시가 정리된다. config.js 의 APP_VER 과 같은 값을 쓴다
    (tests-js/wiring.test.mjs 가 둘이 어긋나면 잡는다 — 어긋나면 옛 캐시가 영영 남는다). */
-var CACHE = 'safety-checklist-v0.5.2';
+var CACHE = 'safety-checklist-v0.5.3';
 
 /* 껍데기 = 앱을 띄우는 데 필요한 최소 집합. config.js 는 API 주소·키라 반드시 포함한다.
    버전 쿼리(?v=)는 넣지 않는다 — 요청 URL 과 캐시 키를 맞추는 일을 fetch 쪽에서 한다. */
@@ -75,6 +75,12 @@ self.addEventListener('fetch', function (e) {
   var url;
   try { url = new URL(req.url); } catch (err) { return; }
   if (url.origin !== self.location.origin) return;        /* API·외부 요청은 손대지 않는다 */
+
+  /* 대시보드는 network-only(웹 대시보드 스펙 §1) — 담지도, 대체하지도 않는다.
+     담으면 옛 대시보드가 새 서버 계약과 어긋난 채 박제되고, navigate 대체를 남기면
+     오프라인 첫 방문에 점검 앱(index.html)이 대신 뜬다. 온라인 전용 관리자 페이지라
+     오프라인엔 브라우저 표준 오류 화면이 정직하다. */
+  if (/\/dashboard\.(?:html|js)$/.test(url.pathname)) return;
 
   /* 캐시 키에서 버전 쿼리를 뗀다. index.html 이 styles.css?v=0.2.0 로 부르는데 캐시에는
      쿼리 없는 주소로 담겨 있어, 그대로 찾으면 오프라인에서 못 찾는다. */
