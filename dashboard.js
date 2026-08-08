@@ -222,19 +222,18 @@
 
   var modal = { gen: 0, list: null, listTitle: '', listExpected: undefined };
 
-  /** 상세 조회 URL(순수 — 조각 테스트 대상). st 의 key·committedRange·view 만 쓴다. */
-  function detailUrl_(st, kind, key, extra) {
+  /** 상세 조회 페이로드(순수 — 조각 테스트 대상). st 의 key·committedRange·view 만 쓴다.
+   *  전송은 GET 쿼리가 아니라 **POST 본문**이다 — 데스크톱·폰 공통으로 긴 쿼리 GET fetch 만
+   *  Failed to fetch 로 죽는 실사례(주소창·curl 은 정상)가 있어, 제출이 매일 쓰는 검증된
+   *  전송로(text/plain simple request)로 맞췄다. */
+  function detailPayload_(st, kind, key, extra) {
     var rng = st.committedRange;
-    var url = CONFIG.API_URL + '?action=dashboard_detail&k=' + encodeURIComponent(st.key)
-      + '&kind=' + encodeURIComponent(kind)
-      + '&from=' + encodeURIComponent(rng.from) + '&to=' + encodeURIComponent(rng.to);
-    if (key !== null) url += '&key=' + encodeURIComponent(key);
-    if (st.view === null) url += '&scope=all';
-    else url += '&scope=team&team=' + encodeURIComponent(st.view);   // '' 팀((팀 없음))도 명시 스코프
-    Object.keys(extra || {}).forEach(function (k2) {
-      url += '&' + k2 + '=' + encodeURIComponent(extra[k2]);
-    });
-    return url;
+    var p = { kind: kind, from: rng.from, to: rng.to };
+    if (key !== null) p.key = key;
+    if (st.view === null) p.scope = 'all';
+    else { p.scope = 'team'; p.team = st.view; }   // '' 팀((팀 없음))도 명시 스코프
+    Object.keys(extra || {}).forEach(function (k2) { p[k2] = extra[k2]; });
+    return p;
   }
 
   function openModal_(title) {
@@ -271,7 +270,13 @@
   function fetchDetail_(kind, key, extra, render) {
     var g = ++modal.gen;
     modalMsg_('불러오는 중', false);
-    requestJson(detailUrl_(state, kind, key, extra), null).then(function (res) {
+    requestJson(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'dashboard_detail', k: state.key,
+                             payload: detailPayload_(state, kind, key, extra) }),
+      redirect: 'follow'
+    }).then(function (res) {
       if (g !== modal.gen) return;             // 닫혔거나 새 요청이 이겼다 — 화면을 건드리지 않는다
       if (res && res.ok) { render(res.data); return; }
       var code = String((res && res.error && res.error.code) || '');
