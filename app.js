@@ -85,10 +85,11 @@
     /* 취소하려는 제출(오늘 보낸 목록의 한 건)과 처리 중 표식 */
     voiding: null,
     voidingBusy: false,
-    /* PDF 반출 패널 상태(2단계: 만들기·보내기) — 만들기(서버 왕복)와 보내기(공유 시트)를 가른다
-       (openPdfPanel 주석 참고, 설계 §3). */
-    pdf: null,
-    pdfBusy: false,
+    /* 발송 패널 상태 — 대상·멱등키·마지막으로 본 주소를 붙잡는다. request_id 는 **패널을 열
+       때 1회** 만든다(openEmailPanel 주석, 설계 rev.7 §4.1-2). lastTo 는 "주소가 바뀌었나"를
+       판정하는 기준값이다 — 바뀌면 PIN 을 지운다(§3-4). */
+    email: null,
+    emailBusy: false,
     queue: [],
     currentScreen: 'home',
     writeStep: 1,
@@ -227,10 +228,11 @@
          → 큐 보관 + 자동 재시도
        NETWORK·LOCK_TIMEOUT·SERVER·MOCK(그 외 전부) — 일시 오류 → 자동 재시도
      AUTH 를 영구로 두면 키 회전 사이에 쌓인 제출이 그대로 고착되므로 재시도 가능으로 분류한다.
-     QUOTA 는 서버 발송(email_pdf, MailApp 쿼터) 전용 코드였다 — Task 2 가 서버 발송 기계를
-     걷어내며 gas/main.gs 가 QUOTA 를 더는 내보내지 않는다(설계 rev.5). wiring 테스트(16번 b항)가
-     gas/main.gs 의 최상위 code 전체와 이 목록을 대조하므로 여기서도 뺐다 — 남겨 두면 "서버가
-     내보내지 않는 코드를 클라이언트가 분류해 둔" 죽은 목록이 된다. */
+     **QUOTA 는 최상위 코드가 아니다.** rev.7 이 서버 발송을 되살렸지만(MailApp), 쿼터 소진은
+     CONFIG + 세부 문구 'QUOTA' 로 나온다 — 영구 실패가 아니라 관리자가 기다리거나 확인하면
+     풀리는 것이라 CONFIG 의 의미에 맞고, 최상위 코드 집합을 늘리면 이 3분류 계약이 함께 흔들린다.
+     배너 문구는 emailErrorText 가 세부 문구로 고른다(PIN_MISMATCH 와 같은 선례).
+     wiring 테스트(16번 b항)가 gas/main.gs 의 최상위 code 전체와 이 목록을 대조한다. */
   var PERMANENT_ERROR_CODES = ['VALIDATION'];
   var ADMIN_ERROR_CODES = ['CONFIG', 'AUTH'];
   function isPermanentError(code) {
@@ -395,49 +397,35 @@
       }, 300);
     });
   }
-  function pdfBuildOnServer(payload) {
-    return CONFIG.MOCK ? mockPdfBuild(payload) : realPdfBuild(payload);
+  /* 서버 발송(설계 rev.7 §4.1). 오프라인·실패는 **미전송 큐에 절대 넣지 않는다** — 제출은
+     중복돼도 서버가 걸러내지만, 발송은 나중에 점검자 모르게 나가면 안 된다. 그 자리에서
+     끝내고 사람이 다시 누른다(멱등키가 있어 다시 눌러도 두 통이 되지 않는다). */
+  function emailSendOnServer(payload) {
+    return CONFIG.MOCK ? mockEmailSend(payload) : realEmailSend(payload);
   }
-  function realPdfBuild(payload) {
+  function realEmailSend(payload) {
     return requestJson(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'pdf_build', k: CONFIG.SHARED_KEY, payload: payload }),
+      body: JSON.stringify({ action: 'email_send', k: CONFIG.SHARED_KEY, payload: payload }),
       redirect: 'follow'
     });
   }
-  function mockPdfBuild(payload) {
+  function mockEmailSend(payload) {
+    /* PIN 을 콘솔에 그대로 남기지 않는다(queuePayloadPreview 와 같은 이유). Object.assign 은
+       이 저장소 어디에도 없다 — withInjectedPin 등이 전부 Object.keys().forEach 사본을 쓴다. */
+    var masked = {};
+    Object.keys(payload || {}).forEach(function (k) { masked[k] = payload[k]; });
+    masked.pin = '****';
     // eslint-disable-next-line no-console
-    console.log('[MOCK pdf_build]', Object.assign({}, payload, { pin: '****' }));
+    console.log('[MOCK email_send]', masked);
     return new Promise(function (resolve) {
       setTimeout(function () {
-        resolve({ ok: true, data: { build_id: 'mock', filename: '안전점검_MOCK.pdf',
-          mime: 'application/pdf', b64: 'JVBERi0xLjQgbW9jaw==', byte_size: 13,
-          sha256: '0'.repeat(64), issued_at: '' } });
+        resolve({ ok: true, data: { sent: true, duplicate: false, status: 'requested',
+          requested_at: '', byte_size: 0, sha256: '', history_written: true,
+          to: (payload && payload.to) || '' } });
       }, 400);
     });
-  }
-  /* base64 → 바이트. **atob 자체를 쪼갠다** — 한 번에 통째로 atob 하면 디코딩된 전체
-     바이너리 문자열과 최종 Uint8Array 가 동시에 살아 있어(리뷰 Important 1), 8MB PDF 에서
-     20MB 넘게 상주하고 그게 이 함수가 막겠다던 저사양 폰 크래시 그 자체가 된다.
-     base64 는 4문자 = 3바이트이므로 자르는 단위는 반드시 **4의 배수**다 — 아니면 청크 경계에서
-     디코딩이 깨진다. 패딩('=')은 전체 문자열의 맨 끝에만 있을 수 있으므로, 4의 배수로 자르면
-     마지막 청크를 제외한 모든 청크는 패딩 없는 완전한 base64 조각이 되어 각각 독립적으로
-     atob 할 수 있다. */
-  function b64ToBytes(b64) {
-    var s = String(b64 || '');
-    var CH = 8192 * 4;   // 4의 배수 유지 — 8192 는 임의 상수가 아니라 4로 나누어떨어지는 값이다
-    var padding = 0;
-    if (s.length && s.charAt(s.length - 1) === '=') padding++;
-    if (s.length > 1 && s.charAt(s.length - 2) === '=') padding++;
-    var total = s.length ? (Math.floor(s.length / 4) * 3 - padding) : 0;
-    var out = new Uint8Array(total);
-    var o = 0;
-    for (var i = 0; i < s.length; i += CH) {
-      var part = window.atob(s.slice(i, i + CH));   // 청크 하나만큼만 잠깐 살아 있다가 out 으로 옮겨진다
-      for (var j = 0; j < part.length; j++) out[o++] = part.charCodeAt(j) & 0xff;
-    }
-    return out;
   }
   function loadPlansFromNetwork() {
     return CONFIG.MOCK ? mockPlansList() : fetchPlansRemote();
@@ -993,11 +981,12 @@
       var pbtn = node.querySelector('.sent-btn-print');
       pbtn.hidden = !s.template_id;
       pbtn.addEventListener('click', function () { printSheet(printDataFromSent(s)); });
-      /* PDF 반출 — 인쇄와 같은 조건으로 숨긴다(옛 기록엔 판정이 없다).
-         서버 준비가 안 됐으면(caps.pdf=false) 아예 내지 않는다 — 미완 배포에서 헛시도를 없앤다. */
+      /* PDF 보내기 — 인쇄와 같은 조건으로 숨긴다(옛 기록엔 판정이 없다).
+         서버 준비가 안 됐으면(caps.pdf=false) 아예 내지 않는다 — 미완 배포에서 헛시도를 없앤다.
+         caps 키가 pdf 인 것은 서버가 PDF반출이력 탭 유무로 판정하기 때문이다(이름은 그대로 둔다). */
       var pbtn2 = node.querySelector('.sent-btn-pdf');
       pbtn2.hidden = !s.template_id || !(state.masters && state.masters.caps && state.masters.caps.pdf);
-      pbtn2.addEventListener('click', function () { openPdfPanel(s); });
+      pbtn2.addEventListener('click', function () { openEmailPanel(s); });
       node.querySelector('.sent-btn-void').addEventListener('click', function () { openVoidPanel(s); });
       wrap.appendChild(node);
     });
@@ -1046,13 +1035,17 @@
         closeVoidPanel();
         var f = (result.data && result.data.findings) || 0;
         var msg = '제출을 취소했습니다.' + (f ? ' 부적합 ' + f + '건도 함께 정리했습니다.' : '');
-        /* 설계 §4.3: PDF 를 이미 반출한 뒤 취소가 들어올 수 있다 — 취소 자체는 막지 않되
-           (잘못된 기록을 바로잡는 유일한 경로다), 반출된 적이 있으면 알린다. 우리는 서버 발송을
-           하지 않으므로 수신처도 실제 발송 여부도 모른다 — 아는 것은 반출 **건수**뿐이다. */
+        /* 설계 §4.4: PDF 를 이미 보낸 뒤 취소가 들어올 수 있다 — 취소 자체는 막지 않되
+           (잘못된 기록을 바로잡는 유일한 경로다), 나간 적이 있으면 **어디로 갔는지**까지 알린다.
+           건수만 말하면 "누구에게 정정 연락을 하나"에 답할 수 없다. 주소가 비어 있는 것은
+           rev.5 시절 반출(그때는 폰이 보냈다)이라 지어내지 않고 모른다고 말한다. */
         var pulls = (result.data && result.data.pull_count) || 0;
+        var pullTo = (result.data && result.data.pull_to) || [];
         if (pulls > 0) {
-          showBanner('warn', '취소했습니다. 이 점검의 PDF 가 ' + pulls
-            + '회 반출되었습니다 — 수신처와 실제 발송 여부는 확인할 수 없고, 이미 받은 PDF 는 회수되지 않습니다.');
+          showBanner('warn', '취소했습니다. 이 점검의 PDF 가 ' + pulls + '회 반출되었습니다 — '
+            + (pullTo.length ? '수신처: ' + pullTo.join(', ') + '. 받는 분께 정정 안내가 필요합니다.'
+                             : '수신처는 이력에 남아 있지 않습니다.')
+            + ' 이미 받은 PDF 는 회수되지 않습니다.');
         } else {
           showBanner('success', msg);
         }
@@ -1071,141 +1064,233 @@
       btn.textContent = label;
     });
   }
-  /* PDF 반출 패널 — 2단계다. 만들기(서버 왕복)와 보내기(공유 시트)를 가른다.
-     iOS 는 공유 시트를 사용자 탭과 같은 흐름에서 열어야 하고, 서버 왕복 뒤에는
-     그 자격이 남지 않는다(설계 §3). */
-  function openPdfPanel(sent) {
-    if (state.pdfBusy) {
-      showBanner('warn', '앞선 작업을 처리하는 중입니다 — 끝난 뒤 다시 눌러 주세요.');
-      window.scrollTo(0, 0);
+  /* ── 발송 패널 (설계 rev.7) ─────────────────────────────────────────────
+     **한 번에 끝난다**: 주소·PIN 을 넣고 버튼 하나. rev.5 의 2단계(만들기 → 공유 시트)는
+     현장에서 실제로 전달하지 못했고(데스크톱 Gmail 미수신·모바일 share 실패), 서버가 보내는
+     지금은 왕복이 한 번뿐이라 단계를 나눌 이유도 없다.
+
+     확인 단계를 따로 두지 않는 대신 두 가지가 그 자리를 대신한다(설계 §3):
+       · 버튼 글자가 주소를 말한다(sendButtonLabel) — 누르기 직전에 반드시 읽는 자리다
+       · 주소가 한 글자라도 바뀌면 PIN 을 지운다(onEmailToChanged) — 승인을 수신처에 묶는다 */
+
+  /* 앱 쪽 1차 형식 검사. **최종 판정은 서버의 isMailboxOk_ 다**(§4.5: 개행·제어문자·길이·
+     쉼표까지 본다) — 여기서는 "버튼에 주소를 적어도 되는가"를 가르는 정도만 한다.
+     쉼표·세미콜론을 거르는 이유는 수신자 1명 계약이다(여럿을 적으면 서버가 거절한다). */
+  function looksLikeAddress(to) {
+    return /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(String(to || '').trim());
+  }
+  /* 버튼 글자에 주소를 넣는다(설계 §3-3·§7-2). 주소 꼴이 아니면 아무 주소도 말하지 않는다 —
+     반쯤 친 글자를 수신처처럼 보이면 오히려 잘못 읽는다. */
+  function sendButtonLabel(to) {
+    return looksLikeAddress(to) ? (String(to).trim() + ' 으로 보내기') : '보내기';
+  }
+  function syncSendButton() {
+    $('btn-email-send').textContent = sendButtonLabel($('email-to').value);
+  }
+  /* 최근 보낸 주소 — 오타를 가장 많이 막는 장치다.
+     **점검자별로 가른다**: 공용 폰에서 다음 사용자가 앞사람 주소를 고르면, 버튼은 그 주소를
+     정확히 복창하지만 다른 회사의 실명과 부적합 내용이 엉뚱한 곳으로 간다.
+     날짜로 지우지 않는다 — 다음 날 또 치게 하면 이 장치가 있을 이유가 없다.
+     저장은 state.storage(logic.js)를 거친다 — window.localStorage 를 여기서 직접 만지지
+     않는다(§18c 와 같은 규율, loadCachedMasters 주석 참고). */
+  var RECENT_EMAIL_MAX = 3;
+  function recentEmails(inspectorId) {
+    var list = state.storage.loadRecentEmails(inspectorId);
+    return list.filter(function (s) { return typeof s === 'string' && s.length; }).slice(0, RECENT_EMAIL_MAX);
+  }
+  /** **발송에 성공한 주소만** 담는다 — 실패한 오타를 학습하면 방어가 아니라 함정이 된다. */
+  function rememberEmail(inspectorId, to) {
+    var list = recentEmails(inspectorId).filter(function (s) { return s !== to; });
+    list.unshift(to);
+    /* 저장 실패는 발송을 실패로 만들지 않는다 — 최근 주소는 편의 장치일 뿐이라 배너를 띄우면
+       "발송 실패"로 오인한다(K4 예외, recordSent 와 같은 결). */
+    state.storage.saveRecentEmails(inspectorId, list.slice(0, RECENT_EMAIL_MAX));
+  }
+  function forgetEmails(inspectorId) {
+    state.storage.clearRecentEmails(inspectorId);
+  }
+  function renderRecentEmails(inspectorId) {
+    var wrap = $('email-recent');
+    wrap.innerHTML = '';
+    var list = recentEmails(inspectorId);
+    wrap.hidden = list.length === 0;
+    list.forEach(function (addr) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'email-recent-btn';
+      b.textContent = addr;
+      b.addEventListener('click', function () { setEmailTo(addr); });
+      wrap.appendChild(b);
+    });
+    if (list.length) {
+      var clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'email-recent-btn';
+      clear.textContent = '전체 지우기';
+      clear.addEventListener('click', function () { forgetEmails(inspectorId); renderRecentEmails(inspectorId); });
+      wrap.appendChild(clear);
+    }
+  }
+  /* 칩으로 채우는 것도 **주소가 바뀌는 사건**이다 — 값을 코드로 넣으면 input 이벤트가 나지
+     않으므로 같은 경로를 직접 태운다. 안 그러면 칩으로 바꾼 주소에 앞서 넣은 PIN 이 그대로
+     살아 있어 승인이 다른 수신처로 옮겨 붙는다. */
+  function setEmailTo(addr) {
+    $('email-to').value = addr;
+    onEmailToChanged();
+  }
+  /* 주소가 한 글자라도 바뀌면 PIN 을 지운다(설계 §3-4). 안 바뀌었으면 지우지 않는다 —
+     주소와 무관한 input 마다 지우면 사용자가 PIN 을 영영 다 못 넣는다(과잉 초기화도 결함이다). */
+  function onEmailToChanged() {
+    if (!state.email) return;
+    var to = String($('email-to').value || '').trim();
+    if (to !== state.email.lastTo) {
+      state.email.lastTo = to;
+      $('email-pin').value = '';
+    }
+    syncSendButton();
+  }
+  function openEmailPanel(sent) {
+    if (state.emailBusy) {
+      showBanner('warn', '앞선 발송을 처리하는 중입니다 — 끝난 뒤 다시 눌러 주세요.');
       return;
     }
-    /* 모달이 아니라 인라인 패널이라 닫지 않은 채 다른 행의 'PDF 보내기'를 또 누를 수 있다 —
-       A 를 내려받아 blobUrl 이 생긴 채로 B 를 열면, 아래서 state.pdf 를 덮어쓰는 순간 A 의
-       blob URL 참조가 사라져 영원히 회수되지 않는다(closePdfPanel 과 같은 회수 로직). */
-    if (state.pdf && state.pdf.blobUrl) { try { URL.revokeObjectURL(state.pdf.blobUrl); } catch (e) { /* 무시 */ } }
-    state.pdf = { sent: sent, file: null, blobUrl: null };
-    $('pdf-target').textContent = (sent.project_name || '(공사 미상)') + ' · ' + (sent.company_name || '')
-      + ' 점검표를 PDF 로 만듭니다.';
-    $('pdf-pin').value = '';
-    showPdfStep(1);
-    $('pdf-panel').hidden = false;
-    $('pdf-panel').scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+    /* **request_id 는 여기서 1회.** 같은 패널에서 다시 눌러도 같은 값이라 서버 멱등에 걸려
+       두 통이 되지 않는다(설계 §4.1-2). onEmailSend 에서 만들면 누를 때마다 새 요청이 된다.
+       앞선 시도가 실패로 끝난 요청키로는 서버가 재발송하지 않으므로, 패널을 닫았다 여는 것이
+       새 키를 받는 유일한 경로다(그 안내를 onEmailSend 의 실패 배너가 한다). */
+    state.email = { sent: sent, request_id: SafetyLogic.uuid(), lastTo: '' };
+    $('email-target').textContent = (sent.project_name || '(공사 미상)') + ' · ' + (sent.company_name || '')
+      + ' 점검표를 PDF 로 만들어 보냅니다.';
+    $('email-to').value = '';
+    $('email-pin').value = '';
+    renderRecentEmails(sent.inspector_id);
+    syncSendButton();
+    $('email-panel').hidden = false;
+    $('email-panel').scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
   }
-  function closePdfPanel() {
-    if (state.pdf && state.pdf.blobUrl) { try { URL.revokeObjectURL(state.pdf.blobUrl); } catch (e) { /* 무시 */ } }
-    state.pdf = null;
-    $('pdf-panel').hidden = true;
+  function closeEmailPanel() {
+    state.email = null;
+    $('email-panel').hidden = true;
   }
-  function showPdfStep(n) {
-    $('btn-pdf-build').hidden = n !== 1;
-    $('pdf-pin').disabled = n !== 1;
-    /* 2단계에서 공유가 되는 기기면 보내기, 아니면 내려받기 — 둘 중 하나만 보인다.
-       canShare 는 **실제 File** 로 판정한다 — 파일 없는 개념적 호출은 판정이 아니다.
-       navigator.share 존재도 함께 본다(리뷰 Minor) — canShare 만 참이고 share 가 없으면
-       (일부 구형 브라우저) 보내기 버튼을 눌렀을 때 TypeError 로 조용히 죽고, onPdfShare 에
-       catch 가 없어 내려받기로도 못 떨어진다. */
-    var file = state.pdf && state.pdf.file;
-    var canShare = n === 2 && !!file && !!navigator.share
-      && !!navigator.canShare && navigator.canShare({ files: [file] });
-    $('btn-pdf-share').hidden = !canShare;
-    $('btn-pdf-download').hidden = !(n === 2 && !canShare);
+  function setEmailBusy(busy) {
+    state.emailBusy = busy;
+    $('btn-email-send').disabled = busy;
+    $('btn-email-close').disabled = busy;
+    $('email-to').disabled = busy;
+    $('email-pin').disabled = busy;
+    /* 발송 중에는 같은 목록의 제출 취소도 잠근다 — 승인 이후 취소가 들어오면 메일은 이미
+       나간다(설계 §4.1-11 이 남긴 창은 ms 단위다). 한 번에 한 발송뿐이라 목록 전체를 잠그면 된다. */
+    var btns = document.querySelectorAll('#home-sent-list .sent-btn-void');
+    for (var i = 0; i < btns.length; i++) { btns[i].disabled = busy; }
   }
-  function setPdfBusy(busy) {
-    state.pdfBusy = busy;
-    $('btn-pdf-build').disabled = busy;
-    $('btn-pdf-close').disabled = busy;
+  /* 앞선 시도가 어떤 상태로 끝났는지 — 영문 상태값을 그대로 보이지 않는다. */
+  function emailStatusText(status) {
+    var s = String(status || '');
+    return s === 'failed' ? '실패' : s === 'cancelled' ? '취소' : s === 'sending' ? '결과 불명' : '알 수 없음';
   }
-  function onPdfBuild() {
-    if (state.pdfBusy || !state.pdf) return;
-    var pin = $('pdf-pin').value;
+  function onEmailSend() {
+    if (state.emailBusy || !state.email) return;
+    var target = state.email;
+    var to = String($('email-to').value || '').trim();
+    var pin = $('email-pin').value;
+    if (!looksLikeAddress(to)) {
+      showBanner('error', '받는 주소를 확인하세요 — 한 명만, 쉼표 없이 적습니다.');
+      window.scrollTo(0, 0);   /* 오류는 반드시 읽혀야 한다 — 배너는 화면 맨 위에 있다 */
+      var e1 = $('email-to'); if (e1 && !e1.disabled) e1.focus();
+      return;
+    }
     if (!/^\d{4}$/.test(pin || '')) {
       showBanner('error', 'PIN(4자리)을 확인하세요.');
-      $('pdf-pin').focus();
       window.scrollTo(0, 0);
+      var e2 = $('email-pin'); if (e2 && !e2.disabled) e2.focus();
       return;
     }
-    var target = state.pdf;
-    setPdfBusy(true);            /* 더블탭이면 PDF 를 두 번 만들고 이력에 두 줄이 남는다 */
-    pdfBuildOnServer({ submission_id: target.sent.submission_id,
-      inspector_id: target.sent.inspector_id, pin: pin }).then(function (result) {
-      if (!(result && result.ok)) {
-        showBanner('error', pdfErrorText(result));
+    setEmailBusy(true);   /* 더블탭 1차 방어(2차는 멱등키) — 잠그지 않으면 요청이 두 번 나간다 */
+    $('btn-email-send').textContent = '보내는 중...';
+    emailSendOnServer({
+      request_id: target.request_id,
+      submission_id: target.sent.submission_id,
+      to: to,
+      inspector_id: target.sent.inspector_id,
+      pin: pin
+    }).then(function (result) {
+      var d = (result && result.data) || {};
+      /* **ok 만 보고 판정하지 않는다.** 서버는 앞서 실패로 끝난 request_id 를 다시 받으면
+         재발송하지 않고 { ok:true, duplicate:true, sent:false, status:'failed' } 를 돌려준다.
+         rev.5 의 앱은 ok 만 보고 "보냈습니다"라 말하며 그 주소를 성공 목록에 담았다 —
+         현장은 안 간 메일을 갔다고 믿었다. sent 와 status 를 **둘 다** 본다. */
+      if (result && result.ok && d.sent === true && String(d.status) === 'requested') {
+        rememberEmail(target.sent.inspector_id, to);   /* 성공한 주소만 담는다 */
+        closeEmailPanel();
+        /* 되비추는 주소는 **이력에 남은 값**(d.to)이다 — 서버 지문이 trim().toLowerCase() 라
+           대소문자만 다른 재요청이 같은 요청으로 잡힌다. 그때 실제로 간 곳은 이력의 주소다. */
+        showBanner('success', (d.to || to) + ' 로 보냈습니다.'
+          + (d.duplicate ? ' (앞서 보낸 요청입니다 — 두 번 가지 않았습니다)' : ''));
+        /* 여기서 화면을 맨 위로 되돌리지 않는다 — 사용자가 불평한 동작이고, 패널이 닫혔으니
+           돌아올 컨트롤도 없다. 제출 취소(onVoidConfirm) 성공 경로와 같은 규약이다. */
+        return;
+      }
+      if (result && result.ok) {
+        /* 나갔다고 말할 수 없는 성공 봉투. 같은 요청키로는 서버가 재발송하지 않으므로
+           복구 경로는 **패널을 닫았다 다시 여는 것**(새 request_id)뿐이다. */
+        showBanner('error', '보내지 못했습니다 — 앞선 시도가 ' + emailStatusText(d.status)
+          + '(으)로 끝났습니다. 패널을 닫고 다시 열어야 새로 보낼 수 있습니다.');
         window.scrollTo(0, 0);
         return;
       }
-      var d = result.data || {};
-      var bytes = b64ToBytes(d.b64);
-      target.file = new File([bytes], d.filename, { type: d.mime || 'application/pdf' });
-      target.title = '[안전점검] ' + (target.sent.project_name || '') + ' · '
-        + (target.sent.company_name || '') + ' · ' + (target.sent.inspect_date || '');
-      showPdfStep(2);
-      showBanner('success', 'PDF 를 만들었습니다 — 보낼 앱을 고르세요.');
+      showBanner('error', emailErrorText(result));
       window.scrollTo(0, 0);
     }).catch(function (e) {
-      /* requestJson 은 reject 하지 않지만 b64ToBytes/new File 이 던지면(손상된 b64 등) 여기가
-         아니면 배너 없이 조용히 아무 일도 안 일어난다 — onVoidConfirm 과 같은 대칭(리뷰 Minor). */
-      showBanner('error', 'PDF 생성 처리 중 오류가 발생했습니다: ' + ((e && e.message) || e));
+      /* requestJson 은 reject 하지 않지만, 위 분기가 던지면(예상 밖 응답 모양 등) 여기가
+         아니면 배너 없이 조용히 아무 일도 안 일어나고 잠금도 안 풀린다(onVoidConfirm 과 대칭). */
+      showBanner('error', '발송 처리 중 오류가 발생했습니다: ' + ((e && e.message) || e));
       window.scrollTo(0, 0);
     }).finally(function () {
-      setPdfBusy(false);
+      setEmailBusy(false);
+      syncSendButton();   /* '보내는 중...' 을 되돌린다(패널이 닫혔어도 무해하다) */
     });
   }
-  function onPdfShare() {
-    if (!state.pdf || !state.pdf.file) return;
-    var t = state.pdf;
-    navigator.share({ files: [t.file], title: t.title, text: t.title }).then(function () {
-      closePdfPanel();
-      /* 발송 완료를 주장하지 않는다 — 어느 앱을 골랐는지, 실제로 나갔는지 우리는 모른다. */
-      showBanner('success', '공유 시트를 열었습니다 — 고른 앱에서 발송을 마치세요.');
-      window.scrollTo(0, 0);
-    }, function (err) {
-      /* 사용자가 공유 창을 닫은 것은 오류가 아니다. */
-      if (err && err.name === 'AbortError') return;
-      showBanner('error', '공유하지 못했습니다 — 아래 내려받기로 저장한 뒤 직접 첨부하세요.');
-      $('btn-pdf-share').hidden = true;
-      $('btn-pdf-download').hidden = false;
-      window.scrollTo(0, 0);
-    });
-  }
-  function onPdfDownload() {
-    if (!state.pdf || !state.pdf.file) return;
-    var t = state.pdf;
-    var url = URL.createObjectURL(t.file);
-    t.blobUrl = url;
-    var a = document.createElement('a');
-    a.href = url; a.download = t.file.name;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    /* 내려받기 시작 뒤 회수한다(설계 §5) — 패널을 닫지 않아도 blob 이 페이지 수명 내내
-       남지 않게 한다. 0ms setTimeout 은 click() 이 시작한 다운로드가 큐에 들어간 뒤로
-       회수를 미루는 관용구다 — 동기로 바로 revoke 하면 다운로드가 막 시작된 URL 을
-       무효화할 위험이 있다. */
-    setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) { /* 무시 */ } }, 0);
-    showBanner('warn', '내려받았습니다 — 이 파일은 기기의 다운로드 폴더와 백업에 남습니다. 보낸 뒤 직접 지우세요.');
-    window.scrollTo(0, 0);
-  }
-  function pdfErrorText(result) {
+  /* 문구는 코드별로 고정한다(설계 §5). **마지막 줄이 `m || 기본문구`** 라 매핑이 없으면
+     기본문구가 아니라 **영문 토큰이 그대로** 배너에 뜬다 — APP_OUTDATED 로 실측된 결함이다.
+     서버에 코드를 더하면 여기도 함께 늘려라(wiring 35l 이 handleEmailSend_ 를 훑어 강제한다). */
+  function emailErrorText(result) {
     var err = (result && result.error) || {};
     var m = String(err.message || '');
-    if (err.code === 'NETWORK') return '만들어졌는지 확인하지 못했습니다 — 다시 만들 수 있습니다.';
+    /* 재시도가 안전한 유일한 근거는 멱등키다 — 응답을 못 받은 것과 안 간 것은 다르다. */
+    if (err.code === 'NETWORK') return '결과를 확인하지 못했습니다 — 다시 눌러도 두 번 가지 않습니다.';
+    /* 쿼터는 **최상위 QUOTA 코드가 아니라 CONFIG + 세부 문구**다(설계 §5, 서버 구현 확인).
+       최상위 코드 집합은 앱의 재시도·큐 판정이 걸려 있어 고정돼 있고(wiring 16b), 분류는
+       여기 app.js 소관이다 — PIN_MISMATCH 와 같은 선례다. 그래서 이 줄이 CONFIG 관리자
+       배너보다 **먼저** 와야 한다. 오늘은 몇 번을 눌러도 안 되므로 "다시" 라고 하면 안 된다. */
+    if (/QUOTA/.test(m)) return '오늘 보낼 수 있는 메일을 다 썼습니다 — 관리자에게 알리세요.';
+    if (/INSPECTOR_EMAIL_MISSING/.test(m)) {
+      return '점검자 이메일이 등록되지 않았습니다 — 관리자에게 연락하거나 「인쇄 · PDF」로 저장해 직접 보내세요.';
+    }
+    if (/SUBMISSION_DUPLICATE/.test(m)) return '같은 제출이 장부에 두 번 있습니다 — 관리자에게 알리세요.';
+    if (/SUBMISSION_STATE_UNEXPECTED/.test(m)) return '제출 상태가 예상 밖입니다 — 관리자에게 알리세요.';
     if (err.code === 'CONFIG') return '서버 설정이 끝나지 않았습니다 — 관리자에게 알리세요.';
+    if (err.code === 'AUTH') return '앱 키가 서버와 다릅니다 — 관리자에게 알리세요.';
     if (err.code === 'LOCK_TIMEOUT') return '서버가 다른 작업을 처리 중입니다 — 잠시 후 다시 누르세요.';
     if (/PIN_LOCKED/.test(m)) return 'PIN을 여러 번 틀렸습니다 — 잠시 후 다시 시도하세요.';
     if (/PIN_MISMATCH/.test(m)) return 'PIN이 일치하지 않습니다.';
     if (/NOT_YOUR_SUBMISSION/.test(m)) return '본인이 제출한 점검만 보낼 수 있습니다.';
-    if (/EXPORT_WINDOW_CLOSED/.test(m)) return '오늘 보낸 점검만 앱에서 보낼 수 있습니다 — 관리자에게 요청하세요.';
+    /* 창 코드는 SEND_WINDOW_CLOSED 다(설계 §4.1-5). 옛 EXPORT_WINDOW_CLOSED 는 어느 서버
+       경로도 만들지 않으므로 매핑하지 않는다 — 죽은 분기를 남기면 다음 사람이 헷갈린다. */
+    if (/SEND_WINDOW_CLOSED/.test(m)) return '오늘 보낸 점검만 앱에서 보낼 수 있습니다 — 관리자에게 요청하세요.';
+    if (/TO_INVALID/.test(m)) return '받는 주소를 확인하세요 — 한 명만, 쉼표 없이 적습니다.';
+    if (/OUTCOME_UNKNOWN/.test(m)) {
+      return '앞선 발송의 결과를 알 수 없습니다 — 받는 분께 확인하고 관리자에게 알리세요. 자동으로 다시 보내지 않습니다.';
+    }
     if (/PDF_TOO_LARGE/.test(m)) return 'PDF가 너무 큽니다 — 관리자에게 알리세요.';
-    /* 구간 3 재확인(설계 §4.1) — 렌더 중 취소가 들어오면 여기로 떨어진다. 이 기능이
-       자랑하는 방어라 영문 토큰을 그대로 보이면 안 된다(리뷰 Minor) — 무엇을 해야 하는지도
-       말해야 한다. friendlyVoidError 와 같은 문구(SUBMISSION_NOT_FOUND)로 맞춘다. */
     if (/SUBMISSION_NOT_VALID/.test(m)) return '이 점검은 취소되었습니다 — 목록을 새로고침하세요.';
     if (/SUBMISSION_NOT_FOUND/.test(m)) return '서버에 없는 제출입니다 — 목록을 새로고침하세요.';
-    /* rev.7 전환기 — 옛 pdf_build 는 이제 무조건 APP_OUTDATED 로 끊긴다(설계 §8).
-       마지막 줄이 `m || 기본문구` 라, 매핑이 없으면 기본문구가 아니라 **영문 토큰이
-       그대로** 배포된다. 옛 rev.5 앱뿐 아니라 PDF 패널이 철거되기 전의 새 앱도
-       이 경로를 100% 밟으므로 반드시 여기서 잡는다. */
     if (/APP_OUTDATED/.test(m)) return '앱이 옛 버전입니다 — 앱을 닫았다 다시 열어 새로고침하세요.';
-    return m || 'PDF를 만들지 못했습니다.';
+    /* 요청 자체가 어그러진 경우 — 앱이 형식을 먼저 거르므로 정상 경로에서는 안 나오지만,
+       서버가 더 엄격해지면 여기로 떨어진다. 복구는 어느 쪽이든 "패널을 다시 여는 것"이다. */
+    if (/IDEMPOTENCY_CONFLICT|SUBMISSION_ID_INVALID|REQUEST_ID_INVALID|INSPECTOR_ID_INVALID/.test(m)) {
+      return '요청이 꼬였습니다 — 패널을 닫고 다시 여세요.';
+    }
+    return m || '보내지 못했습니다.';
   }
   function friendlyVoidError(message) {
     return /NOT_YOUR_SUBMISSION/.test(message) ? '본인이 제출한 점검만 취소할 수 있습니다.'
@@ -2798,11 +2883,11 @@
     $('btn-void-close').addEventListener('click', closeVoidPanel);
     $('btn-void-confirm').addEventListener('click', onVoidConfirm);
     $('void-pin').addEventListener('input', clampPinInput);
-    $('btn-pdf-close').addEventListener('click', closePdfPanel);
-    $('btn-pdf-build').addEventListener('click', onPdfBuild);
-    $('btn-pdf-share').addEventListener('click', onPdfShare);
-    $('btn-pdf-download').addEventListener('click', onPdfDownload);
-    $('pdf-pin').addEventListener('input', clampPinInput);   // p-pin·void-pin·pm-pin 과 같은 공통 규격
+    $('btn-email-close').addEventListener('click', closeEmailPanel);
+    $('btn-email-send').addEventListener('click', onEmailSend);
+    /* 주소가 바뀔 때마다 버튼 글자를 갱신하고 PIN 을 지운다(설계 §3-3·§3-4) */
+    $('email-to').addEventListener('input', onEmailToChanged);
+    $('email-pin').addEventListener('input', clampPinInput);   // p-pin·void-pin·pm-pin 과 같은 공통 규격
     $('btn-open-plan-manage').addEventListener('click', function () { clearBanner(); show('manage'); });
     $('pm-team').addEventListener('change', function (e) { populateInspectorSelect(e.target.value, 'pm-inspector'); });
     $('pm-pin').addEventListener('input', clampPinInput);

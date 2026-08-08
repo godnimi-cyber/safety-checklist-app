@@ -109,24 +109,37 @@
             </div>
           </div>
 
-          <!-- PDF 반출 패널 — 제출 취소 패널과 같은 자리·같은 모양이다(새 개념 0).
-               주소를 받지 않는다: 받는 사람은 사용자가 자기 메일앱에서 고른다.
-               만들기와 보내기를 두 탭으로 가르는 이유는 iOS 다 — 공유 시트는 사용자가 누른
-               그 흐름에서 열려야 하고, 서버 왕복 몇 초를 기다린 뒤에는 자격이 남지 않는다. -->
-          <div class="plan-manage-panel" id="pdf-panel" hidden>
-            <p class="muted" id="pdf-target"></p>
-            <p class="pdf-warn" id="pdf-warn">
+          <!-- 발송 패널 — 제출 취소 패널과 같은 자리·같은 모양이다(새 개념 0).
+               **한 번에 끝난다**: 주소와 PIN 을 넣고 버튼 하나(사용자 요구, 설계 rev.7 §3).
+               rev.5 의 폰 공유 시트는 현장에서 실제로 전달하지 못해 서버 발송으로 되돌렸다 —
+               그래서 앱이 다시 받는 주소를 받는다.
+               확인 단계를 따로 두지 않는 대신 두 가지가 그 자리를 대신한다(app.js):
+                 · 버튼 글자가 주소를 말한다 — 누르기 직전에 반드시 읽는 자리다
+                 · 주소가 한 글자라도 바뀌면 PIN 이 지워진다 — 승인을 수신처에 묶는다 -->
+          <div class="plan-manage-panel" id="email-panel" hidden>
+            <p class="muted" id="email-target"></p>
+            <div class="field">
+              <label class="field-label" for="email-to">받는 주소 (1명)</label>
+              <!-- 폰 키보드의 자동 대문자화·맞춤법 교정이 주소를 조용히 바꾸면, 버튼에서 읽은
+                   주소와 실제로 나가는 주소가 갈린다 -->
+              <input class="input" type="email" inputmode="email" id="email-to"
+                     autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="name@company.com">
+            </div>
+            <!-- 최근 주소 칩(점검자별·성공한 것만) — 버튼은 app.js 가 만든다. 없으면 감춘다 -->
+            <div class="email-recent" id="email-recent" hidden></div>
+            <div class="field">
+              <label class="field-label" for="email-pin">본인 PIN (4자리)</label>
+              <input class="input" type="tel" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" id="email-pin" autocomplete="off">
+            </div>
+            <!-- 민감도 경고 — **상주한다**(설계 §3-2 의 순서 그대로: 주소 · 최근 주소 · PIN · 경고).
+                 확인 상자를 없앤 뒤 유일한 정보노출 안내이고, 버튼 바로 위가 누르기 직전에
+                 반드시 눈에 닿는 자리다 -->
+            <p id="email-warn">
               이 PDF 에는 <strong>수검자·점검자 실명과 부적합 사유 전문</strong>이 들어 있습니다.
             </p>
-            <div class="field">
-              <label class="field-label" for="pdf-pin">본인 PIN (4자리)</label>
-              <input class="input" type="tel" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" id="pdf-pin" autocomplete="off">
-            </div>
             <div class="plan-manage-actions">
-              <button type="button" class="btn btn-outline" id="btn-pdf-close">닫기</button>
-              <button type="button" class="btn btn-primary" id="btn-pdf-build">PDF 만들기</button>
-              <button type="button" class="btn btn-primary" id="btn-pdf-share" hidden>보내기</button>
-              <button type="button" class="btn btn-primary" id="btn-pdf-download" hidden>PDF 내려받기</button>
+              <button type="button" class="btn btn-outline" id="btn-email-close">닫기</button>
+              <button type="button" class="btn btn-primary" id="btn-email-send">보내기</button>
             </div>
           </div>
         </div>
