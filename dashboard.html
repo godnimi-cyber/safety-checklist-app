@@ -94,6 +94,28 @@
 .dash-danger { color: var(--color-danger-text, #A11A1A); font-weight: 700; }
 .dash-integrity { border-left: 4px solid var(--color-danger); }
 .dash-integrity h2 { color: var(--color-danger-text, #A11A1A); }
+.dash-linknum { background: none; border: 0; padding: 4px 8px; margin: -4px -8px;
+  font: inherit; font-weight: 700; color: var(--color-primary); text-decoration: underline;
+  cursor: pointer; border-radius: 6px; }
+.dash-linknum.dash-danger { color: var(--color-danger-text, #A11A1A); }
+.dash-linknum:hover { background: var(--color-bg); }
+.dash-linknum:focus-visible { outline: 2px solid var(--sk-red); outline-offset: 1px; }
+#dash-modal { position: fixed; inset: 0; z-index: 100; display: flex;
+  align-items: flex-start; justify-content: center; padding: 40px 16px; }
+#dash-modal[hidden] { display: none; }
+.dash-modal-back { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); cursor: pointer; }
+.dash-modal-card { position: relative; background: var(--color-surface); border-radius: 16px;
+  width: 100%; max-width: 880px; max-height: 85vh; overflow: auto;
+  padding: 20px 24px 24px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25); }
+.dash-modal-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.dash-modal-head h2 { font-size: 1.05rem; font-weight: 700; color: var(--color-text); margin: 0; }
+.dash-modal-head .spacer { flex: 1; }
+.dash-modal-meta { color: var(--color-neutral-text, #576478); font-size: 0.88rem; margin: 0 0 12px; }
+.dash-modal-tables { border: 0; padding: 0; margin: 0; }
+.dash-wraptext { white-space: normal; min-width: 220px; }
+.dash-sheet-section { background: var(--color-bg); font-weight: 700; }
+.dash-rowlink { cursor: pointer; }
+.dash-rowlink:focus-visible { outline: 2px solid var(--sk-red); outline-offset: -2px; }
 @media (max-width: 640px) {
   .dash-tiles { grid-template-columns: repeat(2, 1fr); }
   .dash-shell { padding: 0 12px 40px; }
@@ -140,6 +162,19 @@
   </section>
 
   <main id="dash-blocks"></main>
+</div>
+
+<div id="dash-modal" hidden>
+  <div class="dash-modal-back" id="dash-modal-back"></div>
+  <section class="dash-modal-card" role="dialog" aria-modal="true" aria-labelledby="dash-modal-title">
+    <div class="dash-modal-head">
+      <button type="button" class="dash-btn" id="btn-dash-modal-back" hidden>목록으로</button>
+      <h2 id="dash-modal-title"></h2>
+      <span class="spacer"></span>
+      <button type="button" class="dash-btn" id="btn-dash-modal-close">닫기</button>
+    </div>
+    <div id="dash-modal-body"></div>
+  </section>
 </div>
 
 <script src="./config.js?v=0.5.4"></script>
