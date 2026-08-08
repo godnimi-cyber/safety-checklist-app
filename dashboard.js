@@ -220,7 +220,7 @@
      상세는 커밋된 조건(committedRange·현재 팀)만으로 서버에 묻는다(§4.1 규칙 그대로).
      modal.gen 은 모달 전용 세대 — 닫히거나 새 요청이 시작되면 늦은 응답을 버린다. */
 
-  var modal = { gen: 0, list: null, listTitle: '' };
+  var modal = { gen: 0, list: null, listTitle: '', listExpected: undefined };
 
   /** 상세 조회 URL(순수 — 조각 테스트 대상). st 의 key·committedRange·view 만 쓴다. */
   function detailUrl_(st, kind, key, extra) {
@@ -248,7 +248,15 @@
     modal.gen += 1;                            // 진행 중 상세 응답 무효화
     modal.list = null;
     modal.listTitle = '';
+    modal.listExpected = undefined;
     el_('dash-modal').hidden = true;
+  }
+
+  function metaP_(text) {
+    var p = document.createElement('p');
+    p.className = 'dash-modal-meta';
+    p.textContent = text;
+    return p;
   }
 
   function modalMsg_(text, isError) {
@@ -297,12 +305,24 @@
     return block;
   }
 
+  /** 표의 숫자와 상세 건수가 다르면 — 표 조회 이후 원장이 바뀐 것이다. 숨기지 않고
+   *  신선한 데이터를 보여 주되 차이를 명시한다(K4 — 조용한 불일치 금지, 적대 리뷰 #2). */
+  function staleNotice_(body, expected, actual) {
+    if (typeof expected !== 'number' || expected === actual) return;
+    var p = document.createElement('p');
+    p.className = 'dash-banner dash-banner-error';
+    p.textContent = '표를 조회한 뒤 기록이 바뀌었습니다(표 ' + expected + '건 → 현재 ' + actual +
+      '건) — 새로고침을 누르면 표도 갱신됩니다';
+    body.appendChild(p);
+  }
+
   /** 부적합 내용 목록. */
-  function renderFinds_(data) {
+  function renderFinds_(data, expected) {
     var body = el_('dash-modal-body');
     el_('btn-dash-modal-back').hidden = true;
     body.textContent = '';
-    if (!data.rows.length) { modalMsg_('이 조건의 부적합이 없습니다', false); return; }
+    staleNotice_(body, expected, data.rows.length);
+    if (!data.rows.length) { body.appendChild(metaP_('이 조건의 부적합이 없습니다')); return; }
     body.appendChild(modalTable_(['점검일', '점검자', '분류', '항목', '내용'], data.rows, function (r) {
       var tr = document.createElement('tr');
       [r.date, r.inspector, r.category, r.item, r.note].forEach(function (v, i) {
@@ -316,16 +336,15 @@
   }
 
   /** 점검 목록 — 행을 누르면 그 점검의 전체 점검표로. */
-  function renderSubs_(data) {
+  function renderSubs_(data, expected) {
     var body = el_('dash-modal-body');
     el_('btn-dash-modal-back').hidden = true;
     modal.list = data;                          // 「목록으로」 캐시(재조회 없음)
+    modal.listExpected = expected;
     body.textContent = '';
-    if (!data.rows.length) { modalMsg_('이 조건의 점검이 없습니다', false); return; }
-    var hint = document.createElement('p');
-    hint.className = 'dash-modal-meta';
-    hint.textContent = '행을 누르면 그 점검의 전체 점검표가 열립니다';
-    body.appendChild(hint);
+    staleNotice_(body, expected, data.rows.length);
+    if (!data.rows.length) { body.appendChild(metaP_('이 조건의 점검이 없습니다')); return; }
+    body.appendChild(metaP_('행을 누르면 그 점검의 전체 점검표가 열립니다'));
     body.appendChild(modalTable_(['점검일', '제출시각', '점검자', '팀', '부적합'], data.rows, function (r) {
       var tr = document.createElement('tr');
       tr.className = 'dash-rowlink';
@@ -386,14 +405,15 @@
     }));
   }
 
-  /** 공사별 숫자 클릭 진입점. kind: 'subs'(점검) | 'finds'(부적합). */
-  function openDetail_(kind, key, rowLabel) {
+  /** 공사별 숫자 클릭 진입점. kind: 'subs'(점검) | 'finds'(부적합).
+   *  expected = 클릭한 숫자 — 상세 건수와 다르면 표 이후 원장이 바뀐 것(안내 표시). */
+  function openDetail_(kind, key, rowLabel, expected) {
     if (!state.committedRange || state.committedRange.error) return;   // 커밋 전·범위오류엔 표가 없다
     var title = (kind === 'subs' ? '점검 목록 — ' : '부적합 내용 — ') + rowLabel;
     if (kind === 'subs') modal.listTitle = title;
     openModal_(title);
-    if (kind === 'subs') fetchDetail_('subs', key, null, renderSubs_);
-    else fetchDetail_('finds', key, null, renderFinds_);
+    if (kind === 'subs') fetchDetail_('subs', key, null, function (d) { renderSubs_(d, expected); });
+    else fetchDetail_('finds', key, null, function (d) { renderFinds_(d, expected); });
   }
 
   /** 헤더 없는 요약 블록(이번 주)의 라벨·값 쌍을 스탯 타일로 그린다 —
@@ -469,10 +489,10 @@
             btn.type = 'button';
             btn.className = 'dash-linknum' + (block.header[i] === '부적합' ? ' dash-danger' : '');
             btn.textContent = String(cell);
-            (function (kind, key, label) {
-              btn.addEventListener('click', function () { openDetail_(kind, key, label); });
+            (function (kind, key, label, expected) {
+              btn.addEventListener('click', function () { openDetail_(kind, key, label, expected); });
             })(block.header[i] === '점검' ? 'subs' : 'finds', block.keys[ri],
-               String(row[0]) + ' · ' + String(row[1]));
+               String(row[0]) + ' · ' + String(row[1]), Number(cell));
             td.appendChild(btn);
           } else {
             td.textContent = String(cell);
@@ -573,6 +593,7 @@
       if (verdict === 'stale') return;         // 더 새 요청이 있다 — 그쪽이 화면을 맡는다
       setBusy_(false);
       if (verdict === 'committed') {
+        closeModal_();                         // 커밋 = 화면 통째 교체 — 옛 조건의 팝업·진행 중 상세도 함께 무효(적대 리뷰 #3)
         renderTeamSelect_();
         renderView_();
         return;
@@ -614,7 +635,7 @@
     el_('btn-dash-modal-back').addEventListener('click', function () {
       if (!modal.list) return;
       openModal_(modal.listTitle);
-      renderSubs_(modal.list);                  // 캐시에서 — 재조회 없음
+      renderSubs_(modal.list, modal.listExpected);   // 캐시에서 — 재조회 없음
     });
     document.addEventListener('keydown', function (ev) {
       if (ev.key === 'Escape' && !el_('dash-modal').hidden) closeModal_();
