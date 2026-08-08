@@ -1135,6 +1135,11 @@
      않으므로 같은 경로를 직접 태운다. 안 그러면 칩으로 바꾼 주소에 앞서 넣은 PIN 이 그대로
      살아 있어 승인이 다른 수신처로 옮겨 붙는다. */
   function setEmailTo(addr) {
+    /* 비행 중에는 먹지 않는다. payload 는 await 앞에서 확정되므로 오발송은 되지 않지만, 칩이
+       먹으면 버튼 글자가 '보내는 중...' 에서 **다른 주소**로 바뀌고 PIN 칸이 비워진다 —
+       "버튼 글자가 확인 단계를 대신한다"는 이 설계의 근거가 눈앞에서 무너진다. 주소·PIN 칸은
+       setEmailBusy 가 disabled 로 막지만, 칩은 app.js 가 만드는 버튼이라 그 경로 밖에 있다. */
+    if (state.emailBusy) return;
     $('email-to').value = addr;
     onEmailToChanged();
   }
@@ -1152,6 +1157,9 @@
   function openEmailPanel(sent) {
     if (state.emailBusy) {
       showBanner('warn', '앞선 발송을 처리하는 중입니다 — 끝난 뒤 다시 눌러 주세요.');
+      /* 배너는 문서 최상단인데 사용자는 목록 아래에 있다 — 올라가지 않으면 "눌렀는데 아무 일도
+         안 일어났다"로 보이고, 그러면 계속 누른다(형제 openVoidPanel 과 같은 규약). */
+      window.scrollTo(0, 0);
       return;
     }
     /* **request_id 는 여기서 1회.** 같은 패널에서 다시 눌러도 같은 값이라 서버 멱등에 걸려
@@ -1178,8 +1186,13 @@
     $('btn-email-close').disabled = busy;
     $('email-to').disabled = busy;
     $('email-pin').disabled = busy;
-    /* 발송 중에는 같은 목록의 제출 취소도 잠근다 — 승인 이후 취소가 들어오면 메일은 이미
-       나간다(설계 §4.1-11 이 남긴 창은 ms 단위다). 한 번에 한 발송뿐이라 목록 전체를 잠그면 된다. */
+    /* 발송 중에는 목록의 **「제출 취소」 열기 버튼**을 잠근다 — 승인 이후 취소가 들어오면
+       메일은 이미 나간다(설계 §4.1-11 이 남긴 창은 ms 단위다).
+       **이미 열려 있는 취소 패널의 확정 버튼(btn-void-confirm)은 막지 않는다** — 두 패널은
+       서로를 닫지 않으므로 동시 개봉이 가능하다. 넓히지 않은 이유: 그 버튼의 disabled 는
+       onVoidConfirm 이 자기 finally 로 소유하고 있어, 여기서 같이 건드리면 취소가 비행 중인데
+       발송이 먼저 끝나며 버튼을 되살리는 **두 주인 문제**가 생긴다. 이 잠금은 실수를 줄이는
+       문턱이고, 실제 방어는 서버 구간 3 의 발송 직전 재확인이다. 과장하지 않는다. */
     var btns = document.querySelectorAll('#home-sent-list .sent-btn-void');
     for (var i = 0; i < btns.length; i++) { btns[i].disabled = busy; }
   }

@@ -889,5 +889,9 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
   padding-top: var(--space-2);
   padding-bottom: var(--space-2);
   line-height: 1.35;
-  word-break: break-word;
+  /* overflow-wrap:anywhere — **필요할 때만** 끊는 표준 속성이다. 칩(.email-recent-btn)이
+     break-all 인 것과 다른 이유: 칩 글자는 주소 하나뿐이라 아무 데서나 끊어도 되지만, 이
+     버튼은 "주소 + 으로 보내기" 라 낱말 중간을 함부로 끊으면 읽기가 나빠진다.
+     레거시 word-break:break-word 는 비표준이라 쓰지 않는다. */
+  overflow-wrap: anywhere;
 }
