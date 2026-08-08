@@ -892,6 +892,10 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
   /* overflow-wrap:anywhere — **필요할 때만** 끊는 표준 속성이다. 칩(.email-recent-btn)이
      break-all 인 것과 다른 이유: 칩 글자는 주소 하나뿐이라 아무 데서나 끊어도 되지만, 이
      버튼은 "주소 + 으로 보내기" 라 낱말 중간을 함부로 끊으면 읽기가 나빠진다.
-     레거시 word-break:break-word 는 비표준이라 쓰지 않는다. */
+     레거시 word-break:break-word 는 비표준이라 쓰지 않는다.
+     앞줄의 break-word 는 폴백이다 — anywhere 는 Safari 15.4+/Chrome 80+ 이고, 현장 폰 중에
+     그보다 낮은 것이 있으면 선언이 통째로 무시돼 긴 주소가 버튼 밖으로 넘친다. 구형은
+     break-word 로 접고, 신형은 뒤 선언이 이긴다. */
+  overflow-wrap: break-word;
   overflow-wrap: anywhere;
 }
