@@ -1200,6 +1200,11 @@
        말해야 한다. friendlyVoidError 와 같은 문구(SUBMISSION_NOT_FOUND)로 맞춘다. */
     if (/SUBMISSION_NOT_VALID/.test(m)) return '이 점검은 취소되었습니다 — 목록을 새로고침하세요.';
     if (/SUBMISSION_NOT_FOUND/.test(m)) return '서버에 없는 제출입니다 — 목록을 새로고침하세요.';
+    /* rev.7 전환기 — 옛 pdf_build 는 이제 무조건 APP_OUTDATED 로 끊긴다(설계 §8).
+       마지막 줄이 `m || 기본문구` 라, 매핑이 없으면 기본문구가 아니라 **영문 토큰이
+       그대로** 배포된다. 옛 rev.5 앱뿐 아니라 PDF 패널이 철거되기 전의 새 앱도
+       이 경로를 100% 밟으므로 반드시 여기서 잡는다. */
+    if (/APP_OUTDATED/.test(m)) return '앱이 옛 버전입니다 — 앱을 닫았다 다시 열어 새로고침하세요.';
     return m || 'PDF를 만들지 못했습니다.';
   }
   function friendlyVoidError(message) {
