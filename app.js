@@ -2880,8 +2880,32 @@
     state.swState = s; state.swDetail = detail || '';
     if (state.currentScreen === 'home') renderDiagnostics();
   }
+  /* 전환기(설계 rev.7 §8, 태스크 3): sw.js 는 배포마다 CACHE 를 올리고 clients.claim() 을 쓴다 —
+     그래서 새 워커가 활성화되면 이미 열려 있는 탭도 **새로고침 없이** 그 워커의 제어를 받는다.
+     반갑지만 제어만 바뀔 뿐 **이 화면의 스크립트(app.js 등)는 여전히 옛 버전으로 실행 중**이다.
+     이번처럼 API 계약이 바뀐 배포(옛 pdf_build → APP_OUTDATED)에서는 다음 버튼 조작까지 옛
+     코드로 일어난다. 그래서 제어가 바뀌면 새로고침해 스크립트까지 새 버전으로 맞춘다.
+
+     **무조건 새로고침하지 않는다.** clients.claim() 은 **이전에 제어자가 없던** 탭(첫 방문 등)
+     에도 controllerchange 를 쏜다(잘 알려진 함정 — clients.claim() 문서가 명시 경고한다). 그
+     경우까지 새로고침하면 첫 방문마다 원치 않는 리로드가 뜨고, claim() 이 매 방문 이 이벤트를
+     쏘는 한 계속 반복될 수 있다. 그래서 **등록 시점에 이미 다른 워커가 이 탭을 제어하고 있었을
+     때만** — 즉 "쓰던 도중 새 버전이 넘어온" 경우에만 — 새로고침한다. 이벤트가 여러 번 와도
+     새로고침은 한 번만(중복 리로드 방지). */
+  function watchServiceWorkerUpdate() {
+    if (!('serviceWorker' in navigator)) return;
+    var hadController = !!navigator.serviceWorker.controller;
+    var reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadController) { hadController = true; return; }   // 최초 제어(첫 방문·claim) — 리로드 아님
+      if (reloaded) return;
+      reloaded = true;
+      window.location.reload();
+    });
+  }
   function init() {
     registerServiceWorker();
+    watchServiceWorkerUpdate();
     probeInstalled();   /* 「앱 상태」를 처음 펼쳤을 때 곧바로 맞는 값이 보이게 미리 물어 둔다 */
     state.storage = SafetyLogic.storage(window);
     state.queue = state.storage.loadQueue();
