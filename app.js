@@ -1100,11 +1100,20 @@
   }
   /** **발송에 성공한 주소만** 담는다 — 실패한 오타를 학습하면 방어가 아니라 함정이 된다. */
   function rememberEmail(inspectorId, to) {
-    var list = recentEmails(inspectorId).filter(function (s) { return s !== to; });
-    list.unshift(to);
-    /* 저장 실패는 발송을 실패로 만들지 않는다 — 최근 주소는 편의 장치일 뿐이라 배너를 띄우면
-       "발송 실패"로 오인한다(K4 예외, recordSent 와 같은 결). */
-    state.storage.saveRecentEmails(inspectorId, list.slice(0, RECENT_EMAIL_MAX));
+    /* **저장 실패가 발송을 실패로 만들면 안 된다.** 이 함수는 성공 배너 **앞**에서 불린다.
+       localStorage 는 사파리 프라이빗·용량 초과에서 던지고, 그러면 onEmailSend 의 공통
+       catch 가 "발송 처리 중 오류"를 띄운다 — **메일은 이미 나갔다.** 사용자는 실패로 믿고
+       다시 시도하거나 관리자에게 잘못 보고한다. 최근 주소는 오타를 줄이는 편의 장치일
+       뿐이므로 여기서 삼키고 진단(console)에만 남긴다. 배너를 띄우지 않는 것도 같은
+       이유다(K4 예외, recordSent 와 같은 결). 읽기(recentEmails)도 같은 저장소를 건드리므로
+       함께 감싼다 — 던지는 자리는 쓰기만이 아니다. */
+    try {
+      var list = recentEmails(inspectorId).filter(function (s) { return s !== to; });
+      list.unshift(to);
+      state.storage.saveRecentEmails(inspectorId, list.slice(0, RECENT_EMAIL_MAX));
+    } catch (e) {
+      console.warn('최근 주소 저장 실패(발송 자체는 정상):', e);
+    }
   }
   function forgetEmails(inspectorId) {
     state.storage.clearRecentEmails(inspectorId);
@@ -1127,7 +1136,12 @@
       clear.type = 'button';
       clear.className = 'email-recent-btn';
       clear.textContent = '전체 지우기';
-      clear.addEventListener('click', function () { forgetEmails(inspectorId); renderRecentEmails(inspectorId); });
+      /* 비행 중에는 먹지 않는다 — 주소 칩(setEmailTo)과 같은 규약이다. payload 에는 영향이
+         없지만, 잠금이 반쪽이면 다음 사람이 "발송 중에는 이 목록이 안 바뀐다"고 오해한다. */
+      clear.addEventListener('click', function () {
+        if (state.emailBusy) return;
+        forgetEmails(inspectorId); renderRecentEmails(inspectorId);
+      });
       wrap.appendChild(clear);
     }
   }
@@ -1187,7 +1201,7 @@
     $('email-to').disabled = busy;
     $('email-pin').disabled = busy;
     /* 발송 중에는 목록의 **「제출 취소」 열기 버튼**을 잠근다 — 승인 이후 취소가 들어오면
-       메일은 이미 나간다(설계 §4.1-11 이 남긴 창은 ms 단위다).
+       메일은 이미 나간다(설계 §4.1-11 이 남긴 창의 길이는 측정되지 않았다 — 운영문서 §8).
        **이미 열려 있는 취소 패널의 확정 버튼(btn-void-confirm)은 막지 않는다** — 두 패널은
        서로를 닫지 않으므로 동시 개봉이 가능하다. 넓히지 않은 이유: 그 버튼의 disabled 는
        onVoidConfirm 이 자기 finally 로 소유하고 있어, 여기서 같이 건드리면 취소가 비행 중인데
@@ -1206,16 +1220,38 @@
     var target = state.email;
     var to = String($('email-to').value || '').trim();
     var pin = $('email-pin').value;
+    /* **사용자가 승인한 주소와 지금 보낼 주소가 같은지 먼저 본다.** 이 흐름은 확인 단계를
+       따로 두지 않는 대신 ① 버튼 글자가 주소를 말하고 ② 주소가 바뀌면 PIN 이 지워진다 를
+       오발송 방어의 **전부**로 삼는데, 둘 다 input 이벤트에 매달려 있다. 브라우저 자동완성·
+       세션 복원·확장 프로그램은 input 없이 DOM 값을 바꾼다 — 그러면 버튼·lastTo·PIN 은 옛
+       주소 A 상태인데 payload 는 새 주소 B 를 싣는다(autocomplete="off" 는 코드상
+       불변조건이 아니다). 그래서 보내지 않고 onEmailToChanged 로 두 장치를 되맞춘 뒤
+       무엇이 바뀌었는지 알린다. PIN 이 지워지므로 사용자는 새 주소를 보고 다시 승인하게
+       된다 — 영구 차단이 아니라 한 번의 재확인이다. 형식 검사보다 **앞**이다: 형식이 깨진
+       값으로 바뀐 경우에도 PIN 은 지워져야 한다. */
+    if (to !== target.lastTo) {
+      var was = target.lastTo;
+      onEmailToChanged();   /* lastTo 갱신 · PIN 초기화 · 버튼 글자 동기화를 한 경로로 */
+      showBanner('warn', '받는 주소가 ' + (was ? '「' + was + '」에서 ' : '')
+        + '「' + (to || '(빈칸)') + '」(으)로 바뀌었습니다 — 확인하고 PIN 을 다시 넣어 주세요.');
+      /* 포커스가 **먼저**, 스크롤이 나중이다 — 아래 두 오류 경로와 같은 이유. */
+      var e0 = $('email-to'); if (e0 && !e0.disabled) e0.focus();
+      window.scrollTo(0, 0);
+      return;
+    }
+    /* 아래 오류 경로의 순서: **focus() 뒤에 scrollTo(0,0)**. 브라우저는 포커스 대상을 화면
+       안으로 넣으므로 스크롤을 먼저 하면 배너가 도로 가려지고, 사용자는 무엇이 틀렸는지
+       못 본 채 같은 입력을 반복한다. 스크롤이 마지막이어야 배너가 최종 화면에 남는다. */
     if (!looksLikeAddress(to)) {
       showBanner('error', '받는 주소를 확인하세요 — 한 명만, 쉼표 없이 적습니다.');
-      window.scrollTo(0, 0);   /* 오류는 반드시 읽혀야 한다 — 배너는 화면 맨 위에 있다 */
       var e1 = $('email-to'); if (e1 && !e1.disabled) e1.focus();
+      window.scrollTo(0, 0);   /* 오류는 반드시 읽혀야 한다 — 배너는 화면 맨 위에 있다 */
       return;
     }
     if (!/^\d{4}$/.test(pin || '')) {
       showBanner('error', 'PIN(4자리)을 확인하세요.');
-      window.scrollTo(0, 0);
       var e2 = $('email-pin'); if (e2 && !e2.disabled) e2.focus();
+      window.scrollTo(0, 0);
       return;
     }
     setEmailBusy(true);   /* 더블탭 1차 방어(2차는 멱등키) — 잠그지 않으면 요청이 두 번 나간다 */
@@ -1269,6 +1305,12 @@
   function emailErrorText(result) {
     var err = (result && result.error) || {};
     var m = String(err.message || '');
+    /* **서버 원문은 배너가 아니라 여기(진단 로그)에 남긴다.** 배너는 현장에서 폰으로 보는
+       화면이라 영문 토큰이 무엇을 해야 하는지 말해 주지 않는다 — 그래서 아래 문구들은
+       **행동**을 말하고, 원문은 이 한 줄이 받는다. 분기보다 **앞**에 둔 이유: SERVER 처럼
+       중간에서 return 하는 분기가 있어서, 맨 아래 폴백에 두면 그 경로의 원문이 배너에서도
+       로그에서도 통째로 사라진다(wiring 35l 이 그 구멍을 고정한다). */
+    if (m || err.code) console.warn('발송 실패 원문(배너에는 띄우지 않는다):', err.code, m);
     /* 재시도가 안전한 유일한 근거는 멱등키다 — 응답을 못 받은 것과 안 간 것은 다르다. */
     if (err.code === 'NETWORK') return '결과를 확인하지 못했습니다 — 다시 눌러도 두 번 가지 않습니다.';
     /* 쿼터는 **최상위 QUOTA 코드가 아니라 CONFIG + 세부 문구**다(설계 §5, 서버 구현 확인).
@@ -1284,6 +1326,12 @@
     if (err.code === 'CONFIG') return '서버 설정이 끝나지 않았습니다 — 관리자에게 알리세요.';
     if (err.code === 'AUTH') return '앱 키가 서버와 다릅니다 — 관리자에게 알리세요.';
     if (err.code === 'LOCK_TIMEOUT') return '서버가 다른 작업을 처리 중입니다 — 잠시 후 다시 누르세요.';
+    /* 최상위 SERVER 에 매핑이 없어서 서버 원문('서버 오류')이 그대로 배너에 떴다.
+       서버쪽 결함이라 사용자가 고칠 것은 없지만 일시적일 수 있으므로 재시도를 안내한다 —
+       같은 멱등키라 다시 눌러도 두 통이 되지 않는다. */
+    if (err.code === 'SERVER') {
+      return '서버에서 오류가 났습니다 — 잠시 후 다시 눌러 보고, 계속되면 관리자에게 알리세요.';
+    }
     if (/PIN_LOCKED/.test(m)) return 'PIN을 여러 번 틀렸습니다 — 잠시 후 다시 시도하세요.';
     if (/PIN_MISMATCH/.test(m)) return 'PIN이 일치하지 않습니다.';
     if (/NOT_YOUR_SUBMISSION/.test(m)) return '본인이 제출한 점검만 보낼 수 있습니다.';
@@ -1303,7 +1351,14 @@
     if (/IDEMPOTENCY_CONFLICT|SUBMISSION_ID_INVALID|REQUEST_ID_INVALID|INSPECTOR_ID_INVALID/.test(m)) {
       return '요청이 꼬였습니다 — 패널을 닫고 다시 여세요.';
     }
-    return m || '보내지 못했습니다.';
+    /* **마지막 폴백은 서버 문자열을 그대로 되돌려주지 않는다.** 옛 줄은
+       "return m || '보내지 못했습니다.'" 였고, 매핑이 없으면 영문 토큰이 그대로 배너에
+       떴다(APP_OUTDATED 로 실측된 결함). 원문을 보이려던 의도는 진단을 잃지 않으려는
+       것이었지만, 이 배너는 현장에서 폰으로 보는 화면이라 영문 토큰은 **무엇을 해야
+       하는지** 말해 주지 않는다. 진단은 이 함수 첫머리의 console.warn 이 받는다 —
+       배너는 행동을 말한다. (wiring 35l 이 이 계약을 뒤집어 고정했다: 원문은 배너에
+       안 나온다.) */
+    return '보내지 못했습니다 — 잠시 후 다시 눌러 보고, 계속되면 관리자에게 알리세요.';
   }
   function friendlyVoidError(message) {
     return /NOT_YOUR_SUBMISSION/.test(message) ? '본인이 제출한 점검만 취소할 수 있습니다.'
