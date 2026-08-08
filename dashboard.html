@@ -112,8 +112,16 @@
 .dash-modal-head .spacer { flex: 1; }
 .dash-modal-meta { color: var(--color-neutral-text, #576478); font-size: 0.88rem; margin: 0 0 12px; }
 .dash-modal-tables { border: 0; padding: 0; margin: 0; }
-.dash-wraptext { white-space: normal; min-width: 220px; }
+/* nowrap(.dash-block td)보다 구체도가 높아야 줄바꿈이 실제로 걸린다 — 긴 항목 문구가
+   한 줄로 화면 밖까지 밀리던 원인. */
+.dash-block td.dash-wraptext { white-space: normal; min-width: 220px; }
 .dash-sheet-section { background: var(--color-bg); font-weight: 700; }
+.dash-findcard { border: 1px solid rgba(0, 0, 0, 0.08); border-left: 4px solid var(--color-danger);
+  border-radius: 10px; padding: 12px 16px; margin: 0 0 10px; background: var(--color-surface); }
+.dash-findcard .meta { color: var(--color-neutral-text, #576478); font-size: 0.85rem; margin: 0 0 6px; }
+.dash-findcard .item { color: var(--color-text); font-size: 0.95rem; line-height: 1.5; margin: 0; }
+.dash-findcard .note { background: var(--color-bg); border-radius: 8px; padding: 8px 12px;
+  margin: 8px 0 0; font-size: 0.92rem; line-height: 1.5; color: var(--color-danger-text, #A11A1A); }
 .dash-rowlink { cursor: pointer; }
 .dash-rowlink:focus-visible { outline: 2px solid var(--sk-red); outline-offset: -2px; }
 @media (max-width: 640px) {

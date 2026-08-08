@@ -276,8 +276,14 @@
       if (res && res.ok) { render(res.data); return; }
       var code = String((res && res.error && res.error.code) || '');
       if (code === 'AUTH') { hardReset_('키가 맞지 않습니다 — 다시 입력하세요'); return; }
-      modalMsg_('불러오지 못했습니다 — ' + ((res && res.error && res.error.message) || '') +
-        ' · 닫고 다시 눌러 주세요', true);
+      /* 일시 오류(네트워크 히컵 등)는 팝업 안에서 바로 재시도(K3) — 닫았다 다시 열게 하지 않는다 */
+      modalMsg_('불러오지 못했습니다 — ' + ((res && res.error && res.error.message) || ''), true);
+      var retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'dash-btn';
+      retry.textContent = '다시 시도';
+      retry.addEventListener('click', function () { fetchDetail_(kind, key, extra, render); });
+      el_('dash-modal-body').appendChild(retry);
     });
   }
 
@@ -316,23 +322,33 @@
     body.appendChild(p);
   }
 
-  /** 부적합 내용 목록. */
+  /** 부적합 내용 목록 — 긴 항목 문구가 많아 표 대신 카드로(가독성, 사용자 지시 2026-08-08).
+   *  카드: 메타(점검일·점검자·분류) / 항목 전문(줄바꿈) / 내용은 강조 박스. */
   function renderFinds_(data, expected) {
     var body = el_('dash-modal-body');
     el_('btn-dash-modal-back').hidden = true;
     body.textContent = '';
     staleNotice_(body, expected, data.rows.length);
     if (!data.rows.length) { body.appendChild(metaP_('이 조건의 부적합이 없습니다')); return; }
-    body.appendChild(modalTable_(['점검일', '점검자', '분류', '항목', '내용'], data.rows, function (r) {
-      var tr = document.createElement('tr');
-      [r.date, r.inspector, r.category, r.item, r.note].forEach(function (v, i) {
-        var td = document.createElement('td');
-        td.textContent = String(v == null ? '' : v);
-        if (i === 3 || i === 4) td.className = 'dash-wraptext';
-        tr.appendChild(td);
-      });
-      return tr;
-    }));
+    data.rows.forEach(function (r) {
+      var card = document.createElement('div');
+      card.className = 'dash-findcard';
+      var meta = document.createElement('p');
+      meta.className = 'meta';
+      meta.textContent = r.date + ' · ' + r.inspector + (r.category ? ' · ' + r.category : '');
+      card.appendChild(meta);
+      var item = document.createElement('p');
+      item.className = 'item';
+      item.textContent = String(r.item == null ? '' : r.item);
+      card.appendChild(item);
+      if (String(r.note || '')) {
+        var note = document.createElement('p');
+        note.className = 'note';
+        note.textContent = String(r.note);
+        card.appendChild(note);
+      }
+      body.appendChild(card);
+    });
   }
 
   /** 점검 목록 — 행을 누르면 그 점검의 전체 점검표로. */
