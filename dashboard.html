@@ -12,10 +12,15 @@
 /* 대시보드 전용 스타일 — 색은 styles.css :root 변수(승인 팔레트)만 쓴다(틴트는 흑백 알파만).
    앱 셸(.app-shell)과 무관한 독립 레이아웃. 내부 도구: 미관보다 상태 가시성 —
    장식 대신 위계(요약 타일 → 표), 카드 구획, 절제된 상태색으로 정돈한다. */
-.dash-shell { max-width: 1100px; margin: 0 auto; padding: 0 20px 56px; }
-.dash-topbar { position: sticky; top: 0; z-index: 10; background: var(--color-bg);
+.dash-shell { max-width: 1100px; margin: 0 auto; padding: 12px 20px 56px; }
+/* 앱 styles.css 의 전역 main 패딩(하단 액션바 공간)이 #dash-blocks 에 끼어들어
+   표들만 안쪽으로 밀린다 — 이 페이지에서는 무효화한다(폭 정렬의 전제). */
+.dash-shell main { padding: 0; }
+.dash-topbar { position: sticky; top: 0; z-index: 10;
   display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
-  padding: 16px 0 12px; border-bottom: 1px solid rgba(0, 0, 0, 0.08); margin-bottom: 20px; }
+  background: var(--color-surface); border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 12px; padding: 14px 20px; margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
 .dash-topbar h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em;
   color: var(--color-text); margin: 0; }
 #dash-generated { color: var(--color-neutral-text, #576478); font-size: 0.85rem; }
