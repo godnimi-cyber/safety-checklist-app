@@ -117,11 +117,10 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 0);
   }
 
-  /** 협력회사별·공사별 블록 밑에 CSV 버튼. 파일명·데이터 모두 커밋된 상태에서만 나온다 —
-   *  진행 중 조회(범위 B)와 섞이지 않도록 **committedRange** 를 쓴다(스펙 §4.1). */
+  /** 협력회사별·공사별 블록 머리(제목 오른쪽)에 CSV 버튼. 파일명·데이터 모두 커밋된
+   *  상태에서만 나온다 — 진행 중 조회(범위 B)와 섞이지 않도록 **committedRange** 를
+   *  쓴다(스펙 §4.1). sec 의 firstChild 는 renderBlock_ 이 만든 .dash-block-head 다. */
   function appendCsvButton_(sec, block, kind) {
-    var row = document.createElement('div');
-    row.className = 'dash-csvrow';
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'dash-btn';
@@ -130,8 +129,7 @@
       var team = state.view === null ? '전체' : (findTeam_(state.payload, state.view) || { label: '전체' }).label;
       downloadCsv_(csvFileName_(kind, team, state.committedRange), buildCsv_(block));
     });
-    row.appendChild(btn);
-    sec.appendChild(row);
+    sec.firstChild.appendChild(btn);
   }
 
   /* ---------- 네트워크 — app.js §네트워크의 사본 ----------
@@ -216,45 +214,79 @@
     showKeyScreen_(msg);
   }
 
-  /** 표 블록 하나 렌더. textContent 만 쓴다(시트 유래 문자열의 HTML 해석 원천 차단).
-   *  부적합 값은 header 의 '부적합' 열(있으면), 헤더 없는 블록(이번 주)은 라벨 다음 칸. */
+  /** 헤더 없는 요약 블록(이번 주)의 라벨·값 쌍을 스탯 타일로 그린다 —
+   *  표 한 줄보다 위계가 서고 모바일(2×2)에서도 읽힌다. 부적합>0 만 상태색. */
+  function renderStatTiles_(block) {
+    var grid = document.createElement('div');
+    grid.className = 'dash-tiles';
+    var row = block.rows[0] || [];
+    for (var i = 0; i + 1 < row.length; i += 2) {
+      var tile = document.createElement('div');
+      tile.className = 'dash-tile';
+      var k = document.createElement('span');
+      k.className = 'k';
+      k.textContent = String(row[i]);
+      var v = document.createElement('span');
+      v.className = 'v' + (row[i] === '부적합' && Number(row[i + 1]) > 0 ? ' dash-danger' : '');
+      v.textContent = String(row[i + 1]);
+      tile.appendChild(k);
+      tile.appendChild(v);
+      grid.appendChild(tile);
+    }
+    return grid;
+  }
+
+  /** 블록 하나 렌더. textContent 만 쓴다(시트 유래 문자열의 HTML 해석 원천 차단).
+   *  부적합 값은 header 의 '부적합' 열, 헤더 없는 블록(이번 주)은 타일로. */
   function renderBlock_(block) {
     var sec = document.createElement('section');
     sec.className = 'dash-block';
+    var head = document.createElement('div');   // 제목 + CSV 버튼 자리(appendCsvButton_ 이 붙인다)
+    head.className = 'dash-block-head';
     var h = document.createElement('h2');
     h.textContent = block.title;
-    sec.appendChild(h);
-    var dangerCol = block.header ? block.header.indexOf('부적합') : -1;
-    var wrap = document.createElement('div');
-    wrap.className = 'dash-tablewrap';
-    var table = document.createElement('table');
-    if (block.header && block.header.length) {
+    head.appendChild(h);
+    sec.appendChild(head);
+
+    if (!block.header || !block.header.length) {
+      sec.appendChild(renderStatTiles_(block));
+    } else {
+      var dangerCol = block.header.indexOf('부적합');
+      /* 숫자 열은 우측 정렬 — 첫 데이터 행의 타입으로 판정(서버가 집계 수를 number 로 보낸다) */
+      var numCols = {};
+      if (block.rows.length) {
+        block.rows[0].forEach(function (c, i) { if (typeof c === 'number') numCols[i] = true; });
+      }
+      var wrap = document.createElement('div');
+      wrap.className = 'dash-tablewrap';
+      var table = document.createElement('table');
       var thead = document.createElement('thead');
       var hr = document.createElement('tr');
-      block.header.forEach(function (t) {
+      block.header.forEach(function (t, i) {
         var th = document.createElement('th');
         th.textContent = t;
+        if (numCols[i]) th.className = 'dash-num';
         hr.appendChild(th);
       });
       thead.appendChild(hr);
       table.appendChild(thead);
-    }
-    var tbody = document.createElement('tbody');
-    block.rows.forEach(function (row) {
-      var tr = document.createElement('tr');
-      row.forEach(function (cell, i) {
-        var td = document.createElement('td');
-        td.textContent = String(cell);
-        var danger = (i === dangerCol && Number(cell) > 0) ||
-                     (dangerCol < 0 && i > 0 && row[i - 1] === '부적합' && Number(cell) > 0);
-        if (danger) td.className = 'dash-danger';
-        tr.appendChild(td);
+      var tbody = document.createElement('tbody');
+      block.rows.forEach(function (row) {
+        var tr = document.createElement('tr');
+        row.forEach(function (cell, i) {
+          var td = document.createElement('td');
+          td.textContent = String(cell);
+          var cls = numCols[i] ? 'dash-num' : '';
+          if (i === dangerCol && Number(cell) > 0) cls += (cls ? ' ' : '') + 'dash-danger';
+          if (cls) td.className = cls;
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
       });
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-    wrap.appendChild(table);
-    sec.appendChild(wrap);
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      sec.appendChild(wrap);
+    }
     if (block.note) {
       var note = document.createElement('p');
       note.className = 'note';
@@ -287,7 +319,11 @@
       else if (b.title.indexOf('공사별') === 0) appendCsvButton_(sec, b, '공사별');
       root.appendChild(sec);
     });
-    if (data.integrity && data.integrity.block) root.appendChild(renderBlock_(data.integrity.block));
+    if (data.integrity && data.integrity.block) {
+      var ig = renderBlock_(data.integrity.block);
+      ig.className += ' dash-integrity';        // 경고 액센트(왼쪽 보더·제목색) — 배경은 그대로
+      root.appendChild(ig);
+    }
   }
 
   /** 팀 select 를 payload 로 다시 채운다(선택 유지). */
