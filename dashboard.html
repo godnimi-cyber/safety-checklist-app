@@ -124,10 +124,30 @@
   margin: 8px 0 0; font-size: 0.92rem; line-height: 1.5; color: var(--color-danger-text, #A11A1A); }
 .dash-rowlink { cursor: pointer; }
 .dash-rowlink:focus-visible { outline: 2px solid var(--sk-red); outline-offset: -2px; }
+/* 공사별 카드 — 좁은 화면에서 5열 표 대신 보인다(같은 데이터·같은 드릴다운 버튼) */
+.dash-proj-cards { display: none; }
+.dash-projcard { border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 10px;
+  padding: 12px 14px; margin: 0 0 10px; background: var(--color-surface); }
+.dash-projcard .comp { color: var(--color-neutral-text, #576478); font-size: 0.8rem; margin: 0 0 2px; }
+.dash-projcard .proj { color: var(--color-text); font-weight: 600; font-size: 0.95rem;
+  line-height: 1.4; margin: 0 0 8px; }
+.dash-projcard .nums { margin: 0; font-size: 0.92rem; color: var(--color-text); }
+.dash-projcard .lbl { color: var(--color-neutral-text, #576478); }
 @media (max-width: 640px) {
   .dash-tiles { grid-template-columns: repeat(2, 1fr); }
-  .dash-shell { padding: 0 12px 40px; }
-  .dash-controls { padding: 14px 16px; gap: 12px; }
+  .dash-shell { padding: 8px 12px 40px; }
+  /* 헤더: 제목이 주인공 — 버튼은 컴팩트(내부 도구 절충: 36px) */
+  .dash-topbar { padding: 12px 16px; gap: 8px; }
+  .dash-topbar h1 { font-size: 1.1rem; }
+  .dash-topbar .dash-btn { min-height: 36px; padding: 0 12px; font-size: 0.85rem; }
+  /* 컨트롤: 팀 전폭 → 시작일·종료일 나란히 → 조회 전폭 → 안내 */
+  .dash-controls { display: grid; grid-template-columns: 1fr 1fr; padding: 14px 16px; gap: 12px; }
+  .dash-controls label:first-child { grid-column: 1 / -1; }
+  #btn-dash-query { grid-column: 1 / -1; }
+  .dash-controls .note { grid-column: 1 / -1; margin: -4px 0 0; }
+  /* 공사별: 표 숨기고 카드로 */
+  .dash-block-has-cards .dash-tablewrap { display: none; }
+  .dash-proj-cards { display: block; }
 }
 @media (prefers-reduced-motion: reduce) {
   .dash-btn, .dash-controls select, .dash-controls input, .dash-block tbody tr { transition: none; }

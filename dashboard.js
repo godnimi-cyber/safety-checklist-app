@@ -459,6 +459,56 @@
     return grid;
   }
 
+  /** 공사별 카드 목록(모바일) — 5열 표가 좁은 화면에서 가로 스크롤로 밀리는 문제.
+   *  표와 같은 데이터·같은 드릴다운 버튼(점검·부적합)을 카드로도 만든다. textContent 전용. */
+  function renderProjCards_(block) {
+    var wrap = document.createElement('div');
+    wrap.className = 'dash-proj-cards';
+    function lbl(t) {
+      var s = document.createElement('span');
+      s.className = 'lbl';
+      s.textContent = t;
+      return s;
+    }
+    block.rows.forEach(function (row, ri) {
+      var card = document.createElement('div');
+      card.className = 'dash-projcard';
+      var comp = document.createElement('p');
+      comp.className = 'comp';
+      comp.textContent = String(row[0]);
+      var proj = document.createElement('p');
+      proj.className = 'proj';
+      proj.textContent = String(row[1]);
+      var nums = document.createElement('p');
+      nums.className = 'nums';
+      var label = String(row[0]) + ' · ' + String(row[1]);
+      nums.appendChild(lbl('점검 '));
+      var insp = document.createElement('button');
+      insp.type = 'button';
+      insp.className = 'dash-linknum';
+      insp.textContent = String(row[2]);
+      insp.addEventListener('click', function () { openDetail_('subs', block.keys[ri], label, Number(row[2])); });
+      nums.appendChild(insp);
+      nums.appendChild(lbl(' · 부적합 '));
+      if (Number(row[3]) > 0) {
+        var fb = document.createElement('button');
+        fb.type = 'button';
+        fb.className = 'dash-linknum dash-danger';
+        fb.textContent = String(row[3]);
+        fb.addEventListener('click', function () { openDetail_('finds', block.keys[ri], label, Number(row[3])); });
+        nums.appendChild(fb);
+      } else {
+        nums.appendChild(lbl('0'));
+      }
+      nums.appendChild(lbl(' · 마지막 ' + String(row[4] || '-')));
+      card.appendChild(comp);
+      card.appendChild(proj);
+      card.appendChild(nums);
+      wrap.appendChild(card);
+    });
+    return wrap;
+  }
+
   /** 블록 하나 렌더. textContent 만 쓴다(시트 유래 문자열의 HTML 해석 원천 차단).
    *  부적합 값은 header 의 '부적합' 열, 헤더 없는 블록(이번 주)은 타일로. */
   function renderBlock_(block) {
@@ -525,6 +575,10 @@
       table.appendChild(tbody);
       wrap.appendChild(table);
       sec.appendChild(wrap);
+      if (block.keys) {                        // 공사별 — 좁은 화면용 카드도 함께(CSS 가 폭에 따라 하나만 보인다)
+        sec.className += ' dash-block-has-cards';
+        sec.appendChild(renderProjCards_(block));
+      }
     }
     if (block.note) {
       var note = document.createElement('p');
