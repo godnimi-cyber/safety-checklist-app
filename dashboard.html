@@ -134,7 +134,8 @@
 .dash-sheet table { table-layout: fixed; }
 .dash-sheet th, .dash-sheet td { white-space: normal; overflow-wrap: break-word; }
 .dash-sheet th:nth-child(2), .dash-sheet td:nth-child(2) { width: 64px; text-align: center; }
-.dash-sheet th:nth-child(3), .dash-sheet td:nth-child(3) { width: 26%; }
+.dash-sheet-note { background: var(--color-bg); border-radius: 8px; padding: 6px 10px;
+  margin: 6px 0 0; color: var(--color-danger-text, #b13330); font-size: 0.88rem; line-height: 1.5; }
 /* nowrap(.dash-block td)보다 구체도가 높아야 줄바꿈이 실제로 걸린다 — 긴 항목 문구가
    한 줄로 화면 밖까지 밀리던 원인. */
 .dash-block td.dash-wraptext { white-space: normal; min-width: 220px; }
@@ -180,6 +181,8 @@
   #btn-dash-modal-close { order: 3; margin-left: auto; }
   .dash-modal-head h2 { order: 4; flex: 1 1 100%; font-size: 1rem; }
   .dash-block td.dash-wraptext { min-width: 0; }
+  .dash-sheet th, .dash-sheet td { padding: 10px 10px; font-size: 0.88rem; }
+  .dash-sheet th:nth-child(2), .dash-sheet td:nth-child(2) { width: 48px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .dash-btn, .dash-controls select, .dash-controls input, .dash-block tbody tr { transition: none; }

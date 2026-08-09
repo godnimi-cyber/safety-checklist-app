@@ -401,28 +401,34 @@
       ' · 수검자 ' + (meta.auditee || '-') + (meta.auditee_ack ? ' (확인함)' : '') +
       (meta.status === 'voided' ? ' · 취소된 점검' : '');
     body.appendChild(info);
-    var sheetTbl = modalTable_(['항목', '판정', '사유'], data.rows, function (r) {
+    var sheetTbl = modalTable_(['항목', '판정'], data.rows, function (r) {
       var tr = document.createElement('tr');
       if (r.head) {                             // 체크 불가 행(주의문 등) — 구획 줄
         var td = document.createElement('td');
-        td.colSpan = 3;
+        td.colSpan = 2;
         td.className = 'dash-sheet-section';
         td.textContent = r.text;
         tr.appendChild(td);
         return tr;
       }
+      /* 사유는 별도 열이 아니라 항목 아래 강조 박스 — 사유 있는 행이 소수라 열을 상시
+         차지하면 폰에서 항목이 너무 잘게 접힌다(부적합 카드 note 와 같은 문법). */
       var t1 = document.createElement('td');
       t1.className = 'dash-wraptext';
-      t1.textContent = r.text;
+      var txt = document.createElement('div');
+      txt.textContent = r.text;
+      t1.appendChild(txt);
+      if (String(r.n || '')) {
+        var note = document.createElement('div');
+        note.className = 'dash-sheet-note';
+        note.textContent = r.n;
+        t1.appendChild(note);
+      }
       var t2 = document.createElement('td');
       t2.textContent = r.r || '-';
       if (r.r === 'N') t2.className = 'dash-danger';
-      var t3 = document.createElement('td');
-      t3.className = 'dash-wraptext';
-      t3.textContent = r.n;
       tr.appendChild(t1);
       tr.appendChild(t2);
-      tr.appendChild(t3);
       return tr;
     });
     sheetTbl.className += ' dash-sheet';        // 고정 레이아웃 — 항목이 폭 안에서 줄바꿈(가로 스크롤 제거)
