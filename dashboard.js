@@ -401,7 +401,7 @@
       ' · 수검자 ' + (meta.auditee || '-') + (meta.auditee_ack ? ' (확인함)' : '') +
       (meta.status === 'voided' ? ' · 취소된 점검' : '');
     body.appendChild(info);
-    body.appendChild(modalTable_(['항목', '판정', '사유'], data.rows, function (r) {
+    var sheetTbl = modalTable_(['항목', '판정', '사유'], data.rows, function (r) {
       var tr = document.createElement('tr');
       if (r.head) {                             // 체크 불가 행(주의문 등) — 구획 줄
         var td = document.createElement('td');
@@ -424,7 +424,9 @@
       tr.appendChild(t2);
       tr.appendChild(t3);
       return tr;
-    }));
+    });
+    sheetTbl.className += ' dash-sheet';        // 고정 레이아웃 — 항목이 폭 안에서 줄바꿈(가로 스크롤 제거)
+    body.appendChild(sheetTbl);
   }
 
   /** 공사별 숫자 클릭 진입점. kind: 'subs'(점검) | 'finds'(부적합).

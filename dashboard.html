@@ -37,7 +37,8 @@
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18); }
 .dash-topbar h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em;
   color: #FFFFFF; margin: 0; }
-#dash-generated { color: rgba(255, 255, 255, 0.9); font-size: 0.85rem; }
+#dash-generated { color: rgba(255, 255, 255, 0.92); font-size: 0.82rem;
+  background: rgba(255, 255, 255, 0.14); padding: 4px 12px; border-radius: 999px; }
 .dash-topbar .spacer { flex: 1; }
 .dash-topbar .dash-btn { background: rgba(255, 255, 255, 0.12);
   border-color: rgba(255, 255, 255, 0.7); color: #FFFFFF; }
@@ -80,22 +81,28 @@
 .dash-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .dash-tile { background: var(--color-surface); border: 1px solid var(--dash-border);
   border-radius: 12px; padding: 16px 18px; }
-.dash-tile .k { display: block; font-size: 0.8rem; font-weight: 600;
+.dash-tile { border-top: 3px solid var(--color-primary); }
+.dash-tile .k { display: block; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em;
   color: var(--color-neutral-text, #40615b); margin-bottom: 6px; }
-.dash-tile .v { display: block; font-size: 1.7rem; font-weight: 700; line-height: 1.1;
+.dash-tile .v { display: block; font-size: 1.9rem; font-weight: 700; line-height: 1.1;
   color: var(--color-text); font-variant-numeric: tabular-nums; }
 .dash-block { margin: 0 0 20px; background: var(--color-surface);
   border: 1px solid var(--dash-border); border-radius: 12px;
   padding: 18px 20px; }
+.dash-block-head .dash-btn { color: var(--color-primary); border-color: var(--color-primary);
+  min-height: 36px; padding: 0 14px; font-size: 0.85rem; }
 .dash-block-head { display: flex; align-items: center; justify-content: space-between;
   gap: 12px; flex-wrap: wrap; margin: 0 0 12px; }
 .dash-block h2 { font-size: 1rem; font-weight: 700; color: var(--color-text); margin: 0; }
+.dash-block h2::before { content: ''; display: inline-block; width: 8px; height: 8px;
+  background: var(--color-primary); border-radius: 2px; margin-right: 8px; }
+.dash-integrity h2::before { background: var(--color-danger); }
 .dash-block .note { color: var(--color-neutral-text, #40615b); font-size: 0.9rem; margin: 10px 0 0; }
 .dash-tablewrap { overflow-x: auto; border: 1px solid var(--dash-border); border-radius: 10px; }
 .dash-block table { border-collapse: collapse; width: 100%; background: var(--color-surface); }
 .dash-block th, .dash-block td { padding: 11px 16px; text-align: left; font-size: 0.9rem;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06); color: var(--color-text); white-space: nowrap; }
-.dash-block th { background: var(--color-bg); font-weight: 600; font-size: 0.82rem;
+.dash-block th { background: var(--color-bg); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.03em;
   color: var(--color-neutral-text, #40615b); }
 .dash-block tbody tr { transition: background 0.15s; }
 .dash-block tbody tr:hover { background: var(--color-bg); }
@@ -122,6 +129,12 @@
 .dash-modal-head .spacer { flex: 1; }
 .dash-modal-meta { color: var(--color-neutral-text, #40615b); font-size: 0.88rem; margin: 0 0 12px; }
 .dash-modal-tables { border: 0; padding: 0; margin: 0; }
+/* 점검표: 자동 레이아웃은 내용만큼 넓어져 가로 스크롤을 만든다 — 고정 레이아웃으로
+   항목이 남는 폭 전부를 받아 줄바꿈, 판정은 좁게 가운데, 사유는 고정 비율. */
+.dash-sheet table { table-layout: fixed; }
+.dash-sheet th, .dash-sheet td { white-space: normal; overflow-wrap: break-word; }
+.dash-sheet th:nth-child(2), .dash-sheet td:nth-child(2) { width: 64px; text-align: center; }
+.dash-sheet th:nth-child(3), .dash-sheet td:nth-child(3) { width: 26%; }
 /* nowrap(.dash-block td)보다 구체도가 높아야 줄바꿈이 실제로 걸린다 — 긴 항목 문구가
    한 줄로 화면 밖까지 밀리던 원인. */
 .dash-block td.dash-wraptext { white-space: normal; min-width: 220px; }
