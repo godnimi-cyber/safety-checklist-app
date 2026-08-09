@@ -234,8 +234,8 @@ section.screen > .screen-body {
 .btn-block { width: 100%; }
 .btn-primary { background: var(--color-cta); color: var(--color-surface); }
 /* hover/active는 5색 밖 새 색상 대신, 팔레트에 이미 있는 더 짙은 Primary 파랑으로 전환 */
-.btn-primary:hover:not(:disabled) { background: var(--color-primary); }
-.btn-primary:active:not(:disabled) { background: var(--color-primary); transform: scale(0.98); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-primary:active:not(:disabled) { background: var(--accent-active); transform: scale(0.98); }
 .btn-outline { background: var(--color-surface); color: var(--color-primary); border-color: var(--tint-primary-strong); }
 .btn-outline:hover:not(:disabled) { background: var(--tint-primary); }
 .btn-outline:active:not(:disabled) { background: var(--tint-primary-strong); }
