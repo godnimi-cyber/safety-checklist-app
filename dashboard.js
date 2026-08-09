@@ -220,7 +220,7 @@
      상세는 커밋된 조건(committedRange·현재 팀)만으로 서버에 묻는다(§4.1 규칙 그대로).
      modal.gen 은 모달 전용 세대 — 닫히거나 새 요청이 시작되면 늦은 응답을 버린다. */
 
-  var modal = { gen: 0, list: null, listTitle: '', listExpected: undefined };
+  var modal = { gen: 0, list: null, listTitle: '', listExpected: undefined, hasHistory: false };
 
   /** 상세 조회 페이로드(순수 — 조각 테스트 대상). st 의 key·committedRange·view 만 쓴다.
    *  전송은 GET 쿼리가 아니라 **POST 본문**이다 — 데스크톱·폰 공통으로 긴 쿼리 GET fetch 만
@@ -237,10 +237,18 @@
   }
 
   function openModal_(title) {
+    var root = el_('dash-modal');
+    if (root.hidden) {
+      /* 닫힘→열림 전이에만: ① 히스토리 1칸 — 뒤로가기가 페이지 이탈 대신 팝업을 닫는다
+         ② 본문 스크롤 잠금 — 팝업 스크롤이 끝에 닿아도 뒤 화면이 안 움직인다 */
+      history.pushState({ dashModal: 1 }, '');
+      modal.hasHistory = true;
+      document.body.style.overflow = 'hidden';
+    }
     el_('dash-modal-title').textContent = title;
     el_('dash-modal-body').textContent = '';
     el_('btn-dash-modal-back').hidden = true;
-    el_('dash-modal').hidden = false;
+    root.hidden = false;
   }
 
   function closeModal_() {
@@ -249,6 +257,11 @@
     modal.listTitle = '';
     modal.listExpected = undefined;
     el_('dash-modal').hidden = true;
+    document.body.style.overflow = '';
+    if (modal.hasHistory) {                    // 우리가 쌓은 히스토리 1칸을 소비(뒤로가기와 이중 처리 방지)
+      modal.hasHistory = false;
+      history.back();
+    }
   }
 
   function metaP_(text) {
@@ -723,6 +736,13 @@
     });
     document.addEventListener('keydown', function (ev) {
       if (ev.key === 'Escape' && !el_('dash-modal').hidden) closeModal_();
+    });
+    window.addEventListener('popstate', function () {
+      /* 뒤로가기: 팝업이 열려 있으면 그 한 번은 팝업 닫기다 — 히스토리 칸은 이미 소비됐다 */
+      if (!el_('dash-modal').hidden) {
+        modal.hasHistory = false;
+        closeModal_();
+      }
     });
     if (saved) {
       state.key = saved;

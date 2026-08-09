@@ -122,6 +122,7 @@
 #dash-modal[hidden] { display: none; }
 .dash-modal-back { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); cursor: pointer; }
 .dash-modal-card { position: relative; background: var(--color-surface); border-radius: 16px;
+  overscroll-behavior: contain;
   width: 100%; max-width: 880px; max-height: 85vh; overflow: auto;
   padding: 20px 24px 24px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25); }
 .dash-modal-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
