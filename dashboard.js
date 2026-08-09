@@ -392,6 +392,7 @@
     el_('btn-dash-modal-back').hidden = !modal.list;   // 목록 경유일 때만 「목록으로」
     body.textContent = '';
     var meta = data.meta;
+    el_('dash-modal-title').textContent = '점검표 — ' + meta.company_name + ' · ' + meta.project_name;
     var info = document.createElement('p');
     info.className = 'dash-modal-meta';
     info.textContent = meta.company_name + ' · ' + meta.project_name +

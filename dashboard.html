@@ -159,6 +159,14 @@
   /* 공사별: 표 숨기고 카드로 */
   .dash-block-has-cards .dash-tablewrap { display: none; }
   .dash-proj-cards { display: block; }
+  /* 모달: 화면을 넓게 쓰고, 머리는 버튼 행(목록으로·닫기) 위 + 제목 아래 전폭 */
+  #dash-modal { padding: 12px 8px; }
+  .dash-modal-card { padding: 16px; max-height: 90vh; }
+  #btn-dash-modal-back { order: 1; }
+  .dash-modal-head .spacer { order: 2; }
+  #btn-dash-modal-close { order: 3; margin-left: auto; }
+  .dash-modal-head h2 { order: 4; flex: 1 1 100%; font-size: 1rem; }
+  .dash-block td.dash-wraptext { min-width: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .dash-btn, .dash-controls select, .dash-controls input, .dash-block tbody tr { transition: none; }
