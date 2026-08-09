@@ -1,0 +1,68 @@
+{
+  "kitContractVersion": 2,
+  "preset": {
+    "id": "control",
+    "name": "control",
+    "sha256": "b42d5bb0bcc5c41ea02e596de2d805ec025bdfa110e4560f1852226d899b9b5b"
+  },
+  "core": {
+    "version": "uiux-core@1",
+    "sha256": "ef971724813e1c85fa995f3b08e0e14aee0d998134d5215cae64c5626202e2af"
+  },
+  "variant": {
+    "density": "comfortable",
+    "motion": "subtle"
+  },
+  "selection": {
+    "chosenBy": "explicit-preset-flag",
+    "approvedBy": null,
+    "note": "선택 영수증 없음 — 프리셋을 직접 지정했다"
+  },
+  "derivation": {
+    "ladder": {
+      "hover": [
+        0.1,
+        0.14,
+        0.18,
+        0.24
+      ],
+      "active": [
+        0.2,
+        0.26,
+        0.32,
+        0.4
+      ]
+    },
+    "rowMix": {
+      "hover": 0.04,
+      "selected": 0.1
+    },
+    "minimums": {
+      "onAccent": 4.5,
+      "stateVsBg": 3,
+      "stateDistinct": 1.15
+    },
+    "light": [],
+    "dark": []
+  },
+  "build": {
+    "projectName": "safety-dashboard"
+  },
+  "generator": {
+    "modules": [
+      "scripts/design-kit.mjs",
+      "scripts/compile-tokens.mjs",
+      "scripts/lib/color.mjs"
+    ],
+    "sha256": "6d3c99bda75f52cad7cc8a3b6a54fbe7f58b3426b48e73538073c26b90f7d45e"
+  },
+  "outputs": {
+    "tokens.css": "fc5a33ec86fe7d71bb57b25c987c483ec8659e026a4541ab91470f5804ab8748",
+    "tokens.json": "7d624df0db5c57010334103dcc007f7ae4167f31424e2f80d9b956d8e44ea678",
+    "components.css": "cc4a00ec46219b76361d63bff93bc52051c7332a1358b08724559dd43c6f1dbc",
+    "fonts.html": "67c3df3f47beaffa9af816a17ee5eaebb886698f830ca4eb3439d2af0e2d7ca0",
+    "rules.json": "38551863a848efa8903611a278f534ffbc4f2f4c451b0802b4f3ca87119f09dc",
+    "verify.mjs": "bd74ac25f4429dcea87e88a1486f29bf25ca271383b3f1b7fe2b021d7034fc6d",
+    "README.md": "e1eb3b90ad6e3410a0de65b2e7790ac2de66593f8765330fe767d22181759471"
+  }
+}

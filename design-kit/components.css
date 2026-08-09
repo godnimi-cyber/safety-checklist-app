@@ -1,0 +1,70 @@
+/* components.css — design-kit 생성물. 수동 편집 금지(다음 내보내기에서 사라진다).
+ * 수치 출처: uiux-core@1 (전역 UIUX 규약 §5·§7). 색은 tokens.css 변수만 참조한다. */
+@layer design-kit {
+  /* uiux-core의 height는 "렌더된 박스 높이"다. content-box 기본값에서는 padding·border가
+   * 그 위에 더해져 선언값과 실렌더가 어긋나고(input 40 → 58px), inline-size:100%인 입력이
+   * 컨테이너를 넘쳐 가로 스크롤을 만든다. dk- 컴포넌트에만 한정해 적용한다 —
+   * 소비 프로젝트의 전역 리셋을 이 킷이 대신 정하지 않는다. */
+  [class*="dk-"], [class*="dk-"]::before, [class*="dk-"]::after { box-sizing: border-box; }
+  .dk-button {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    border: 0; border-radius: 8px; cursor: pointer;
+    font: inherit; font-weight: 600;
+    background: var(--accent); color: var(--on-accent);
+    transition: background 150ms ease;
+  }
+  .dk-button--sm { min-height: 32px; padding-inline: 12px; }
+  .dk-button--md { min-height: 40px; padding-inline: 16px; }
+  .dk-button--lg { min-height: 48px; padding-inline: 24px; }
+  .dk-button:hover { background: var(--accent-hover); }
+  .dk-button:active { background: var(--accent-active); }
+  .dk-button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .dk-button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .dk-icon-button { inline-size: 40px; block-size: 40px; padding: 0px; }
+
+  .dk-input {
+    inline-size: 100%; font: inherit; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    transition: border-color 150ms ease;
+  }
+  .dk-input--sm { min-height: 32px; padding: 8px 12px; }
+  .dk-input--md { min-height: 40px; padding: 8px 12px; }
+  .dk-input--lg { min-height: 48px; padding: 12px 16px; }
+  .dk-input:hover { border-color: var(--muted); }
+  .dk-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+  .dk-input[aria-invalid="true"] { border-color: var(--danger); }
+  .dk-input:disabled { opacity: 0.5; }
+
+  .dk-badge { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 999px; font-size: 0.78rem; }
+  .dk-badge--sm { min-height: 20px; padding: 4px 8px; line-height: 10px; }
+  .dk-badge--md { min-height: 24px; padding: 4px 10px; line-height: 14px; }
+  .dk-badge--lg { min-height: 28px; padding: 6px 12px; line-height: 14px; }
+
+  .dk-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; display: flex; flex-direction: column; gap: 16px; }
+  .dk-card__header { padding: 24px 24px 0px; }
+  .dk-card__content { padding: 24px; }
+  .dk-card__footer { padding: 0px 24px 24px; }
+
+  .dk-dialog { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; inline-size: 100%; }
+  .dk-dialog--sm { max-inline-size: 384px; }
+  .dk-dialog--md { max-inline-size: 512px; }
+  .dk-dialog--lg { max-inline-size: 640px; }
+  .dk-dialog--xl { max-inline-size: 768px; }
+
+  .dk-table { inline-size: 100%; border-collapse: collapse; }
+  .dk-table th, .dk-table td { padding: 12px 16px; text-align: start; }
+  .dk-table--compact .dk-row { height: 40px; }
+  .dk-table--default .dk-row { height: 48px; }
+  .dk-table--comfortable .dk-row { height: 56px; }
+  .dk-row:hover { background: var(--row-hover); }
+  /* 선택은 색만으로 신호하지 않는다(WCAG 1.4.1) — accent 인디케이터가 주 신호, 틴트는 보조 */
+  .dk-row[aria-selected="true"] { background: var(--row-selected); box-shadow: inset 3px 0 0 var(--accent); }
+
+  /* 접근성 하한 — 제거 금지. 터치 환경에서 32px 컨트롤은 hit-area를 별도로 넓힌다. */
+  @media (pointer: coarse) {
+    .dk-button, .dk-input, .dk-icon-button { min-block-size: 44px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dk-button, .dk-input { transition: none; }
+  }
+}
