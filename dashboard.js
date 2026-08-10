@@ -6,6 +6,25 @@
 
   var KEY_STORE = 'safety_dash_key';
   var THEME_STORE = 'safety_dash_theme';
+  var PAYLOAD_STORE = 'safety_dash_last';
+
+  /* ---------- 마지막 화면 저장(체감 로딩 제거, 2026-08-10) ----------
+     병목은 GAS 왕복(콜드스타트 포함 수 초)이다 — 그동안 빈 화면 대신 직전 커밋 화면을
+     먼저 보인다. 기준 시각 표기가 그대로 남아 낡음을 숨기지 않고, 키와 같은 기기
+     저장이므로 열람 경계도 동일하다(키 지우기가 함께 지운다). */
+  function persistLast_(payload) {
+    try { localStorage.setItem(PAYLOAD_STORE, JSON.stringify({ v: 1, payload: payload })); }
+    catch (e) { /* 용량·프라이빗 모드 — 저장 실패는 기능 저하가 아니다 */ }
+  }
+
+  /** 저장본 복원 — 형식이 다르거나 깨졌으면 null(그냥 기존 로딩 화면). */
+  function restoreLast_() {
+    try {
+      var o = JSON.parse(localStorage.getItem(PAYLOAD_STORE) || 'null');
+      if (!o || o.v !== 1 || !o.payload || !o.payload.range) return null;
+      return o.payload;
+    } catch (e) { return null; }
+  }
 
   /* ---------- 상태 (스펙 §4.1) ----------
      렌더·CSV 는 payload·committedRange 만 본다. gen 은 요청 세대 — 최신 세대가 아닌
@@ -220,7 +239,10 @@
   function hardReset_(msg) {
     resetKey_(state);
     closeModal_();
-    try { localStorage.removeItem(KEY_STORE); } catch (e) { /* 프라이빗 모드 등 — 상태는 이미 비웠다 */ }
+    try {
+      localStorage.removeItem(KEY_STORE);
+      localStorage.removeItem(PAYLOAD_STORE);   // 키가 없으면 화면 사본도 남기지 않는다
+    } catch (e) { /* 프라이빗 모드 등 — 상태는 이미 비웠다 */ }
     wipeData_();
     showKeyScreen_(msg);
   }
@@ -745,6 +767,8 @@
       setBusy_(false);
       if (verdict === 'committed') {
         closeModal_();                         // 커밋 = 화면 통째 교체 — 옛 조건의 팝업·진행 중 상세도 함께 무효(적대 리뷰 #3)
+        persistLast_(state.payload);
+        showBanner_('');                       // 복원 안내(저장된 화면…)가 남아 있으면 걷는다
         renderTeamSelect_();
         renderView_();
         return;
@@ -812,7 +836,17 @@
     if (saved) {
       state.key = saved;
       showMainScreen_();
+      var last = restoreLast_();
+      if (last) {
+        /* gen 을 통하지 않은 로컬 복원 — 진행 중 조회와 경쟁하지 않는다(§4.1:
+           최신 커밋이 도착하면 통째로 교체된다). 드릴다운도 committedRange 로 즉시 가능. */
+        state.payload = last;
+        state.committedRange = last.range;
+        renderTeamSelect_();
+        renderView_();
+      }
       fetchDashboard();
+      if (last) showBanner_('저장된 화면 (기준 ' + String(last.generatedAt || '') + ') — 최신 데이터 조회 중…');
     } else {
       showKeyScreen_('');
     }
