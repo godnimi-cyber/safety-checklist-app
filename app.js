@@ -749,7 +749,7 @@
         stateEl.classList.add('text-danger');
       } else {
         stateEl.textContent = '전송 대기 중';
-        stateEl.classList.add('text-neutral');
+        stateEl.classList.add('text-warn');   /* 보류=앰버(관제 의미) — 실패(적)와 구분 */
       }
 
       /* 상세: 갇힌 항목의 내용을 읽을 수 있게 (textContent 로만 — innerHTML 금지).

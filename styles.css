@@ -25,6 +25,12 @@
      84:16 파생 — 이중합성 4.67 · banner-error 6.66 · surface 7.51 로 전 자리 개선. */
   --color-success-text: color-mix(in srgb, var(--ok) 92%, var(--text));
   --color-primary-text: color-mix(in srgb, var(--accent) 84%, var(--text));
+  /* 보류(대기) 신호 — 킷 warn 계열. 재실측(2026-08-10): warn on queue-row 합성 4.80 ·
+     흰배경 5.71 · muted on tint-warn(over bg) 5.46 — 전부 원색 AA 통과, 파생 불필요. */
+  --color-warn: var(--warn);
+  --color-warn-text: var(--warn);
+  --tint-warn: color-mix(in srgb, var(--warn) 10%, transparent);
+  --tint-warn-strong: color-mix(in srgb, var(--warn) 22%, transparent);
   --color-danger-text: color-mix(in srgb, var(--danger) 84%, var(--text));
   --color-neutral-text: var(--muted);
 
@@ -67,7 +73,9 @@ html, body {
   padding: 0;
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: var(--font-sans);
+  /* 킷 폰트 페어(대시보드와 통일, 2026-08-10) — CDN 미도달(오프라인 콜드)이면 토큰의
+     폴백 스택 → 시스템 한글 폰트로 자연 강등된다(현장 저속망 배려, 렌더 차단 없음). */
+  font-family: var(--font-body, var(--font-sans));
   line-height: 1.5;
   -webkit-text-size-adjust: 100%;
 }
@@ -286,8 +294,8 @@ select.input {
 .template-list { display: flex; flex-direction: column; gap: var(--space-3); }
 
 .continue-card {
-  background: var(--tint-primary);
-  border: 1px solid var(--tint-primary-strong);
+  background: var(--tint-warn);   /* 보류(작성 중) 신호 — 관제 의미: 앰버 */
+  border: 1px solid var(--tint-warn-strong);
   border-radius: var(--radius-md);
   padding: var(--space-4);
   display: flex;
@@ -296,7 +304,7 @@ select.input {
 }
 .continue-card[hidden] { display: none; }
 /* T2: .muted(색: --color-neutral) 는 대부분 흰/page-bg 위라 그대로 4.5:1 이상이지만, 이 카드
-   배경(--tint-primary)과 합쳐지면 3.990:1 로 미달이다 — 여기서만 파생 변수로 덮는다(범용
+   배경(현재 --tint-warn, 킷 전환 전 tint-primary 시절 3.990:1 미달 실측)과 합쳐지면 위험한 자리다 — 여기서만 파생 변수로 덮는다(범용
    .muted 규칙은 다른 곳(홈 안내문 등)에서 이미 통과라 그대로 둔다). */
 .continue-card .muted { color: var(--color-neutral-text); }
 
@@ -344,6 +352,8 @@ select.input {
 /* R2: --color-danger-text 는 T2 에서 #A11A1A 로 재조정됐다(:root 주석 참고) — 이 자리
    (.queue-row 배경 위 텍스트)에서도 6.49:1 로 넉넉히 통과한다. */
 .text-danger { color: var(--color-danger-text); font-weight: 600; }
+.text-warn { color: var(--color-warn-text); font-weight: 600; }   /* 전송 대기 등 보류 상태 */
+h1, h2, h3 { font-family: var(--font-heading, var(--font-sans)); }   /* 킷 헤딩 페어(D2Coding) */
 .text-neutral { color: var(--color-neutral-text); }
 
 /* 큐 행 조작(상세·다시 시도·삭제) — 갇힌 항목의 탈출구.
@@ -372,7 +382,7 @@ select.input {
   background: var(--color-surface);
   border: 1px solid var(--tint-neutral-strong);
   border-radius: var(--radius-sm);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
