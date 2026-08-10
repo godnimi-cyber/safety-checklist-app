@@ -468,6 +468,46 @@
     else fetchDetail_('finds', key, null, function (d) { renderFinds_(d, expected); });
   }
 
+  /** '제목 (YYYY-MM-DD ~ YYYY-MM-DD)' 에서 주간 스트립 모델을 만든다 — 순수 계산.
+   *  ISO 문자열을 Date 에 직접 주면 UTC 자정이 되어 시간대에 따라 하루가 밀린다 —
+   *  로컬 부품(연·월·일 정수)으로만 조립한다. 형식이 다르면 null(스트립 없이 원제목 유지). */
+  function weekStripModel_(title, today) {
+    var m = /^(.*?)\s*\((\d{4})-(\d{2})-(\d{2})\s*~\s*(\d{4})-(\d{2})-(\d{2})\)\s*$/.exec(String(title));
+    if (!m) return null;
+    var DOW = ['일', '월', '화', '수', '목', '금', '토'];
+    var t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    var days = [];
+    for (var i = 0; i < 7; i++) {
+      var d = new Date(Number(m[2]), Number(m[3]) - 1, Number(m[4]) + i);
+      var state = d.getTime() === t0 ? 'today' : (d.getTime() < t0 ? 'past' : 'future');
+      days.push({ dow: DOW[d.getDay()], day: d.getDate(), state: state });
+    }
+    return { label: m[1], days: days };
+  }
+
+  /** 주간 스트립 렌더(사용자 선택 2026-08-10). role="img" — 칸들은 하나의 그림이다. */
+  function renderWeekStrip_(model, fullTitle) {
+    var strip = document.createElement('div');
+    strip.className = 'dash-weekstrip';
+    strip.setAttribute('role', 'img');
+    strip.setAttribute('aria-label', String(fullTitle));
+    model.days.forEach(function (dy) {
+      var cell = document.createElement('div');
+      cell.className = 'dash-wday' + (dy.state === 'today' ? ' today' : dy.state === 'past' ? ' past' : '');
+      if (dy.state === 'today') cell.setAttribute('aria-current', 'date');
+      var w = document.createElement('span');
+      w.className = 'dow';
+      w.textContent = dy.dow;
+      var n = document.createElement('span');
+      n.className = 'num';
+      n.textContent = String(dy.day);
+      cell.appendChild(w);
+      cell.appendChild(n);
+      strip.appendChild(cell);
+    });
+    return strip;
+  }
+
   /** 헤더 없는 요약 블록(이번 주)의 라벨·값 쌍을 스탯 타일로 그린다 —
    *  표 한 줄보다 위계가 서고 모바일(2×2)에서도 읽힌다. 부적합>0 만 상태색. */
   function renderStatTiles_(block) {
@@ -553,6 +593,11 @@
     sec.appendChild(head);
 
     if (!block.header || !block.header.length) {
+      var wk = weekStripModel_(block.title, new Date());
+      if (wk) {
+        h.textContent = wk.label;   // 괄호 날짜 범위는 스트립이 대신한다(aria 에는 전체 제목)
+        sec.appendChild(renderWeekStrip_(wk, block.title));
+      }
       sec.appendChild(renderStatTiles_(block));
     } else {
       var dangerCol = block.header.indexOf('부적합');

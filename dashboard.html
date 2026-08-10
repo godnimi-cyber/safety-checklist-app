@@ -29,7 +29,8 @@
    표들만 안쪽으로 밀린다 — 이 페이지에서는 무효화한다(폭 정렬의 전제). */
 .dash-shell main { padding: 0; }
 /* 음영은 제목 바 전용(사용자 지시) — 본문 카드는 보더로만 구획한다 */
-.dash-topbar { position: sticky; top: 0; z-index: 10;
+/* sticky 고정 해제(사용자 지시 2026-08-10) — 모바일에서 헤더가 화면 위를 상시 점유했다 */
+.dash-topbar {
   display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
   background: var(--accent);
   border-radius: 12px; padding: 16px 20px; margin-bottom: 16px;
@@ -79,6 +80,19 @@
 .dash-banner-error { border-color: var(--danger); border-left-width: 4px;
   color: var(--danger); }
 .dash-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+/* 주간 스트립(사용자 선택 2026-08-10) — 일별 건수가 아니라 달력 그래픽이다(서버가 일별
+   데이터를 주지 않는다 — 지어내지 않는다). 오늘 칸 강조, 지난 칸 옅게. */
+.dash-weekstrip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
+  max-width: 460px; margin: 4px 0 14px; }
+.dash-wday { display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 0 7px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); }
+.dash-wday .dow { font-size: 0.68rem; color: var(--muted); }
+.dash-wday .num { font-size: 0.95rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.dash-wday.past { background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border)); }
+.dash-wday.today { background: var(--accent); border-color: var(--accent); }
+.dash-wday.today .dow, .dash-wday.today .num { color: var(--on-accent); }
 .dash-tile { background: var(--surface); border: 1px solid var(--border);
   border-radius: 12px; padding: 16px 18px; }
 .dash-tile { border-top: 3px solid var(--accent); }
