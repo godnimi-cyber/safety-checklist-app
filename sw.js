@@ -30,6 +30,7 @@ var SHELL = [
   './',
   './index.html',
   './styles.css',
+  './design-kit/tokens.css',
   './config.js',
   './lib.js',
   './logic.js',

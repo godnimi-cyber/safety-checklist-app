@@ -1,0 +1,89 @@
+{
+  "rulesVersion": 1,
+  "note": "이 규칙은 킷을 쓰는 프로젝트의 소스를 검사한다. CI 연결은 소비 측 책임이다.",
+  "scanExtensions": [
+    ".css",
+    ".scss",
+    ".html",
+    ".htm",
+    ".jsx",
+    ".tsx",
+    ".vue",
+    ".svelte"
+  ],
+  "ignoreDirs": [
+    "node_modules",
+    "dist",
+    "build",
+    ".git",
+    ".next",
+    "coverage"
+  ],
+  "ignoreFiles": [
+    "tokens.css",
+    "components.css",
+    "tokens.json",
+    "kit-manifest.json"
+  ],
+  "rules": [
+    {
+      "id": "raw-color",
+      "severity": "error",
+      "pattern": "#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![0-9a-zA-Z])|\\b(?:rgb|rgba|hsl|hsla)\\(",
+      "message": "색은 토큰만 — var(--accent) 처럼 참조하세요(raw 색상값 금지)."
+    },
+    {
+      "id": "focus-removed",
+      "severity": "error",
+      "pattern": "outline\\s*:\\s*(?:none|0)\\b",
+      "message": "focus 표시를 제거하면 키보드 사용자가 길을 잃습니다. 대체 표시(:focus-visible)를 두세요."
+    },
+    {
+      "id": "emoji-icon",
+      "severity": "warn",
+      "pattern": "[\\u{1F300}-\\u{1FAFF}\\u{2600}-\\u{27BF}]",
+      "message": "UI 아이콘에 이모지 대신 SVG를 쓰세요.",
+      "unicode": true
+    },
+    {
+      "id": "icon-button-unnamed",
+      "severity": "error",
+      "pattern": "<[a-zA-Z](?![^>]*aria-label)(?![^>]*aria-labelledby)[^>]*\\bdk-icon-button\\b[^>]*>",
+      "message": "아이콘 버튼에는 aria-label(또는 aria-labelledby)이 필요합니다 — 아이콘만으로는 이름이 없습니다."
+    },
+    {
+      "id": "input-unlabeled",
+      "severity": "warn",
+      "pattern": "<input(?![^>]*\\bid=)(?![^>]*aria-label)[^>]*\\bdk-input\\b[^>]*>",
+      "message": "input에 id를 주고 <label for>로 연결하거나 aria-label을 주세요."
+    },
+    {
+      "id": "ai-gradient",
+      "severity": "warn",
+      "pattern": "linear-gradient\\([^)]*(?:purple|violet|#[89ab][0-9a-f]{2}[0-9a-f]{2}f)",
+      "message": "AI 티 나는 보라/핑크 그라데이션은 금지입니다."
+    }
+  ],
+  "accessibility": {
+    "touchTargetPx": {
+      "apple": 44,
+      "material": 48
+    },
+    "bodyLineLengthCh": [
+      45,
+      75
+    ],
+    "lineHeightMin": 1.5,
+    "contrast": {
+      "text": 4.5,
+      "largeText": 3,
+      "uiBoundary": 3
+    },
+    "focusVisibleRequired": true,
+    "reducedMotionRequired": true,
+    "transitionMs": [
+      150,
+      300
+    ]
+  }
+}

@@ -3,143 +3,169 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#EA002C">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <link rel="stylesheet" href="./styles.css?v=0.5.5">
+<link rel="stylesheet" href="./design-kit/tokens.css">
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <title>안전점검 대시보드</title>
 <style>
 /* 대시보드 전용 스타일 — 색은 styles.css :root 변수(승인 팔레트)만 쓴다(틴트는 흑백 알파만).
    앱 셸(.app-shell)과 무관한 독립 레이아웃. 내부 도구: 미관보다 상태 가시성 —
    장식 대신 위계(요약 타일 → 표), 카드 구획, 절제된 상태색으로 정돈한다. */
+/* 토큰은 ./design-kit/tokens.css(킷 소비) — 이 파일에 색·수치 원값을 적지 않는다.
+   계약 검사: web/design-kit/verify.mjs (raw 색·rgba·focus 제거 금지). */
 .dash-shell { max-width: 1100px; margin: 0 auto; padding: 12px 20px 56px;
-  /* SK 브랜드 액센트(사용자 지시 2026-08-08) — 공식 CI 레드·오렌지.
-     역할 분리: 브랜드색 = 헤더·주 버튼 / 상태색(부적합 danger) = 표 안 강조. */
-  --sk-red: #EA002C; --sk-orange: #F47725; --sk-red-dark: #B80023; }
+  font-family: var(--font-body); }
+.dash-topbar h1, .dash-block h2, .dash-tile .v, .dash-modal-head h2 {
+  font-family: var(--font-heading); }
 /* 앱 styles.css 의 전역 main 패딩(하단 액션바 공간)이 #dash-blocks 에 끼어들어
    표들만 안쪽으로 밀린다 — 이 페이지에서는 무효화한다(폭 정렬의 전제). */
 .dash-shell main { padding: 0; }
 /* 음영은 제목 바 전용(사용자 지시) — 본문 카드는 보더로만 구획한다 */
 .dash-topbar { position: sticky; top: 0; z-index: 10;
   display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
-  background: linear-gradient(90deg, var(--sk-red), var(--sk-orange));
+  background: var(--accent);
   border-radius: 12px; padding: 16px 20px; margin-bottom: 16px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18); }
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--text) 18%, transparent); }
 .dash-topbar h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em;
-  color: #FFFFFF; margin: 0; }
-#dash-generated { color: rgba(255, 255, 255, 0.9); font-size: 0.85rem; }
+  color: var(--on-accent); margin: 0; }
+#dash-generated { color: var(--on-accent); font-size: 0.82rem;
+  background: color-mix(in srgb, var(--on-accent) 14%, transparent); padding: 4px 12px; border-radius: 999px; }
 .dash-topbar .spacer { flex: 1; }
-.dash-topbar .dash-btn { background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.7); color: #FFFFFF; }
-.dash-topbar .dash-btn:hover { background: rgba(255, 255, 255, 0.26); border-color: #FFFFFF; }
-.dash-topbar .dash-btn:focus-visible { outline-color: #FFFFFF; }
-.dash-btn { min-height: 44px; padding: 0 18px; border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 10px; background: var(--color-surface); color: var(--color-text);
+.dash-topbar .dash-btn { background: color-mix(in srgb, var(--on-accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--on-accent) 70%, transparent); color: var(--on-accent); }
+.dash-topbar .dash-btn:hover { background: color-mix(in srgb, var(--on-accent) 26%, transparent); border-color: var(--on-accent); }
+.dash-topbar .dash-btn:focus-visible { outline-color: var(--on-accent); }
+.dash-btn { min-height: 44px; padding: 0 18px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--surface); color: var(--text);
   cursor: pointer; font-size: 0.95rem; font-weight: 600;
   transition: background 0.15s, border-color 0.15s; }
-.dash-btn:hover { background: var(--color-bg); border-color: rgba(0, 0, 0, 0.3); }
-.dash-btn:active { background: rgba(0, 0, 0, 0.06); }
-.dash-btn:focus-visible { outline: 2px solid var(--sk-red); outline-offset: 2px; }
-.dash-btn-primary { background: var(--sk-red); border-color: var(--sk-red); color: #FFFFFF; }
-.dash-btn-primary:hover { background: var(--sk-red-dark); border-color: var(--sk-red-dark); }
+.dash-btn:hover { background: var(--bg); border-color: var(--muted); }
+.dash-btn:active { background: var(--row-hover); }
+.dash-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dash-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.dash-btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.dash-btn-primary:active { background: var(--accent-active); border-color: var(--accent-active); }
 .dash-btn:disabled { opacity: 0.5; cursor: default; }
 .dash-controls { display: flex; gap: 16px; align-items: end; flex-wrap: wrap;
-  background: var(--color-surface); border: 1px solid rgba(0, 0, 0, 0.08);
+  background: var(--surface); border: 1px solid var(--border);
   border-radius: 12px; padding: 16px 20px; margin: 0 0 24px; }
 .dash-controls label { display: flex; flex-direction: column; gap: 6px;
-  font-size: 0.8rem; font-weight: 600; color: var(--color-neutral-text, #576478); }
+  font-size: 0.8rem; font-weight: 600; color: var(--muted); }
 .dash-controls select, .dash-controls input { min-height: 44px; padding: 8px 12px;
-  border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 10px; font-size: 0.95rem;
-  background: var(--color-surface); color: var(--color-text); cursor: pointer;
+  border: 1px solid var(--border); border-radius: 10px; font-size: 0.95rem;
+  background: var(--surface); color: var(--text); cursor: pointer;
   transition: border-color 0.15s; }
-.dash-controls select:hover, .dash-controls input:hover { border-color: rgba(0, 0, 0, 0.3); }
+.dash-controls select:hover, .dash-controls input:hover { border-color: var(--muted); }
 .dash-controls select:focus-visible, .dash-controls input:focus-visible,
-#dash-key-input:focus-visible { outline: 2px solid var(--sk-red); outline-offset: 2px; }
-.dash-controls .note { color: var(--color-neutral-text, #576478); font-size: 0.85rem; align-self: center; }
+#dash-key-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dash-controls .note { color: var(--muted); font-size: 0.85rem; align-self: center; }
 #dash-key-screen { max-width: 400px; margin: 64px auto; display: flex; flex-direction: column;
-  gap: 14px; background: var(--color-surface); border: 1px solid rgba(0, 0, 0, 0.08);
+  gap: 14px; background: var(--surface); border: 1px solid var(--border);
   border-radius: 16px; padding: 32px 28px; }
-#dash-key-screen label { font-size: 1.05rem; font-weight: 700; color: var(--color-text); }
-#dash-key-input { min-height: 44px; padding: 10px 14px; border: 1px solid rgba(0, 0, 0, 0.15);
+#dash-key-screen label { font-size: 1.05rem; font-weight: 700; color: var(--text); }
+#dash-key-input { min-height: 44px; padding: 10px 14px; border: 1px solid var(--border);
   border-radius: 10px; font-size: 1rem; }
 .dash-banner { padding: 12px 16px; border-radius: 10px; margin: 0 0 16px;
-  background: var(--color-surface); border: 1px solid rgba(0, 0, 0, 0.12);
-  color: var(--color-text); font-size: 0.92rem; }
-.dash-banner-error { border-color: var(--color-danger); border-left-width: 4px;
-  color: var(--color-danger-text, #A11A1A); }
+  background: var(--surface); border: 1px solid var(--border);
+  color: var(--text); font-size: 0.92rem; }
+.dash-banner-error { border-color: var(--danger); border-left-width: 4px;
+  color: var(--danger); }
 .dash-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-.dash-tile { background: var(--color-surface); border: 1px solid rgba(0, 0, 0, 0.08);
+.dash-tile { background: var(--surface); border: 1px solid var(--border);
   border-radius: 12px; padding: 16px 18px; }
-.dash-tile .k { display: block; font-size: 0.8rem; font-weight: 600;
-  color: var(--color-neutral-text, #576478); margin-bottom: 6px; }
-.dash-tile .v { display: block; font-size: 1.7rem; font-weight: 700; line-height: 1.1;
-  color: var(--color-text); font-variant-numeric: tabular-nums; }
-.dash-block { margin: 0 0 20px; background: var(--color-surface);
-  border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 12px;
+.dash-tile { border-top: 3px solid var(--accent); }
+.dash-tile .k { display: block; font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em;
+  color: var(--muted); margin-bottom: 6px; }
+.dash-tile .v { display: block; font-size: 1.9rem; font-weight: 700; line-height: 1.1;
+  color: var(--text); font-variant-numeric: tabular-nums; }
+.dash-block { margin: 0 0 20px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 12px;
   padding: 18px 20px; }
+.dash-block-head .dash-btn { color: var(--accent); border-color: var(--accent);
+  min-height: 36px; padding: 0 14px; font-size: 0.85rem; }
 .dash-block-head { display: flex; align-items: center; justify-content: space-between;
   gap: 12px; flex-wrap: wrap; margin: 0 0 12px; }
-.dash-block h2 { font-size: 1rem; font-weight: 700; color: var(--color-text); margin: 0; }
-.dash-block .note { color: var(--color-neutral-text, #576478); font-size: 0.9rem; margin: 10px 0 0; }
-.dash-tablewrap { overflow-x: auto; border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 10px; }
-.dash-block table { border-collapse: collapse; width: 100%; background: var(--color-surface); }
+.dash-block h2 { font-size: 1rem; font-weight: 700; color: var(--text); margin: 0; }
+.dash-block h2::before { content: ''; display: inline-block; width: 8px; height: 8px;
+  background: var(--accent); border-radius: 2px; margin-right: 8px; }
+.dash-integrity h2::before { background: var(--danger); }
+.dash-block .note { color: var(--muted); font-size: 0.9rem; margin: 10px 0 0; }
+.dash-tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+.dash-block table { border-collapse: collapse; width: 100%; background: var(--surface); }
 .dash-block th, .dash-block td { padding: 11px 16px; text-align: left; font-size: 0.9rem;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06); color: var(--color-text); white-space: nowrap; }
-.dash-block th { background: var(--color-bg); font-weight: 600; font-size: 0.82rem;
-  color: var(--color-neutral-text, #576478); }
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); color: var(--text); white-space: nowrap; }
+.dash-block th { background: var(--bg); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.03em;
+  color: var(--muted); }
 .dash-block tbody tr { transition: background 0.15s; }
-.dash-block tbody tr:hover { background: var(--color-bg); }
+.dash-block tbody tr:hover { background: var(--row-hover); }
 .dash-block tr:last-child td { border-bottom: 0; }
 .dash-num { text-align: right; font-variant-numeric: tabular-nums; }
-.dash-danger { color: var(--color-danger-text, #A11A1A); font-weight: 700; }
-.dash-integrity { border-left: 4px solid var(--color-danger); }
-.dash-integrity h2 { color: var(--color-danger-text, #A11A1A); }
+.dash-danger { color: var(--danger); font-weight: 700; }
+.dash-integrity { border-left: 4px solid var(--danger); }
+.dash-integrity h2 { color: var(--danger); }
 .dash-linknum { background: none; border: 0; padding: 4px 8px; margin: -4px -8px;
-  font: inherit; font-weight: 700; color: var(--color-primary); text-decoration: underline;
+  font: inherit; font-weight: 700; color: var(--accent); text-decoration: underline;
   cursor: pointer; border-radius: 6px; }
-.dash-linknum.dash-danger { color: var(--color-danger-text, #A11A1A); }
-.dash-linknum:hover { background: var(--color-bg); }
-.dash-linknum:focus-visible { outline: 2px solid var(--sk-red); outline-offset: 1px; }
+.dash-linknum.dash-danger { color: var(--danger); }
+.dash-linknum:hover { background: var(--bg); }
+.dash-linknum:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 #dash-modal { position: fixed; inset: 0; z-index: 100; display: flex;
   align-items: flex-start; justify-content: center; padding: 40px 16px; }
 #dash-modal[hidden] { display: none; }
-.dash-modal-back { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); cursor: pointer; }
-.dash-modal-card { position: relative; background: var(--color-surface); border-radius: 16px;
+.dash-modal-back { position: absolute; inset: 0; background: color-mix(in srgb, var(--text) 45%, transparent); cursor: pointer; }
+.dash-modal-card { position: relative; background: var(--surface); border-radius: 16px;
+  overscroll-behavior: contain;
   width: 100%; max-width: 880px; max-height: 85vh; overflow: auto;
-  padding: 20px 24px 24px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25); }
+  padding: 20px 24px 24px; box-shadow: 0 12px 40px color-mix(in srgb, var(--text) 25%, transparent); }
 .dash-modal-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
-.dash-modal-head h2 { font-size: 1.05rem; font-weight: 700; color: var(--color-text); margin: 0; }
+.dash-modal-head h2 { font-size: 1.05rem; font-weight: 700; color: var(--text); margin: 0; }
 .dash-modal-head .spacer { flex: 1; }
-.dash-modal-meta { color: var(--color-neutral-text, #576478); font-size: 0.88rem; margin: 0 0 12px; }
+.dash-modal-meta { color: var(--muted); font-size: 0.88rem; margin: 0 0 12px; }
 .dash-modal-tables { border: 0; padding: 0; margin: 0; }
+/* 점검표: 자동 레이아웃은 내용만큼 넓어져 가로 스크롤을 만든다 — 고정 레이아웃으로
+   항목이 남는 폭 전부를 받아 줄바꿈, 판정은 좁게 가운데, 사유는 고정 비율. */
+.dash-sheet table { table-layout: fixed; }
+.dash-sheet th, .dash-sheet td { white-space: normal; overflow-wrap: break-word; }
+.dash-sheet th:nth-child(2), .dash-sheet td:nth-child(2) { width: 64px; text-align: center; }
+.dash-sheet-note { background: var(--bg); border-radius: 8px; padding: 6px 10px;
+  margin: 6px 0 0; color: var(--danger); font-size: 0.88rem; line-height: 1.5; }
 /* nowrap(.dash-block td)보다 구체도가 높아야 줄바꿈이 실제로 걸린다 — 긴 항목 문구가
    한 줄로 화면 밖까지 밀리던 원인. */
 .dash-block td.dash-wraptext { white-space: normal; min-width: 220px; }
-.dash-sheet-section { background: var(--color-bg); font-weight: 700; }
-.dash-findcard { border: 1px solid rgba(0, 0, 0, 0.08); border-left: 4px solid var(--color-danger);
-  border-radius: 10px; padding: 12px 16px; margin: 0 0 10px; background: var(--color-surface); }
-.dash-findcard .meta { color: var(--color-neutral-text, #576478); font-size: 0.85rem; margin: 0 0 6px; }
-.dash-findcard .item { color: var(--color-text); font-size: 0.95rem; line-height: 1.5; margin: 0; }
-.dash-findcard .note { background: var(--color-bg); border-radius: 8px; padding: 8px 12px;
-  margin: 8px 0 0; font-size: 0.92rem; line-height: 1.5; color: var(--color-danger-text, #A11A1A); }
+.dash-sheet-section { background: var(--bg); font-weight: 700; }
+.dash-findcard { border: 1px solid var(--border); border-left: 4px solid var(--danger);
+  border-radius: 10px; padding: 12px 16px; margin: 0 0 10px; background: var(--surface); }
+.dash-findcard .meta { color: var(--muted); font-size: 0.85rem; margin: 0 0 6px; }
+.dash-findcard .item { color: var(--text); font-size: 0.95rem; line-height: 1.5; margin: 0; }
+.dash-findcard .note { background: var(--bg); border-radius: 8px; padding: 8px 12px;
+  margin: 8px 0 0; font-size: 0.92rem; line-height: 1.5; color: var(--danger); }
 .dash-rowlink { cursor: pointer; }
-.dash-rowlink:focus-visible { outline: 2px solid var(--sk-red); outline-offset: -2px; }
+.dash-rowlink:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* 공사별 카드 — 좁은 화면에서 5열 표 대신 보인다(같은 데이터·같은 드릴다운 버튼) */
 .dash-proj-cards { display: none; }
-.dash-projcard { border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 10px;
-  padding: 12px 14px; margin: 0 0 10px; background: var(--color-surface); }
-.dash-projcard .comp { color: var(--color-neutral-text, #576478); font-size: 0.8rem; margin: 0 0 2px; }
-.dash-projcard .proj { color: var(--color-text); font-weight: 600; font-size: 0.95rem;
+.dash-projcard { border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 14px; margin: 0 0 10px; background: var(--surface); }
+.dash-projcard .comp { color: var(--muted); font-size: 0.8rem; margin: 0 0 2px; }
+.dash-projcard .proj { color: var(--text); font-weight: 600; font-size: 0.95rem;
   line-height: 1.4; margin: 0 0 8px; }
-.dash-projcard .nums { margin: 0; font-size: 0.92rem; color: var(--color-text); }
-.dash-projcard .lbl { color: var(--color-neutral-text, #576478); }
+.dash-projcard .nums { margin: 0; font-size: 0.92rem; color: var(--text); }
+.dash-projcard .lbl { color: var(--muted); }
 @media (max-width: 640px) {
   .dash-tiles { grid-template-columns: repeat(2, 1fr); }
   .dash-shell { padding: 8px 12px 40px; }
-  /* 헤더: 제목이 주인공 — 버튼은 컴팩트(내부 도구 절충: 36px) */
-  .dash-topbar { padding: 12px 16px; gap: 8px; }
-  .dash-topbar h1 { font-size: 1.1rem; }
-  .dash-topbar .dash-btn { min-height: 36px; padding: 0 12px; font-size: 0.85rem; }
+  /* 헤더 2행: 1행 = 제목 단독(크게) / 2행 = 기준 시각(좌) + 새로고침·키 지우기(우, 작게) */
+  .dash-topbar { padding: 12px 16px; gap: 6px 8px; align-items: center; }
+  .dash-topbar h1 { flex: 1 1 100%; font-size: 1.25rem; }
+  #dash-generated { font-size: 0.78rem; }
+  .dash-topbar .dash-btn { min-height: 36px; padding: 0 10px; font-size: 0.8rem; }
   /* 컨트롤: 팀 전폭 → 시작일·종료일 나란히 → 조회 전폭 → 안내 */
   .dash-controls { display: grid; grid-template-columns: 1fr 1fr; padding: 14px 16px; gap: 12px; }
   .dash-controls label:first-child { grid-column: 1 / -1; }
@@ -148,6 +174,16 @@
   /* 공사별: 표 숨기고 카드로 */
   .dash-block-has-cards .dash-tablewrap { display: none; }
   .dash-proj-cards { display: block; }
+  /* 모달: 화면을 넓게 쓰고, 머리는 버튼 행(목록으로·닫기) 위 + 제목 아래 전폭 */
+  #dash-modal { padding: 12px 8px; }
+  .dash-modal-card { padding: 16px; max-height: 90vh; }
+  #btn-dash-modal-back { order: 1; }
+  .dash-modal-head .spacer { order: 2; }
+  #btn-dash-modal-close { order: 3; margin-left: auto; }
+  .dash-modal-head h2 { order: 4; flex: 1 1 100%; font-size: 1rem; }
+  .dash-block td.dash-wraptext { min-width: 0; }
+  .dash-sheet th, .dash-sheet td { padding: 10px 10px; font-size: 0.88rem; }
+  .dash-sheet th:nth-child(2), .dash-sheet td:nth-child(2) { width: 48px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .dash-btn, .dash-controls select, .dash-controls input, .dash-block tbody tr { transition: none; }

@@ -1,49 +1,43 @@
 /* safety-checklist — 5색 변수·48px 규격 (설계 §8.2, 플랜 Global Constraints, 태스크5 UI 규격) */
 
 :root {
-  /* 5색 체계 — 이 밖의 색 금지 */
-  --color-primary: #1E40AF;
-  --color-cta: #2563EB;
-  --color-danger: #DC2626;
-  --color-success: #15803D;
-  --color-neutral: #64748B;
-  --color-bg: #F8FAFC;
-  --color-surface: #FFFFFF;
-  --color-text: #0F172A;
+  /* 5색 체계 — 원천은 design-kit(control 프리셋, 사용자 결정 2026-08-10: 대시보드와 통일).
+     이 파일은 색을 발명하지 않는다: 킷 토큰 참조 + color-mix 파생만(웹 대시보드와 같은 소비 계약).
+     토큰 정의는 ./design-kit/tokens.css — index.html 이 styles.css 보다 먼저 링크한다. */
+  --color-primary: var(--accent);
+  --color-cta: var(--accent);
+  --color-danger: var(--danger);
+  --color-success: var(--ok);
+  --color-neutral: var(--muted);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-text: var(--text);
 
-  /* success/danger/neutral 의 명도 파생(같은 색상/채도, 명도만 낮춤) — "텍스트가 자신 또는
-     다른 옅은 tint 배경 위에 직접 얹히는" 자리 전용. 원본(--color-success/--color-danger/
-     --color-neutral)은 배지·버튼 배경(위에 흰 텍스트)·보더 등 다른 곳에서 그대로 쓰이므로
-     원본을 바꾸지 않는다(전부 감사 완료) — 여기서만 별도 변수로 어둡게 쓴다. 색상(hue)·
-     채도(sat)는 원본과 동일, 명도만 낮췄다. 정확한 합성 배경색·계산 과정은 task-4-report.md 에
-     남겼다, 여기선 결과만(WCAG 2.x 상대휘도 공식, 실제 DOM 조상 체인까지 반영한 합성 배경):
-       --color-success-text(L 25.6%, #127035): .banner-success/.findings-empty 에서 5.89:1
-         (원본 --color-success 는 자신의 tint-success 배경에서 4.32:1 로 AA 미달)
-       --color-danger-text(L 36.6%, #A11A1A — 2차 조정, 아래 참고): .banner-error/
-         .findings-category/.text-danger/.queue-btn-delete(모든 상태) 에서 5.0~6.6:1
-       --color-neutral-text(L 40.6%, #576478): .continue-card .muted·.queue-sub·
-         .text-neutral·.note-box-label·.item-card.is-invalid 안의 .criteria-body·
-         .note-counter 에서 5.0~5.3:1(원본 --color-neutral 은 이 자리들에서 3.99~4.21:1 미달)
-     --color-danger-text 는 원래 L 42.8%(C1 당시 banner-error 만 보고 골랐다)였는데,
-     T2 감사에서 .queue-btn-delete:active(배경이 .queue-row(흰 카드 위 tint-neutral 12%) 위에
-     그 버튼 자신의 tint-danger-strong 20% 가 다시 합성되는 이중 겹침이라 대비가 더 나쁘다)가
-     4.011:1 로 여전히 미달인 게 드러나 #A11A1A 로 더 어둡게 다시 조정했다 — 어두워지는
-     방향이라 기존 4곳(banner-error 6.64/findings-category 6.64/text-danger 6.49/
-     queue-btn-delete:hover 6.01)은 전부 유지되거나 더 좋아졌다(회귀 없음, 재검증 완료). */
-  --color-success-text: #127035;
-  --color-danger-text: #A11A1A;
-  --color-neutral-text: #576478;
+  /* tint 배경 위 텍스트 전용 파생 — 킷 전환으로 전 조합 재실측(2026-08-10, WCAG 상대휘도,
+     실제 합성 배경 반영): ok on tint-success 4.54 · muted on tint-neutral 5.73 · 흰 텍스트 on
+     muted/ok/danger 배지 6.82/5.04/6.20 · on-accent on accent 5.35 — AA 통과.
+     primary(accent) 원색은 재시도 버튼 hover/active(삼중 합성)에서 4.29 미달 → 84:16 파생
+     (--color-primary-text)으로 5.06/4.64. banner-info 는 원색 그대로 통과.
+     success 원색은 banner-success(tint 8% over 페이지 bg)에서 4.17 미달 → 92:8 파생으로
+     4.55/4.97/5.52(banner/surface쪽/흰배경).
+     danger 원색만 이중 합성(queue-btn-delete:active — surface→tint-neutral 12% 위에
+     tint-danger-strong 20%)에서 3.86 미달이라, 기존 감사와 같은 처방(어둡히는 방향)으로
+     84:16 파생 — 이중합성 4.67 · banner-error 6.66 · surface 7.51 로 전 자리 개선. */
+  --color-success-text: color-mix(in srgb, var(--ok) 92%, var(--text));
+  --color-primary-text: color-mix(in srgb, var(--accent) 84%, var(--text));
+  --color-danger-text: color-mix(in srgb, var(--danger) 84%, var(--text));
+  --color-neutral-text: var(--muted);
 
-  /* 위 5색의 저채도 파생(투명도) — 배경 타일용. 새 색상이 아니라 같은 5색의 tint */
-  --tint-primary: rgba(30, 64, 175, 0.08);
-  --tint-primary-strong: rgba(30, 64, 175, 0.16);
-  --tint-cta: rgba(37, 99, 235, 0.10);
-  --tint-danger: rgba(220, 38, 38, 0.08);
-  --tint-danger-strong: rgba(220, 38, 38, 0.20);
-  --tint-success: rgba(21, 128, 61, 0.08);
-  --tint-success-strong: rgba(21, 128, 61, 0.20);
-  --tint-neutral: rgba(100, 116, 139, 0.12);
-  --tint-neutral-strong: rgba(100, 116, 139, 0.35);
+  /* 5색의 tint — 고정 rgba 대신 토큰 기반 color-mix(킷 소비 원칙: raw 색상값 금지) */
+  --tint-primary: color-mix(in srgb, var(--accent) 8%, transparent);
+  --tint-primary-strong: color-mix(in srgb, var(--accent) 16%, transparent);
+  --tint-cta: color-mix(in srgb, var(--accent) 10%, transparent);
+  --tint-danger: color-mix(in srgb, var(--danger) 8%, transparent);
+  --tint-danger-strong: color-mix(in srgb, var(--danger) 20%, transparent);
+  --tint-success: color-mix(in srgb, var(--ok) 8%, transparent);
+  --tint-success-strong: color-mix(in srgb, var(--ok) 20%, transparent);
+  --tint-neutral: color-mix(in srgb, var(--muted) 12%, transparent);
+  --tint-neutral-strong: color-mix(in srgb, var(--muted) 35%, transparent);
 
   --control-h: 48px;
   --radius-sm: 8px;
@@ -156,7 +150,7 @@ button, .seg-btn, .banner, details > summary .chevron, .progress-fill {
   border-radius: 999px;
   padding: 0;
 }
-#btn-back:hover { background: rgba(255, 255, 255, 0.15); }
+#btn-back:hover { background: color-mix(in srgb, var(--on-accent) 15%, transparent); }
 #btn-back[hidden] { display: none; }
 
 /* ---------- Banner region (전역, 화면 무관 상시 위치) ---------- */
@@ -194,7 +188,7 @@ button, .seg-btn, .banner, details > summary .chevron, .progress-fill {
   line-height: 0;
   flex-shrink: 0;
 }
-.banner-close:hover { background: rgba(0, 0, 0, 0.06); }
+.banner-close:hover { background: var(--row-hover); }
 .banner-info { background: var(--tint-primary); border-color: var(--tint-primary-strong); color: var(--color-primary); }
 /* color 는 --color-success/--color-danger 가 아니라 -text 파생 변수다(C1) — 자신의 옅은 tint
    배경 위에 얹히는 텍스트라 원본은 4.09~4.32:1 로 AA 미달이었다(계산 근거는 :root 주석). */
@@ -240,8 +234,8 @@ section.screen > .screen-body {
 .btn-block { width: 100%; }
 .btn-primary { background: var(--color-cta); color: var(--color-surface); }
 /* hover/active는 5색 밖 새 색상 대신, 팔레트에 이미 있는 더 짙은 Primary 파랑으로 전환 */
-.btn-primary:hover:not(:disabled) { background: var(--color-primary); }
-.btn-primary:active:not(:disabled) { background: var(--color-primary); transform: scale(0.98); }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-primary:active:not(:disabled) { background: var(--accent-active); transform: scale(0.98); }
 .btn-outline { background: var(--color-surface); color: var(--color-primary); border-color: var(--tint-primary-strong); }
 .btn-outline:hover:not(:disabled) { background: var(--tint-primary); }
 .btn-outline:active:not(:disabled) { background: var(--tint-primary-strong); }
@@ -281,7 +275,7 @@ textarea.input {
 select.input {
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='20' height='20'><path d='M6 9l6 6 6-6' fill='none' stroke='%2364748B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='20' height='20'><path d='M6 9l6 6 6-6' fill='none' stroke='%2340615b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>");
   background-repeat: no-repeat;
   background-position: right var(--space-3) center;
   padding-right: var(--space-6);
@@ -362,8 +356,8 @@ select.input {
    이미 통과라 그대로 두고, hover/active 만 텍스트를 --color-primary 로 바꿔 통과시켰다
    (지시대로 --color-primary 재사용, 6.6/5.8:1). */
 .queue-btn-retry { color: var(--color-cta); font-weight: 700; }
-.queue-btn-retry:hover:not(:disabled) { background: var(--tint-cta); color: var(--color-primary); }
-.queue-btn-retry:active:not(:disabled) { background: var(--tint-primary-strong); color: var(--color-primary); }
+.queue-btn-retry:hover:not(:disabled) { background: var(--tint-cta); color: var(--color-primary-text); }
+.queue-btn-retry:active:not(:disabled) { background: var(--tint-primary-strong); color: var(--color-primary-text); }
 /* T2: 기본 상태도 포함해 전부 --color-danger-text 로 통일했다(기본 상태도 흰 배경 위에서 원본
    --color-danger 로 이미 충분했지만, hover/active 만 다른 변수를 쓰면 상태 전환에 색이 두 번
    바뀌는 것처럼 보인다 — 밝기만 다른 하나의 변수로 세 상태 모두 커버). */

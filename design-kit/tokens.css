@@ -1,0 +1,55 @@
+/* tokens.css — compile-tokens.mjs 생성물. 수동 편집 금지.
+ * system: safety-dashboard · preset: control · variant: comfortable/subtle
+ * keyColorOverride: 없음 */
+:root {
+  --bg: #f1f6f5;
+  --surface: #ffffff;
+  --text: #0f2724;
+  --muted: #40615b;
+  --accent: #0c7261;
+  --accent2: #8f5a10;
+  --ok: #1a7f45;
+  --warn: #93590f;
+  --danger: #b13330;
+  --border: #cedcd9;
+  --chart-1: #3fd2b4;
+  --chart-2: #e0a34c;
+  --chart-3: #ef8a7c;
+  --chart-4: #8fadaa;
+  --font-heading: 'JetBrains Mono', D2Coding, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --font-body: 'IBM Plex Sans', 'Pretendard Variable', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --font-mono: 'JetBrains Mono', D2Coding, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --space-unit: 8px;
+  --motion-duration: 160ms;
+}
+
+[data-theme="dark"] {
+  --bg: #0a1214;
+  --surface: #101c1f;
+  --text: #d9ecea;
+  --muted: #8fadaa;
+  --accent: #3fd2b4;
+  --accent2: #e0a34c;
+  --ok: #4ecf8f;
+  --warn: #e0b054;
+  --danger: #ef8a7c;
+  --border: #1e3236;
+}
+
+/* 상태 토큰 — 고정 비율 파생 + 대비 재검증 통과분 (kit-manifest.json의 derivation 참조) */
+:root {
+  --accent-hover: #0b6757;
+  --accent-active: #0a5b4e;
+  --on-accent: #f1f6f5;
+  --focus-ring: #0c7261;
+  --row-hover: #f5f6f6;
+  --row-selected: #e7f1ef;
+}
+[data-theme="dark"] {
+  --accent-hover: #6dddc6;
+  --accent-active: #71dec8;
+  --on-accent: #0a1214;
+  --focus-ring: #3fd2b4;
+  --row-hover: #182427;
+  --row-selected: #152e2e;
+}

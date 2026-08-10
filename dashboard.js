@@ -220,7 +220,7 @@
      상세는 커밋된 조건(committedRange·현재 팀)만으로 서버에 묻는다(§4.1 규칙 그대로).
      modal.gen 은 모달 전용 세대 — 닫히거나 새 요청이 시작되면 늦은 응답을 버린다. */
 
-  var modal = { gen: 0, list: null, listTitle: '', listExpected: undefined };
+  var modal = { gen: 0, list: null, listTitle: '', listExpected: undefined, hasHistory: false };
 
   /** 상세 조회 페이로드(순수 — 조각 테스트 대상). st 의 key·committedRange·view 만 쓴다.
    *  전송은 GET 쿼리가 아니라 **POST 본문**이다 — 데스크톱·폰 공통으로 긴 쿼리 GET fetch 만
@@ -237,10 +237,18 @@
   }
 
   function openModal_(title) {
+    var root = el_('dash-modal');
+    if (root.hidden) {
+      /* 닫힘→열림 전이에만: ① 히스토리 1칸 — 뒤로가기가 페이지 이탈 대신 팝업을 닫는다
+         ② 본문 스크롤 잠금 — 팝업 스크롤이 끝에 닿아도 뒤 화면이 안 움직인다 */
+      history.pushState({ dashModal: 1 }, '');
+      modal.hasHistory = true;
+      document.body.style.overflow = 'hidden';
+    }
     el_('dash-modal-title').textContent = title;
     el_('dash-modal-body').textContent = '';
     el_('btn-dash-modal-back').hidden = true;
-    el_('dash-modal').hidden = false;
+    root.hidden = false;
   }
 
   function closeModal_() {
@@ -249,6 +257,11 @@
     modal.listTitle = '';
     modal.listExpected = undefined;
     el_('dash-modal').hidden = true;
+    document.body.style.overflow = '';
+    if (modal.hasHistory) {                    // 우리가 쌓은 히스토리 1칸을 소비(뒤로가기와 이중 처리 방지)
+      modal.hasHistory = false;
+      history.back();
+    }
   }
 
   function metaP_(text) {
@@ -392,6 +405,7 @@
     el_('btn-dash-modal-back').hidden = !modal.list;   // 목록 경유일 때만 「목록으로」
     body.textContent = '';
     var meta = data.meta;
+    el_('dash-modal-title').textContent = '점검표 — ' + meta.company_name + ' · ' + meta.project_name;
     var info = document.createElement('p');
     info.className = 'dash-modal-meta';
     info.textContent = meta.company_name + ' · ' + meta.project_name +
@@ -400,30 +414,38 @@
       ' · 수검자 ' + (meta.auditee || '-') + (meta.auditee_ack ? ' (확인함)' : '') +
       (meta.status === 'voided' ? ' · 취소된 점검' : '');
     body.appendChild(info);
-    body.appendChild(modalTable_(['항목', '판정', '사유'], data.rows, function (r) {
+    var sheetTbl = modalTable_(['항목', '판정'], data.rows, function (r) {
       var tr = document.createElement('tr');
       if (r.head) {                             // 체크 불가 행(주의문 등) — 구획 줄
         var td = document.createElement('td');
-        td.colSpan = 3;
+        td.colSpan = 2;
         td.className = 'dash-sheet-section';
         td.textContent = r.text;
         tr.appendChild(td);
         return tr;
       }
+      /* 사유는 별도 열이 아니라 항목 아래 강조 박스 — 사유 있는 행이 소수라 열을 상시
+         차지하면 폰에서 항목이 너무 잘게 접힌다(부적합 카드 note 와 같은 문법). */
       var t1 = document.createElement('td');
       t1.className = 'dash-wraptext';
-      t1.textContent = r.text;
+      var txt = document.createElement('div');
+      txt.textContent = r.text;
+      t1.appendChild(txt);
+      if (String(r.n || '')) {
+        var note = document.createElement('div');
+        note.className = 'dash-sheet-note';
+        note.textContent = r.n;
+        t1.appendChild(note);
+      }
       var t2 = document.createElement('td');
       t2.textContent = r.r || '-';
       if (r.r === 'N') t2.className = 'dash-danger';
-      var t3 = document.createElement('td');
-      t3.className = 'dash-wraptext';
-      t3.textContent = r.n;
       tr.appendChild(t1);
       tr.appendChild(t2);
-      tr.appendChild(t3);
       return tr;
-    }));
+    });
+    sheetTbl.className += ' dash-sheet';        // 고정 레이아웃 — 항목이 폭 안에서 줄바꿈(가로 스크롤 제거)
+    body.appendChild(sheetTbl);
   }
 
   /** 공사별 숫자 클릭 진입점. kind: 'subs'(점검) | 'finds'(부적합).
@@ -714,6 +736,13 @@
     });
     document.addEventListener('keydown', function (ev) {
       if (ev.key === 'Escape' && !el_('dash-modal').hidden) closeModal_();
+    });
+    window.addEventListener('popstate', function () {
+      /* 뒤로가기: 팝업이 열려 있으면 그 한 번은 팝업 닫기다 — 히스토리 칸은 이미 소비됐다 */
+      if (!el_('dash-modal').hidden) {
+        modal.hasHistory = false;
+        closeModal_();
+      }
     });
     if (saved) {
       state.key = saved;
