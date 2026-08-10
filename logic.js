@@ -6,6 +6,7 @@ var SafetyLogic = (function () {
   var MASTERS_KEY = 'sc_masters';
   var PLANS_KEY = 'sc_plans';
   var SENT_KEY = 'sc_sent';   /* 오늘 보낸 점검 영수증(당일분만 보관) */
+  var RECENT_EMAIL_KEY = 'sc_recent_email';   /* 점검자별 최근 발송 주소 — { <inspector_id>: [addr,...] } 맵 */
 
   function hasWebCrypto() {
     return typeof globalThis !== 'undefined' && !!globalThis.crypto;
@@ -463,6 +464,42 @@ var SafetyLogic = (function () {
       api.lastError = null;   /* R4 */
       var result = loadJSON(PLANS_KEY, null);
       return result.ok ? result.value : null;
+    };
+    /* 점검자별 최근 발송 주소(설계 rev.7 §7-3) — drafts(DRAFTS_KEY)와 같은 방식(한 키 아래 맵)이다.
+       **점검자마다 별도 localStorage 키를 만들지 않는다**: 공용 폰에서 다음 사용자가 앞사람 주소를
+       고르는 사고를 막으려면 점검자별로 갈라야 하지만, 그렇다고 app.js 가 이 래퍼를 거치지 않고
+       window.localStorage 를 직접 만지면 안 된다(감사 지적, tests-js/wiring.test.mjs §18c).
+       값 검증은 여기서 최소한만 한다 — 맵이 아니면 손상(M3), 그 안의 항목이 배열이 아니면 빈 목록.
+       문자열을 목록으로 착각하면 호출자의 filter/slice 가 글자 하나하나를 주소로 그린다. */
+    api.loadRecentEmails = function (inspectorId) {
+      api.lastError = null;   /* R4 */
+      var result = loadJSON(RECENT_EMAIL_KEY, {}, true);   /* M3: 맵 검증 */
+      if (!result.ok) return [];
+      var list = (result.value || {})[String(inspectorId || '-')];
+      return (Object.prototype.toString.call(list) === '[object Array]') ? list : [];
+    };
+    api.saveRecentEmails = function (inspectorId, list) {
+      /* P4: 읽기 중 발생한 P1·P2 오류는 보존하되 직전 호출의 낡은 오류는 지운다 */
+      api.lastError = null;
+      var result = loadJSON(RECENT_EMAIL_KEY, {}, true);   /* M3: 맵 검증 */
+      if (!result.ok || result.cannotWrite) return false;   /* lastError 는 이미 loadJSON 이 채웠다 */
+      var all = result.value || {};
+      all[String(inspectorId || '-')] = list;
+      return saveJSON(RECENT_EMAIL_KEY, all);
+    };
+    api.clearRecentEmails = function (inspectorId) {
+      api.lastError = null;
+      var result = loadJSON(RECENT_EMAIL_KEY, {}, true);
+      if (!result.ok || result.cannotWrite) return false;
+      var all = result.value || {};
+      var k = String(inspectorId || '-');
+      if (!Object.prototype.hasOwnProperty.call(all, k)) {
+        /* F4: 맵 자체가 영속되지 못한 오버레이일 수 있다 — clearDraft 와 같은 판단 */
+        if (result.volatile) return saveJSON(RECENT_EMAIL_KEY, all);
+        return true;
+      }
+      delete all[k];
+      return saveJSON(RECENT_EMAIL_KEY, all);
     };
     return api;
   }

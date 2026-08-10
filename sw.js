@@ -71,15 +71,15 @@ self.addEventListener('activate', function (e) {
 
 self.addEventListener('fetch', function (e) {
   var req = e.request;
-  /* pdf_build(PDF 반출) 응답은 절대 캐시하지 않는다 — 실명·부적합 사유가 담긴 응답이 기기
-     캐시에 남으면 안 된다. pdf_build 는 다른 action 과 마찬가지로 POST 로만 나가므로(app.js
-     realPdfBuild) 바로 아래 GET 가드에서 이미 걸러진다 — 명시적으로 다시 적어 둔다: 이 경로가
-     network-first 캐시 로직을 절대 타지 않는다는 사실이 우연이 아니라 의도임을 남긴다. */
-  if (req.method !== 'GET') return;                       /* 제출(POST)·pdf_build 는 앱이 직접 처리한다 */
+  /* email_send(PDF 발송) 응답은 절대 캐시하지 않는다 — 실명·부적합 사유가 담긴 요청·응답이
+     기기 캐시에 남으면 안 된다. email_send 는 다른 action 과 마찬가지로 POST 로만 나가므로
+     (app.js realEmailSend) 바로 아래 GET 가드에서 이미 걸러진다 — 명시적으로 다시 적어 둔다:
+     이 경로가 network-first 캐시 로직을 절대 타지 않는다는 사실이 우연이 아니라 의도임을 남긴다. */
+  if (req.method !== 'GET') return;                       /* 제출(POST)·email_send 는 앱이 직접 처리한다 */
 
   var url;
   try { url = new URL(req.url); } catch (err) { return; }
-  if (url.origin !== self.location.origin) return;        /* API(pdf_build 포함)·외부 요청은 손대지 않는다 */
+  if (url.origin !== self.location.origin) return;        /* API(email_send 포함)·외부 요청은 손대지 않는다 */
 
   /* 대시보드는 network-only(웹 대시보드 스펙 §1) — 담지도, 대체하지도 않는다.
      담으면 옛 대시보드가 새 서버 계약과 어긋난 채 박제되고, navigate 대체를 남기면
