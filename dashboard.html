@@ -164,7 +164,8 @@
   /* 헤더 2행: 1행 = 제목 단독(크게) / 2행 = 기준 시각(좌) + 새로고침·키 지우기(우, 작게) */
   .dash-topbar { padding: 12px 16px; gap: 6px 8px; align-items: center; }
   .dash-topbar h1 { flex: 1 1 100%; font-size: 1.25rem; }
-  #dash-generated { font-size: 0.78rem; }
+  /* 어둡게 버튼 추가로 3버튼 — 기준 pill 을 전폭 행으로 빼면 버튼들이 한 줄에 모인다 */
+  #dash-generated { flex: 1 1 100%; font-size: 0.78rem; text-align: left; }
   .dash-topbar .dash-btn { min-height: 36px; padding: 0 10px; font-size: 0.8rem; }
   /* 컨트롤: 팀 전폭 → 시작일·종료일 나란히 → 조회 전폭 → 안내 */
   .dash-controls { display: grid; grid-template-columns: 1fr 1fr; padding: 14px 16px; gap: 12px; }
