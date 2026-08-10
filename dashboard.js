@@ -5,6 +5,7 @@
   'use strict';
 
   var KEY_STORE = 'safety_dash_key';
+  var THEME_STORE = 'safety_dash_theme';
 
   /* ---------- 상태 (스펙 §4.1) ----------
      렌더·CSV 는 payload·committedRange 만 본다. gen 은 요청 세대 — 최신 세대가 아닌
@@ -170,6 +171,14 @@
   /* ---------- DOM ---------- */
 
   function el_(id) { return document.getElementById(id); }
+
+  /* 다크 모드 — 킷 tokens.css 의 [data-theme="dark"] 팔레트를 그대로 쓴다(색 발명 0).
+   *  라이트 복귀는 속성 제거 — 킷 셀렉터 계약과 일치시킨다. */
+  function applyTheme_(mode) {
+    if (mode === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    else document.documentElement.removeAttribute('data-theme');
+    el_('btn-dash-theme').textContent = mode === 'dark' ? '밝게' : '어둡게';
+  }
 
   function showBanner_(text, isError) {
     var b = el_('dash-banner');
@@ -727,6 +736,17 @@
       hardReset_('저장된 키를 지웠습니다');
     });
     el_('dash-team').addEventListener('change', onTeamChange_);
+    var theme = '';
+    try { theme = localStorage.getItem(THEME_STORE) || ''; } catch (e) { theme = ''; }
+    applyTheme_(theme);
+    el_('btn-dash-theme').addEventListener('click', function () {
+      var next = document.documentElement.getAttribute('data-theme') === 'dark' ? '' : 'dark';
+      applyTheme_(next);
+      try {
+        if (next) localStorage.setItem(THEME_STORE, next);
+        else localStorage.removeItem(THEME_STORE);
+      } catch (e) { /* 저장 실패해도 이번 세션은 적용됨 */ }
+    });
     el_('btn-dash-modal-close').addEventListener('click', closeModal_);
     el_('dash-modal-back').addEventListener('click', closeModal_);
     el_('btn-dash-modal-back').addEventListener('click', function () {
