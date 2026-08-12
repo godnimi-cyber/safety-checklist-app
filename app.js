@@ -3019,7 +3019,11 @@
   function registerServiceWorker() {
     if (!('serviceWorker' in navigator)) { setSwState('미지원', '이 브라우저에 서비스워커가 없습니다'); return; }
     try {
-      navigator.serviceWorker.register('./sw.js').then(function (reg) {
+      /* updateViaCache:'none' — 워커 스크립트와 그 import 를 HTTP 캐시로 받지 않는다.
+         기본값(imports)은 import 를 캐시에서 받을 수 있어, 새 버전이 있는데도 옛 워커가
+         그대로 사는 창이 생긴다. 이 앱은 배포 즉시 반영이 옳다(잘못된 버전으로 점검을
+         작성하는 것보다 낫다 — sw.js 머리말과 같은 판단). */
+      navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then(function (reg) {
         setSwState('등록됨', reg && reg.scope ? reg.scope : '');
       }).catch(function (e) {
         setSwState('실패', String((e && e.message) || e));
@@ -3061,9 +3065,40 @@
       window.location.reload();
     });
   }
+  /* 앱을 **켜 둔 채** 며칠 쓰는 사용자가 있다. 브라우저가 새 sw.js 를 확인하는 시점은
+     페이지 이동·register() 호출·약 24시간마다뿐이라, 배경에 두었다 돌아오는 사용 패턴에서는
+     새 버전이 며칠씩 안 닿는다(현장에서 "업데이트가 느리다" 로 겪었다).
+     화면으로 돌아올 때 한 번 물어본다 — 새 워커가 있으면 controllerchange 가 떠서
+     watchServiceWorkerUpdate 의 자동 새로고침으로 이어진다.
+     **스로틀을 둔다**: 화면 전환마다 물으면 현장 데이터 요금을 갉아먹는다. */
+  var SW_RECHECK_GAP_MS = 60 * 1000;
+  var swLastRecheck = 0;
+  function recheckServiceWorkerUpdate(now) {
+    if (!('serviceWorker' in navigator)) return false;
+    var t = (typeof now === 'number') ? now : Date.now();
+    if (swLastRecheck && (t - swLastRecheck) < SW_RECHECK_GAP_MS) return false;
+    swLastRecheck = t;
+    try {
+      var p = navigator.serviceWorker.getRegistration();
+      if (p && p.then) {
+        p.then(function (reg) {
+          if (reg && typeof reg.update === 'function') reg.update();
+        }).catch(function () { /* 확인 실패는 삼킨다 — 다음 복귀 때 다시 묻는다 */ });
+      }
+    } catch (e) { /* 구형 브라우저 */ }
+    return true;
+  }
+  function watchAppResume() {
+    if (!document || !document.addEventListener) return;
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) recheckServiceWorkerUpdate();
+    });
+  }
+
   function init() {
     registerServiceWorker();
     watchServiceWorkerUpdate();
+    watchAppResume();
     probeInstalled();   /* 「앱 상태」를 처음 펼쳤을 때 곧바로 맞는 값이 보이게 미리 물어 둔다 */
     state.storage = SafetyLogic.storage(window);
     state.queue = state.storage.loadQueue();

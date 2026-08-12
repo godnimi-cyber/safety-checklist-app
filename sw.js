@@ -22,7 +22,7 @@
 
 /* 배포마다 바뀌어야 옛 캐시가 정리된다. config.js 의 APP_VER 과 같은 값을 쓴다
    (tests-js/wiring.test.mjs 가 둘이 어긋나면 잡는다 — 어긋나면 옛 캐시가 영영 남는다). */
-var CACHE = 'safety-checklist-v0.5.5';
+var CACHE = 'safety-checklist-v0.5.5-aac2023f';
 
 /* 껍데기 = 앱을 띄우는 데 필요한 최소 집합. config.js 는 API 주소·키라 반드시 포함한다.
    버전 쿼리(?v=)는 넣지 않는다 — 요청 URL 과 캐시 키를 맞추는 일을 fetch 쪽에서 한다. */
@@ -91,8 +91,21 @@ self.addEventListener('fetch', function (e) {
      쿼리 없는 주소로 담겨 있어, 그대로 찾으면 오프라인에서 못 찾는다. */
   var keyUrl = url.origin + url.pathname;
 
+  /* **내비게이션(=index.html)은 버전 쿼리를 붙일 수 없는 유일한 주소**다. 그래서 Pages 가
+     주는 max-age=600 이 그대로 걸려 배포 후 최대 10분간 옛 index.html 이 오고, 그 안의
+     ?v= 도 옛 값이라 하위 자산까지 통째로 옛 버전이 된다. 여기서 재검증을 강제해 그 창을 없앤다.
+     no-cache 는 '캐시를 쓰지 말라' 가 아니라 '쓰기 전에 서버에 물어보라' 다 — 안 바뀌었으면
+     304 로 끝나므로 현장 데이터 비용은 사실상 그대로다.
+     navigate 모드 Request 로는 new Request(req, init) 를 만들 수 없어(사양상 금지) URL 로
+     새로 만든다. 정적 페이지라 헤더가 필요 없다. 못 만드는 환경이면 원래 요청을 그대로 쓴다. */
+  var fetchReq = req;
+  if (req.mode === 'navigate' && typeof Request === 'function') {
+    try { fetchReq = new Request(url.href, { cache: 'no-cache', credentials: 'same-origin' }); }
+    catch (err2) { fetchReq = req; }
+  }
+
   e.respondWith(
-    fetch(req).then(function (res) {
+    fetch(fetchReq).then(function (res) {
       /* 성공한 것만 담는다. 404·500 을 담으면 오프라인에서 그 오류를 계속 되돌려준다. */
       if (res && res.ok && res.type === 'basic') {
         var copy = res.clone();
