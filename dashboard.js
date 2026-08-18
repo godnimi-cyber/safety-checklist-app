@@ -687,6 +687,192 @@
     return sec;
   }
 
+  /* ── 미점검 (사전등록됐지만 점검하지 않음) ─────────────────────────────
+     서버가 `planned + 예정일 지남` 으로 **파생**해 준다(상태를 새로 만들지 않는다).
+     조회 기간과 무관하다 — 미점검은 그 기간의 실적이 아니라 **지금 남아 있는 빚**이라
+     기간 밖으로 밀려 안 보이면 영영 안 보인다. 그래서 본문 **맨 위**에 둔다. */
+  var OD_STALE_DAYS = 7;
+
+  function overdueFor_(data, viewName) {
+    var list = (data && data.overdue) || [];
+    if (viewName === null) return list;
+    return list.filter(function (o) { return String(o.team || '') === viewName; });
+  }
+
+  /** 서버 오류 코드를 사람 말로. 영문 토큰을 그대로 띄우면 현장이 무엇을 할지 모른다
+   *  (같은 이유로 APP_OUTDATED 를 고친 적이 있다). 모르는 코드는 원문을 보인다. */
+  function odErrorText_(code, message) {
+    var m = {
+      PIN_MISMATCH: 'PIN 이 맞지 않습니다',
+      PIN_LOCKED: 'PIN 을 여러 번 틀려 잠겼습니다 — 10분 뒤에 다시 시도하세요',
+      PLAN_DATE_PAST: '지난 날짜로는 재등록할 수 없습니다',
+      INSPECTOR_UNKNOWN: '점검자를 찾을 수 없습니다',
+      PLAN_NOT_FOUND: '계획을 찾을 수 없습니다 — 새로고침 후 다시 시도하세요',
+      PLAN_ALREADY_DONE: '이미 점검이 끝난 계획입니다',
+      PLAN_ALREADY_CANCELED: '취소된 계획입니다',
+      PLAN_DATE_INVALID: '날짜를 다시 확인하세요'
+    };
+    var key = String(message || '').split(',')[0].trim();
+    return m[key] || m[String(code || '')] || String(message || '재등록하지 못했습니다');
+  }
+
+  function odField_(label, value) {
+    var d = document.createElement('div');
+    d.className = 'dash-od-field';
+    var l = document.createElement('label');
+    l.textContent = label;
+    d.appendChild(l);
+    d.appendChild(value);
+    return d;
+  }
+
+  function submitReschedule_(o, real, date, pin, btn, errBox) {
+    errBox.textContent = '';
+    if (!real) { errBox.textContent = '점검자를 고르세요'; return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) { errBox.textContent = '날짜를 고르세요'; return; }
+    if (!String(pin || '').length) { errBox.textContent = 'PIN 을 입력하세요'; return; }
+    btn.disabled = true;
+    btn.textContent = '재등록 중...';
+    requestJson(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'dash_plan_reschedule', k: state.key,
+        payload: { plan_id: o.plan_id, inspector_real_id: real, pin: pin, planned_date: date } }),
+      redirect: 'follow'
+    }).then(function (res) {
+      btn.disabled = false;
+      btn.textContent = '재등록';
+      if (res && res.ok) {
+        closeModal_();
+        showBanner_('재등록했습니다 — ' + date + ' 예정으로 올렸습니다');
+        fetchDashboard();                      // 목록을 서버 기준으로 다시 맞춘다
+        return;
+      }
+      var code = String((res && res.error && res.error.code) || '');
+      if (code === 'AUTH') { hardReset_('키가 맞지 않습니다 — 다시 입력하세요'); return; }
+      /* PIN 오류는 **모달 안에서** 알린다 — 닫아 버리면 다시 열어 처음부터 해야 한다. */
+      errBox.textContent = odErrorText_(code, res && res.error && res.error.message);
+    });
+  }
+
+  function openReschedule_(o) {
+    var data = state.payload || {};
+    openModal_('재등록 — ' + o.project_name);
+    var body = el_('dash-modal-body');
+    body.textContent = '';
+
+    var meta = document.createElement('p');
+    meta.className = 'dash-modal-meta';
+    meta.textContent = o.company_name + ' · 원래 예정일 ' + o.planned_date +
+                       ' (' + o.days + '일 경과)';
+    body.appendChild(meta);
+
+    var form = document.createElement('div');
+    form.className = 'dash-od-form';
+
+    var sel = document.createElement('select');
+    sel.id = 'dash-od-insp';
+    var ph = document.createElement('option');
+    ph.value = ''; ph.textContent = '선택하세요';
+    sel.appendChild(ph);
+    (data.inspectors || []).forEach(function (i) {
+      var op = document.createElement('option');
+      op.value = i.id;
+      op.textContent = i.display + (i.team ? ' (' + i.team + ')' : '');
+      sel.appendChild(op);
+    });
+    form.appendChild(odField_('재등록하는 사람', sel));
+
+    var date = document.createElement('input');
+    date.type = 'date';
+    date.id = 'dash-od-date';
+    /* **과거는 못 고른다** — 고르는 순간 다시 미점검이 되어 버튼의 목적이 사라진다.
+       서버도 같은 규칙으로 거절하지만, 누르기 전에 막는 편이 낫다. */
+    date.min = todayStr_();
+    date.value = todayStr_();
+    form.appendChild(odField_('새 예정일', date));
+
+    var pin = document.createElement('input');
+    pin.type = 'password';
+    pin.id = 'dash-od-pin';
+    pin.inputMode = 'numeric';
+    pin.autocomplete = 'off';
+    pin.maxLength = 8;
+    form.appendChild(odField_('PIN', pin));
+
+    body.appendChild(form);
+
+    var err = document.createElement('p');
+    err.className = 'dash-banner dash-banner-error dash-od-err';
+    err.setAttribute('aria-live', 'polite');
+    body.appendChild(err);
+
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'dash-btn dash-od-go';
+    go.textContent = '재등록';
+    go.addEventListener('click', function () {
+      submitReschedule_(o, sel.value, date.value, pin.value, go, err);
+    });
+    body.appendChild(go);
+  }
+
+  function todayStr_() {
+    var d = new Date();
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) +
+           '-' + ('0' + d.getDate()).slice(-2);
+  }
+
+  function overdueCard_(o) {
+    var card = document.createElement('div');
+    card.className = 'dash-od-card' + (o.days >= OD_STALE_DAYS ? ' dash-od-stale' : '');
+
+    var co = document.createElement('p');
+    co.className = 'dash-od-co';
+    co.textContent = o.company_name;
+    card.appendChild(co);
+
+    var nm = document.createElement('p');
+    nm.className = 'dash-od-name';
+    nm.textContent = o.project_name;
+    card.appendChild(nm);
+
+    var meta = document.createElement('p');
+    meta.className = 'dash-od-meta';
+    meta.textContent = o.planned_date + ' · ' + o.days + '일 경과' +
+                       (o.owner ? ' · ' + o.owner : '') + (o.team ? '(' + o.team + ')' : '');
+    card.appendChild(meta);
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'dash-btn dash-od-btn';
+    btn.textContent = '재등록';
+    btn.addEventListener('click', function () { openReschedule_(o); });
+    card.appendChild(btn);
+    return card;
+  }
+
+  function renderOverdue_(data) {
+    /* 이 화면이 나오기 전에 저장된 payload 에는 overdue 가 없다 — 그때는 블록 자체를
+       만들지 않는다(빈 목록으로 그리면 "밀린 게 없다"는 **거짓말**이 된다). */
+    if (!data || !data.overdue) return null;
+    var list = overdueFor_(data, state.view);
+    var sec = document.createElement('section');
+    sec.className = 'dash-block dash-overdue';
+    var h = document.createElement('h2');
+    h.textContent = '미점검 ' + list.length;
+    sec.appendChild(h);
+
+    var note = document.createElement('p');
+    note.className = 'dash-modal-meta';
+    note.textContent = list.length
+      ? '예정일이 지나 현장 목록에서 내려간 계획입니다. 재등록하면 다시 작성할 수 있습니다.'
+      : '지난 예정 중 점검하지 않은 건이 없습니다.';
+    sec.appendChild(note);
+    list.forEach(function (o) { sec.appendChild(overdueCard_(o)); });
+    return sec;
+  }
+
   /** 현재 payload·view 로 본문 전체를 다시 그린다. */
   function renderView_() {
     var data = state.payload;
@@ -704,6 +890,8 @@
       return;
     }
     el_('dash-team').disabled = false;
+    var od = renderOverdue_(data);             // 밀린 일이 먼저다 — 맨 위에 둔다
+    if (od) root.appendChild(od);
     blocks.forEach(function (b) {
       var sec = renderBlock_(b);
       if (b.title.indexOf('협력회사별') === 0) appendCsvButton_(sec, b, '협력회사별');
