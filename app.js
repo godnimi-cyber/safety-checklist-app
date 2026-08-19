@@ -366,11 +366,75 @@
       });
     });
   }
+
+  /* ── GET 재시도 (2026-08-19) ─────────────────────────────────────────
+     실측: 라이브 `action=masters` 응답이 **3~6초**다(유선 12회 전부 성공, 중앙 3.9초).
+     서버가 죽는 게 아니라 **느리다**. 그 3~6초 창을 모바일에서 지나가면 셀 전환·음영
+     한 번에 끊기는데, 지금까지 **재시도가 0회**여서 히컵 한 번이 곧 「동기화 실패」였다.
+
+     **requestJson 자체는 건드리지 않는다** — 봉투·타임아웃 규약은 wiring 16f 가 실제 실행으로
+     지키는 계약이고, 그 안에 지연 재시도를 넣으면 타이머 스텁 환경에서 프로미스가 매달린다.
+     바깥에 래퍼를 둔다.
+
+     **GET 에만 건다.** GET 은 멱등이라 안전하다. 쓰기(POST)는 태우지 않는다 — 제출은
+     오프라인 큐가, 재등록은 사람이 다시 누르는 것이 정답이다. 서버가 이미 받았는데 응답만
+     유실된 경우 자동 재시도는 중복 실행 위험을 만든다.
+
+     재시도 대상은 **NETWORK·LOCK_TIMEOUT** 둘이다. LOCK_TIMEOUT 은 30분마다 도는
+     buildDashboard 가 스크립트 락을 쥔 순간 조회가 받는 코드인데, 잠시 뒤면 풀리고 조회는
+     아무것도 바꾸지 않는다 — 사람에게 "다시 누르세요"를 시킬 이유가 없다.
+     VALIDATION·AUTH·CONFIG 는 다시 보내도 같은 답이라 기다림만 늘린다(K2 와 같은 결).
+
+     **끊김의 진짜 원인**(2026-08-19 라이브 계측으로 확정). `/exec` 는 302 로
+     `script.googleusercontent.com/macros/echo?user_content_key=…` 로 넘기는데, **끊김은 그
+     두 번째 구간이 404(구글 오류 HTML 7954B)** 를 뱉는 것이었다. 시트를 한 줄도 안 읽는
+     요청(`action=zzz`)조차 7~84초가 걸렸고 404 가 섞였다 — **우리 코드도 이 회선도 아니다**
+     (같은 시각 google.com 0.4초 · script.google.com 1.4초 · GitHub Pages 0.2초).
+     재시도는 매번 새 user_content_key 로 **다른 백엔드**에 붙으므로 실패가 요청마다
+     독립이다. 그래서 오래 기다리는 것보다 다시 보내는 쪽이 맞다.
+     비-JSON 응답을 requestJson 이 NETWORK 로 접는 덕에 이 404 도 재시도 경로를 탄다.
+
+     onRetry(회차, 총회차)는 **침묵을 없애기 위한 것**이다. 최악 4시도면 사람은 1분 넘게
+     빈 화면을 보는데, 그 침묵이 곧 "끊겼다"는 체감이다 — 다시 시도 중임을 말해 준다. */
+  var GET_RETRY_MAX = 3;                    // 최초 1회 + 재시도 3회
+  var GET_RETRY_BASE_MS = 800;              // 800 → 1600 → 3200ms
+
+  /** 다시 보내면 답이 달라질 수 있는 코드인가.
+      객체 사전({NETWORK:1})을 안 쓰는 이유는 프로토타입 상속 키('toString' 등)가 참으로
+      판정돼 엉뚱한 코드를 재시도하기 때문이다. */
+  function getRetryable_(code) {
+    return code === 'NETWORK' || code === 'LOCK_TIMEOUT';
+  }
+
+  function getJson(url, onRetry, attempt) {
+    var n = attempt || 0;
+    return requestJson(url, null).then(function (res) {
+      /* 성공이면 res.error 가 없어 code 가 undefined 이므로 아래 한 줄이 함께 걸러낸다.
+         `if (res.ok) return res` 를 따로 두면 안전해 보이지만 **어떤 입력으로도 결과가
+         달라지지 않는 죽은 줄**이다(뮤테이션 R4 가 동치로 살아남아 드러났다). */
+      var code = res && res.error && res.error.code;
+      if (!getRetryable_(code)) return res;            // 성공·영구 오류는 그대로 올린다
+      if (n >= GET_RETRY_MAX) return res;
+      if (onRetry) onRetry(n + 2, GET_RETRY_MAX + 1);  // 사람이 세는 번호(2/4 …)
+      return new Promise(function (resolve) {
+        setTimeout(function () { resolve(getJson(url, onRetry, n + 1)); },
+                   GET_RETRY_BASE_MS * Math.pow(2, n));
+      });
+    });
+  }
+
+  /* 재시도 중임을 홈 배너로 말한다 — 침묵한 채 최대 1분을 끄는 것이 곧 "끊겼다"는 체감이다.
+     마지막 시도까지 실패하면 refreshMasters 가 이 배너를 실패 문구로 덮는다(정상 경로). */
+  function syncNotice_(nth, total) {
+    state.masterBanner = { level: 'info',
+      text: '서버 응답이 느립니다 — 다시 시도 중 (' + nth + '/' + total + ')…' };
+    if (state.currentScreen === 'home') renderMasterBanner();
+  }
   function loadMastersFromNetwork() {
     return CONFIG.MOCK ? mockMasters() : fetchMastersRemote();
   }
   function fetchMastersRemote() {
-    return requestJson(CONFIG.API_URL + '?action=masters&k=' + CONFIG.SHARED_KEY, null);
+    return getJson(CONFIG.API_URL + '?action=masters&k=' + CONFIG.SHARED_KEY, syncNotice_);
   }
   function mockMasters() {
     return new Promise(function (resolve) {
@@ -431,7 +495,7 @@
     return CONFIG.MOCK ? mockPlansList() : fetchPlansRemote();
   }
   function fetchPlansRemote() {
-    return requestJson(CONFIG.API_URL + '?action=plans&k=' + CONFIG.SHARED_KEY, null);
+    return getJson(CONFIG.API_URL + '?action=plans&k=' + CONFIG.SHARED_KEY, syncNotice_);
   }
   function mockPlansList() {
     return new Promise(function (resolve) {
