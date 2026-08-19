@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-b23bb927">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-b23bb927">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-9f1a754b">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-9f1a754b">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -91,7 +91,7 @@
 .dash-od-name { margin: 0; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; }
 .dash-od-meta { margin: 2px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
 .dash-od-stale .dash-od-meta { color: var(--danger); }
-.dash-od-acts { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; width: 108px; }
+.dash-od-acts { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; width: 112px; }
 /* 세로로 쌓은 조치 버튼 — 높이 44px 는 터치 타깃 하한이라 더 줄이지 않는다. */
 .dash-od-btn { width: 100%; min-height: 44px; padding: 0 8px; font-size: 0.88rem; }
 /* 되돌릴 수 없는 조치는 테두리·글자로 구분한다 — 채우지 않는다(빨간 면이 두 줄 걸러 나오면
@@ -100,6 +100,14 @@
 .dash-od-danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent);
   border-color: var(--danger); }
 .dash-od-danger:active { background: color-mix(in srgb, var(--danger) 18%, transparent); }
+/* 공사취소 — 되돌릴 수 없지만 **경보는 아니다**(우리가 놓친 것이 아니라 상황이 없어진 것).
+   빨강을 두 개 두면 목록 전체가 경보로 보여 정작 미점검확정이 안 띈다. */
+.dash-od-mute { border-color: var(--muted); color: var(--muted); }
+.dash-od-mute:hover { background: color-mix(in srgb, var(--muted) 10%, transparent);
+  border-color: var(--muted); }
+.dash-od-mute:active { background: color-mix(in srgb, var(--muted) 18%, transparent); }
+.dash-od-warn-mute { border-color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 8%, transparent); }
 .dash-od-warn { margin: 12px 0 0; padding: 12px; border-radius: 8px; font-size: 0.9rem;
   line-height: 1.6; color: var(--text);
   border: 1px solid var(--danger);
@@ -108,7 +116,8 @@
 @media (max-width: 420px) {
   .dash-od-row { flex-direction: column; align-items: stretch; gap: 8px; }
   .dash-od-acts { flex-direction: row; width: auto; }
-  .dash-od-acts .dash-btn { flex: 1 1 0; }
+  /* 조치 셋이 한 줄에 들어간다 — 좁아도 글자가 잘리지 않게 좌우 여백만 줄인다 */
+  .dash-od-acts .dash-btn { flex: 1 1 0; min-width: 0; padding: 0 4px; font-size: 0.84rem; }
 }
 .dash-od-form { display: grid; gap: 16px; margin: 16px 0; }
 .dash-od-field { display: grid; gap: 6px; }
@@ -329,7 +338,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-b23bb927"></script>
-<script src="./dashboard.js?v=0.5.5-b23bb927"></script>
+<script src="./config.js?v=0.5.5-9f1a754b"></script>
+<script src="./dashboard.js?v=0.5.5-9f1a754b"></script>
 </body>
 </html>

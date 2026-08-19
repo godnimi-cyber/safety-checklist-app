@@ -83,10 +83,13 @@
 
   /** 팀 select 옵션 목록 — value 는 'all' 또는 't<i>'(팀명을 DOM value 로 안 쓴다:
    *  빈 문자열 팀명이 '전체' 와 섞이는 것을 막는다). */
+  /** 팀 선택지 — **건수를 붙이지 않는다**(사용자 지시 2026-08-19).
+   *  붙였던 수는 그 기간의 '점검 건수'인데, 바로 아래 「미점검 N」과 나란히 놓이면서
+   *  같은 종류의 수로 읽혔다. 고를 때 필요한 것은 팀 이름뿐이고, 건수는 표가 이미 말한다. */
   function teamOptions_(data) {
-    var out = [{ value: 'all', text: '전체 (' + data.all.count + ')' }];
+    var out = [{ value: 'all', text: '전체' }];
     data.teams.forEach(function (t, i) {
-      out.push({ value: 't' + i, text: t.label + ' (' + t.count + ')' });
+      out.push({ value: 't' + i, text: t.label });
     });
     return out;
   }
@@ -910,6 +913,7 @@
   /* 버튼·모달 제목·전송 중 되돌림 문구가 같은 말이어야 한다 — 세 군데에 따로 적으면
      문구를 고칠 때 한 곳이 남는다(전송 실패 뒤 버튼이 다른 이름으로 돌아오는 식). */
   var UNCHECK_LABEL = '미점검확정';
+  var WORKCANCEL_LABEL = '공사취소';
 
   function overdueFor_(data, viewName) {
     var list = (data && data.overdue) || [];
@@ -1113,6 +1117,36 @@
     body.appendChild(go);
   }
 
+  /** 공사취소 제출 — 공사 자체가 없어져 점검할 것이 사라진 경우다. 서버는 기존 계획 취소
+   *  (canceled)로 처리한다: '할 일이 없어졌다' 는 이미 그 상태의 뜻이다. */
+  function submitWorkCancel_(o, real, pin, btn, errBox) {
+    errBox.textContent = '';
+    if (!real) { errBox.textContent = '취소하는 사람을 고르세요'; return; }
+    if (!String(pin || '').length) { errBox.textContent = 'PIN 을 입력하세요'; return; }
+    btn.disabled = true;
+    btn.textContent = '취소 중...';
+    requestJson(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'dash_plan_cancel', k: state.key,
+        payload: { plan_id: o.plan_id, inspector_real_id: real, pin: pin } }),
+      redirect: 'follow'
+    }).then(function (res) {
+      btn.disabled = false;
+      btn.textContent = WORKCANCEL_LABEL;
+      if (res && res.ok) {
+        closeModal_();
+        // 안내는 fetchDashboard 가 **커밋 뒤에** 띄운다 — 여기서 띄우면 같은 틱에 지워진다
+        fetchDashboard('공사를 취소했습니다 — 목록에서 내렸습니다(미점검으로 세지 않습니다)');
+        return;
+      }
+      var code = String((res && res.error && res.error.code) || '');
+      if (code === 'AUTH') { hardReset_('키가 맞지 않습니다 — 다시 입력하세요'); return; }
+      errBox.textContent = odErrorText_(code, res && res.error && res.error.message,
+                                        '공사를 취소하지 못했습니다');
+    });
+  }
+
   /** 미점검확정 모달 — 사람 + PIN 뿐이다. **날짜 칸이 없다는 것이 이 기능의 정의다.**
    *  되돌릴 수 없는 쓰기라 무엇이 남고 무엇이 안 남는지를 누르기 전에 말한다 —
    *  "점검 처리" 로 오해하면 하지 않은 점검이 실적으로 둔갑한다. */
@@ -1125,8 +1159,9 @@
 
     var warn = document.createElement('p');
     warn.className = 'dash-od-warn';
-    warn.textContent = '점검하지 않았음을 확정합니다. 공사 목록에서 내려가고 ' +
-      '점검 기록은 만들지 않습니다 — 누가 언제 확정했는지만 남습니다. ' +
+    warn.textContent = '공사는 있었는데 점검하지 않았음을 확정합니다. 공사 목록에서 ' +
+      '내려가고 점검 기록은 만들지 않습니다 — 누가 언제 확정했는지만 남습니다. ' +
+      '공사 자체가 취소된 것이라면 「' + WORKCANCEL_LABEL + '」를 쓰세요. ' +
       '되돌리려면 계획을 새로 등록해야 합니다.';
     body.appendChild(warn);
 
@@ -1147,6 +1182,43 @@
     go.textContent = UNCHECK_LABEL;
     go.addEventListener('click', function () {
       submitUnchecked_(o, sel.value, pin.value, go, err);
+    });
+    body.appendChild(go);
+  }
+
+  /** 공사취소 모달 — 확정과 칸 구성은 같고 **뜻이 다르다**. 두 버튼이 나란히 있어 헷갈리기
+   *  쉬우므로, 무엇이 아닌지를 경고에 먼저 적는다(점검을 못 한 것이면 미점검확정이다). */
+  function openWorkCancel_(o) {
+    var data = state.payload || {};
+    openModal_(WORKCANCEL_LABEL + ' — ' + o.project_name);
+    var body = el_('dash-modal-body');
+    body.textContent = '';
+    body.appendChild(odMeta_(o));
+
+    var warn = document.createElement('p');
+    warn.className = 'dash-od-warn dash-od-warn-mute';
+    warn.textContent = '공사 자체가 취소돼 점검할 것이 없는 경우입니다. 목록에서 내려가고 ' +
+      '미점검으로 세지 않습니다 — 점검을 못 한 것이라면 「' + UNCHECK_LABEL + '」을 쓰세요. ' +
+      '되돌리려면 계획을 새로 등록해야 합니다.';
+    body.appendChild(warn);
+
+    var form = document.createElement('div');
+    form.className = 'dash-od-form';
+    var sel = odActorSelect_(data, o.owner_id);
+    form.appendChild(odField_('취소하는 사람', sel));
+    var pin = odPinInput_();
+    form.appendChild(odField_('PIN', pin));
+    body.appendChild(form);
+
+    var err = odErrBox_();
+    body.appendChild(err);
+
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'dash-btn dash-od-go dash-od-mute';
+    go.textContent = WORKCANCEL_LABEL;
+    go.addEventListener('click', function () {
+      submitWorkCancel_(o, sel.value, pin.value, go, err);
     });
     body.appendChild(go);
   }
@@ -1197,6 +1269,10 @@
     acts.appendChild(odActionBtn_('재등록', '', o, function () { openReschedule_(o); }));
     acts.appendChild(odActionBtn_(UNCHECK_LABEL, 'dash-od-danger', o,
                                   function () { openUnchecked_(o); }));
+    /* 세 번째 조치는 **경보색이 아니다** — 공사취소는 우리가 놓친 것이 아니라 상황이 없어진
+       것이다. 빨강을 두 개 두면 목록 전체가 경보로 보여 정작 미점검확정이 안 띈다. */
+    acts.appendChild(odActionBtn_(WORKCANCEL_LABEL, 'dash-od-mute', o,
+                                  function () { openWorkCancel_(o); }));
     row.appendChild(acts);
     return row;
   }
@@ -1215,8 +1291,8 @@
     var note = document.createElement('p');
     note.className = 'dash-modal-meta';
     note.textContent = list.length
-      ? '예정일이 지나 현장 목록에서 내려간 계획입니다. ' +
-        '재등록하면 다시 작성할 수 있고, 미점검확정은 점검하지 않았음만 남기고 목록에서 내립니다.'
+      ? '예정일이 지나 현장 목록에서 내려간 계획입니다. 재등록하면 다시 작성할 수 있고, ' +
+        '미점검확정은 점검하지 않았음을, 공사취소는 공사가 없어졌음을 남기고 목록에서 내립니다.'
       : '지난 예정 중 점검하지 않은 건이 없습니다.';
     sec.appendChild(note);
     list.forEach(function (o) { sec.appendChild(overdueRow_(o)); });
