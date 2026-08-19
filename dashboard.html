@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-00a39d53">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-00a39d53">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-b23bb927">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-b23bb927">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -54,17 +54,62 @@
 .dash-btn:active { background: var(--row-hover); }
 .dash-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* 미점검 — 밀린 일. 카드 하나 = 계획 하나. 색은 승인 팔레트 토큰만 쓴다(원값 금지). */
+/* 월간 리포트 — 수행과 미점검확정을 **표 두 개**로 가른다(사용자 지시 2026-08-19).
+   합쳐서 '상태' 열을 두면 점검 2건 + 확정 1건인 공사의 상태를 한 값으로 못 적는다. */
+.dash-mr-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.dash-mr-bar label { font-size: 13px; color: var(--muted); }
+.dash-mr-bar input { min-height: 44px; padding: 0 12px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--surface); color: var(--text);
+  font-family: var(--font-body); font-size: 0.95rem;
+  transition: border-color 0.15s; }
+.dash-mr-bar input:hover { border-color: var(--muted); }
+.dash-mr-bar input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dash-mr-sum { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 8px; }
+/* 두 타일은 **나란히**다 — 위아래로 쌓으면 아래 것이 위 것의 부속처럼 읽힌다.
+   미점검확정 타일만 색을 달리해 실적과 섞이지 않게 한다(합계 타일을 두지 않는 이유와 같다). */
+.dash-mr-tile { flex: 1 1 220px; border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px 14px; background: var(--surface); }
+.dash-mr-tile-un { border-color: var(--danger); }
+.dash-mr-tile .k { display: block; font-size: 13px; color: var(--muted); }
+.dash-mr-tile-un .k { color: var(--danger); }
+.dash-mr-tile .v { display: block; margin-top: 4px; font-weight: 700; line-height: 1.5;
+  font-family: var(--font-heading); }
+.dash-mr-sec { margin-top: 24px; }
+.dash-mr-sec h3 { font-family: var(--font-heading); font-size: 1rem; font-weight: 700;
+  color: var(--text); margin: 0; }
+
+/* 미점검 — 밀린 일. **한 행 = 계획 하나**(사용자 지시 2026-08-19): 왼쪽 내용, 오른쪽 조치 둘.
+   색은 승인 팔레트 토큰만 쓴다(원값 금지). */
 .dash-overdue h2 { color: var(--danger); }
-.dash-od-card { border: 1px solid var(--border); border-radius: 10px; padding: 16px;
-  margin-top: 12px; background: var(--surface); }
-.dash-od-card + .dash-od-card { margin-top: 12px; }
+.dash-od-row { display: flex; align-items: center; gap: 12px;
+  border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
+  margin-top: 8px; background: var(--surface); }
 .dash-od-stale { border-left: 4px solid var(--danger); }
-.dash-od-co { margin: 0; font-size: 13px; color: var(--muted); }
-.dash-od-name { margin: 4px 0 0; font-weight: 700; line-height: 1.5; }
-.dash-od-meta { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+/* min-width:0 이 없으면 flex 자식이 내용 폭 아래로 안 줄어 버튼이 화면 밖으로 밀린다. */
+.dash-od-text { flex: 1 1 auto; min-width: 0; }
+/* 공사명은 **자르지 않는다** — 이 목록의 주소는 끝자리만 다르다(dashboard.js overdueRow_ 주석). */
+.dash-od-name { margin: 0; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; }
+.dash-od-meta { margin: 2px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
 .dash-od-stale .dash-od-meta { color: var(--danger); }
-.dash-od-btn { margin-top: 12px; width: 100%; }
+.dash-od-acts { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; width: 108px; }
+/* 세로로 쌓은 조치 버튼 — 높이 44px 는 터치 타깃 하한이라 더 줄이지 않는다. */
+.dash-od-btn { width: 100%; min-height: 44px; padding: 0 8px; font-size: 0.88rem; }
+/* 되돌릴 수 없는 조치는 테두리·글자로 구분한다 — 채우지 않는다(빨간 면이 두 줄 걸러 나오면
+   목록 전체가 경보로 보여 정작 오래 밀린 건이 안 띈다). */
+.dash-od-danger { border-color: var(--danger); color: var(--danger); }
+.dash-od-danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: var(--danger); }
+.dash-od-danger:active { background: color-mix(in srgb, var(--danger) 18%, transparent); }
+.dash-od-warn { margin: 12px 0 0; padding: 12px; border-radius: 8px; font-size: 0.9rem;
+  line-height: 1.6; color: var(--text);
+  border: 1px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent); }
+/* 좁은 화면에서는 버튼을 아래로 내린다 — 108px 를 떼고 나면 공사명이 서너 줄이 된다. */
+@media (max-width: 420px) {
+  .dash-od-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .dash-od-acts { flex-direction: row; width: auto; }
+  .dash-od-acts .dash-btn { flex: 1 1 0; }
+}
 .dash-od-form { display: grid; gap: 16px; margin: 16px 0; }
 .dash-od-field { display: grid; gap: 6px; }
 .dash-od-field label { font-size: 13px; color: var(--muted); }
@@ -241,6 +286,7 @@
     <span class="spacer"></span>
     <button type="button" class="dash-btn" id="btn-dash-theme">어둡게</button>
     <button type="button" class="dash-btn" id="btn-dash-refresh" hidden>새로고침</button>
+    <button type="button" class="dash-btn" id="btn-dash-monthly" hidden>월간 리포트</button>
     <button type="button" class="dash-btn" id="btn-dash-clearkey" hidden>키 지우기</button>
   </header>
 
@@ -283,7 +329,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-00a39d53"></script>
-<script src="./dashboard.js?v=0.5.5-00a39d53"></script>
+<script src="./config.js?v=0.5.5-b23bb927"></script>
+<script src="./dashboard.js?v=0.5.5-b23bb927"></script>
 </body>
 </html>

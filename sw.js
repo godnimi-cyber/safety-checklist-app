@@ -22,7 +22,7 @@
 
 /* 배포마다 바뀌어야 옛 캐시가 정리된다. config.js 의 APP_VER 과 같은 값을 쓴다
    (tests-js/wiring.test.mjs 가 둘이 어긋나면 잡는다 — 어긋나면 옛 캐시가 영영 남는다). */
-var CACHE = 'safety-checklist-v0.5.5-00a39d53';
+var CACHE = 'safety-checklist-v0.5.5-b23bb927';
 
 /* 껍데기 = 앱을 띄우는 데 필요한 최소 집합. config.js 는 API 주소·키라 반드시 포함한다.
    버전 쿼리(?v=)는 넣지 않는다 — 요청 URL 과 캐시 키를 맞추는 일을 fetch 쪽에서 한다. */

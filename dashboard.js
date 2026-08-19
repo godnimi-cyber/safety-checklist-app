@@ -214,6 +214,7 @@
     el_('dash-key-screen').hidden = false;
     el_('dash-controls').hidden = true;
     el_('btn-dash-refresh').hidden = true;
+    el_('btn-dash-monthly').hidden = true;
     el_('btn-dash-clearkey').hidden = true;
     el_('dash-generated').textContent = '';
     showBanner_(msg || '', !!msg);
@@ -225,6 +226,7 @@
     el_('dash-key-screen').hidden = true;
     el_('dash-controls').hidden = false;
     el_('btn-dash-refresh').hidden = false;
+    el_('btn-dash-monthly').hidden = false;
     el_('btn-dash-clearkey').hidden = false;
   }
 
@@ -239,6 +241,8 @@
   function hardReset_(msg) {
     resetKey_(state);
     closeModal_();
+    monthly.ym = '';
+    monthly.data = null;                       // 메모리에 남은 리포트도 키와 함께 버린다
     try {
       localStorage.removeItem(KEY_STORE);
       localStorage.removeItem(PAYLOAD_STORE);   // 키가 없으면 화면 사본도 남기지 않는다
@@ -288,6 +292,12 @@
     modal.listTitle = '';
     modal.listExpected = undefined;
     el_('dash-modal').hidden = true;
+    /* 본문을 **비운다.** hidden 은 눈에서만 가릴 뿐 DOM 에는 조회 데이터가 그대로 남는다 —
+       키를 지운 기기에 남은 그것이 곧 열람이다(hardReset_ 이 모달을 닫는 이유 그 자체인데,
+       닫기만 해서는 절반만 지켜졌다. 2026-08-19 디버깅 실측).
+       여는 쪽(openModal_)도 비우지만, 그때는 이미 남아 있던 시간이 지난 뒤다. */
+    el_('dash-modal-body').textContent = '';
+    el_('dash-modal-title').textContent = '';
     document.body.style.overflow = '';
     if (modal.hasHistory) {                    // 우리가 쌓은 히스토리 1칸을 소비(뒤로가기와 이중 처리 방지)
       modal.hasHistory = false;
@@ -311,14 +321,21 @@
     body.appendChild(p);
   }
 
-  function fetchDetail_(kind, key, extra, render) {
+  /** 모달 안 조회의 **공통 규약** — 세대 검사·AUTH 하드리셋·팝업 안 재시도. action 과
+   *  payload 만 다르다. 드릴다운(dashboard_detail)과 월간 리포트(dashboard_monthly)가
+   *  이걸 함께 쓴다 — 따로 쓰면 언젠가 한쪽만 세대 검사를 잃는다(늦은 응답이 화면을 덮는다).
+   *
+   *  본문을 **통째로 함수로** 받는다(action 만 받지 않는다). 두 가지를 동시에 얻는다:
+   *  ① 재시도할 때 **그때의 상태**로 다시 만든다 ② action 문자열이 호출부에 리터럴로 남아
+   *  앱-서버 action 대조(wiring 25a)가 계속 눈으로 볼 수 있다 — 변수로 넘기면 그 검증이
+   *  조용히 장님이 되고, 오타는 현장에서 '알 수 없는 action'(영구 오류)으로만 발각된다. */
+  function fetchModal_(bodyOf, render) {
     var g = ++modal.gen;
     modalMsg_('불러오는 중', false);
     requestJson(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'dashboard_detail', k: state.key,
-                             payload: detailPayload_(state, kind, key, extra) }),
+      body: JSON.stringify(bodyOf()),
       redirect: 'follow'
     }).then(function (res) {
       if (g !== modal.gen) return;             // 닫혔거나 새 요청이 이겼다 — 화면을 건드리지 않는다
@@ -331,9 +348,16 @@
       retry.type = 'button';
       retry.className = 'dash-btn';
       retry.textContent = '다시 시도';
-      retry.addEventListener('click', function () { fetchDetail_(kind, key, extra, render); });
+      retry.addEventListener('click', function () { fetchModal_(bodyOf, render); });
       el_('dash-modal-body').appendChild(retry);
     });
+  }
+
+  function fetchDetail_(kind, key, extra, render) {
+    fetchModal_(function () {
+      return { action: 'dashboard_detail', k: state.key,
+               payload: detailPayload_(state, kind, key, extra) };
+    }, render);
   }
 
   /** 모달용 표 — 본문 표와 같은 스타일 계열(.dash-block table)을 재사용한다. */
@@ -687,11 +711,205 @@
     return sec;
   }
 
+  /* ---------- 월간 리포트 (사용자 지시 2026-08-19) ----------------------
+     "한달간 수행한 공사와 공사 중 미점검 확정 항목은 별도로 구분되어야 해.
+      하나의 공사에 여러 건의 점검이 있을 경우 하나의 미점검 확정이 기존 기록을 건드리면 안돼."
+
+     화면도 그 구분을 그대로 따른다 — **표 두 개**다. 하나로 합쳐 '상태' 열을 두는 안은
+     버렸다: 한 공사에 점검 2건 + 확정 1건이면 그 공사의 '상태'를 한 값으로 못 적는다.
+     겹치는 공사는 양쪽에 나오되 그것이 정상임을 요약줄이 말한다.
+
+     **전체 기준이다** — 팀 전환과 무관하다. 한 공사를 두 팀이 점검하면 공사 단위 행의 팀을
+     하나로 정할 수 없어 팀 필터가 숫자를 조용히 틀어 놓는다. 화면에 그렇게 적는다. */
+
+  var monthly = { ym: '', data: null };
+
+  /** 오늘이 속한 연월(YYYY-MM). 시간대 함정을 피해 로컬 값 그대로 만든다(todayStr_ 와 같은 결). */
+  function thisMonth_() { return todayStr_().slice(0, 7); }
+
+  function mrErrorText_(code, message) {
+    var key = String(message || '').split(',')[0].trim();
+    if (key === 'YM_INVALID' || code === 'YM_INVALID') return '연월을 2026-08 형식으로 고르세요';
+    return String(message || '월간 리포트를 불러오지 못했습니다');
+  }
+
+  /** 연월 고르는 줄 — 조회 뒤에도 남는다(다른 달로 바로 넘어가려고). */
+  function monthlyPicker_(onGo) {
+    var bar = document.createElement('div');
+    bar.className = 'dash-mr-bar';
+
+    var lab = document.createElement('label');
+    lab.textContent = '연월';
+    lab.htmlFor = 'dash-mr-ym';
+    bar.appendChild(lab);
+
+    var input = document.createElement('input');
+    input.type = 'month';
+    input.id = 'dash-mr-ym';
+    input.max = thisMonth_();                  // 오지 않은 달의 '실적' 은 없다
+    input.value = monthly.ym || thisMonth_();
+    bar.appendChild(input);
+
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'dash-btn dash-btn-primary';
+    go.textContent = '조회';
+    go.addEventListener('click', function () { onGo(String(input.value || '')); });
+    bar.appendChild(go);
+    return bar;
+  }
+
+  /** 요약 — 두 절의 숫자를 **따로** 읽게 한다. 합계 한 줄로 뭉치면 확정이 실적을 깎은 것처럼
+   *  읽힌다(사용자가 못 박은 계약과 정반대의 인상). 겹치는 공사 수를 명시하는 이유도 같다. */
+  function monthlySummary_(d) {
+    var wrap = document.createElement('div');
+    wrap.className = 'dash-mr-sum';
+    [['수행', '점검 ' + d.done.subs + '건 · 공사 ' + d.done.projects + '건 · 부적합 ' + d.done.findings + '건', ''],
+     ['미점검확정', '확정 ' + d.unchecked.plans + '건 · 공사 ' + d.unchecked.projects + '건', 'dash-mr-tile-un']
+    ].forEach(function (t) {
+      var tile = document.createElement('div');
+      tile.className = 'dash-mr-tile' + (t[2] ? ' ' + t[2] : '');
+      var k = document.createElement('span');
+      k.className = 'k';
+      k.textContent = t[0];
+      var v = document.createElement('span');
+      v.className = 'v';
+      v.textContent = t[1];
+      tile.appendChild(k);
+      tile.appendChild(v);
+      wrap.appendChild(tile);
+    });
+    return wrap;
+  }
+
+  /** 「확인이 필요한 것」 — 숫자를 흔드는 조건을 리포트 **안에** 적는다.
+   *  없으면 절 자체를 만들지 않는다(빈 절은 "확인할 게 있나?" 하고 매번 읽게 만든다). */
+  function monthlyIssues_(d) {
+    var list = (d && d.notes) || [];
+    if (!list.length) return null;
+    var sec = document.createElement('section');
+    sec.className = 'dash-mr-sec';
+    var h = document.createElement('h3');
+    h.textContent = '■ 확인이 필요한 것';
+    sec.appendChild(h);
+    list.forEach(function (n) {
+      var p = document.createElement('p');
+      p.className = 'dash-od-warn';
+      p.textContent = n.label + ' ' + n.count + '건 — ' + n.hint;
+      sec.appendChild(p);
+    });
+    return sec;
+  }
+
+  function monthlyNote_(d) {
+    var p = document.createElement('p');
+    p.className = 'dash-modal-meta';
+    p.textContent = d.overlapProjects
+      ? '두 표에 함께 나오는 공사 ' + d.overlapProjects + '건 — 같은 공사의 다른 점검 건입니다. ' +
+        '미점검확정은 그 공사의 수행 기록을 건드리지 않습니다.'
+      : '수행과 미점검확정에 겹치는 공사가 없습니다.';
+    return p;
+  }
+
+  /** 절 하나 = 제목 + CSV 버튼 + 표. CSV 는 화면에 보이는 그 표 그대로다. */
+  function monthlySection_(title, kind, header, rows, cellsOf) {
+    var sec = document.createElement('section');
+    sec.className = 'dash-mr-sec';
+    var head = document.createElement('div');
+    head.className = 'dash-block-head';
+    var h = document.createElement('h3');
+    h.textContent = title;
+    head.appendChild(h);
+    var sp = document.createElement('span');
+    sp.className = 'spacer';
+    head.appendChild(sp);
+    var cells = rows.map(cellsOf);
+    if (cells.length) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'dash-btn';
+      btn.textContent = 'CSV 다운로드';
+      btn.addEventListener('click', function () {
+        downloadCsv_('월간_' + kind + '_' + monthly.ym + '.csv',
+                     buildCsv_({ header: header, rows: cells }));
+      });
+      head.appendChild(btn);
+    }
+    sec.appendChild(head);
+    if (!cells.length) {
+      sec.appendChild(metaP_('이 달에 해당 항목이 없습니다'));
+      return sec;
+    }
+    sec.appendChild(modalTable_(header, cells, function (row) {
+      var tr = document.createElement('tr');
+      row.forEach(function (c) {
+        var td = document.createElement('td');
+        td.textContent = String(c === null || c === undefined ? '' : c);
+        tr.appendChild(td);
+      });
+      return tr;
+    }));
+    return sec;
+  }
+
+  function renderMonthly_(d) {
+    monthly.data = d;
+    monthly.ym = d.ym;
+    openModal_('월간 리포트 — ' + d.ym.replace('-', '년 ') + '월');
+    var body = el_('dash-modal-body');
+    body.textContent = '';
+    body.appendChild(monthlyPicker_(fetchMonthly_));
+    body.appendChild(metaP_('기준 ' + d.generatedAt + ' · 전체 기준입니다(팀 전환과 무관).'));
+    body.appendChild(monthlySummary_(d));
+    body.appendChild(monthlyNote_(d));
+
+    body.appendChild(monthlySection_('■ 수행 — 공사별', '수행',
+      ['협력회사', '공사', '점검 건수', '부적합 건수', '첫 점검일', '마지막 점검일'],
+      d.done.rows, function (r) {
+        return [r.company_name, r.project_name, r.count, r.findings, r.first, r.last];
+      }));
+
+    /* 미점검확정은 **공사별로 접지 않는다** — 확정 1건 = 1행이다. 접으면 같은 공사의 확정
+       두 건이 한 줄이 되어 언제 예정이던 건인지·누가 확정했는지가 사라진다. */
+    body.appendChild(monthlySection_('■ 미점검확정 — 확정 1건 = 1행', '미점검확정',
+      ['협력회사', '공사', '원래 예정일', '확정일시', '확정자', '등록자', '점검팀'],
+      d.unchecked.rows, function (r) {
+        return [r.company_name, r.project_name, r.planned_date, r.confirmed_at,
+                r.confirmed_by, r.owner, r.team];
+      }));
+
+    var issues = monthlyIssues_(d);
+    if (issues) body.appendChild(issues);
+  }
+
+  function fetchMonthly_(ym) {
+    var v = String(ym || '');
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(v)) {
+      /* type=month 를 모르는 브라우저는 이 칸이 그냥 text 다 — 서버까지 보내지 않고 여기서 막는다. */
+      modalMsg_(mrErrorText_('YM_INVALID', 'YM_INVALID'), true);
+      el_('dash-modal-body').appendChild(monthlyPicker_(fetchMonthly_));
+      return;
+    }
+    monthly.ym = v;
+    openModal_('월간 리포트 — ' + v.replace('-', '년 ') + '월');
+    fetchModal_(function () {
+      return { action: 'dashboard_monthly', k: state.key, payload: { ym: monthly.ym } };
+    }, renderMonthly_);
+  }
+
+  function openMonthly_() {
+    /* 마지막으로 본 달을 기억한다 — 매번 이번 달로 되돌아가면 지난달을 훑는 동안 계속 고쳐야 한다. */
+    fetchMonthly_(monthly.ym || thisMonth_());
+  }
+
   /* ── 미점검 (사전등록됐지만 점검하지 않음) ─────────────────────────────
      서버가 `planned + 예정일 지남` 으로 **파생**해 준다(상태를 새로 만들지 않는다).
      조회 기간과 무관하다 — 미점검은 그 기간의 실적이 아니라 **지금 남아 있는 빚**이라
      기간 밖으로 밀려 안 보이면 영영 안 보인다. 그래서 본문 **맨 위**에 둔다. */
   var OD_STALE_DAYS = 7;
+  /* 버튼·모달 제목·전송 중 되돌림 문구가 같은 말이어야 한다 — 세 군데에 따로 적으면
+     문구를 고칠 때 한 곳이 남는다(전송 실패 뒤 버튼이 다른 이름으로 돌아오는 식). */
+  var UNCHECK_LABEL = '미점검확정';
 
   function overdueFor_(data, viewName) {
     var list = (data && data.overdue) || [];
@@ -700,20 +918,26 @@
   }
 
   /** 서버 오류 코드를 사람 말로. 영문 토큰을 그대로 띄우면 현장이 무엇을 할지 모른다
-   *  (같은 이유로 APP_OUTDATED 를 고친 적이 있다). 모르는 코드는 원문을 보인다. */
-  function odErrorText_(code, message) {
+   *  (같은 이유로 APP_OUTDATED 를 고친 적이 있다). 모르는 코드는 원문을 보인다.
+   *  fallback 은 흐름마다 다르다 — 재등록과 미점검확정이 같은 문구로 실패하면 어느 것이
+   *  안 됐는지 알 수 없다. */
+  function odErrorText_(code, message, fallback) {
     var m = {
       PIN_MISMATCH: 'PIN 이 맞지 않습니다',
       PIN_LOCKED: 'PIN 을 여러 번 틀려 잠겼습니다 — 10분 뒤에 다시 시도하세요',
       PLAN_DATE_PAST: '지난 날짜로는 재등록할 수 없습니다',
       INSPECTOR_UNKNOWN: '점검자를 찾을 수 없습니다',
       PLAN_NOT_FOUND: '계획을 찾을 수 없습니다 — 새로고침 후 다시 시도하세요',
+      PLAN_ID_INVALID: '계획 번호가 올바르지 않습니다 — 새로고침 후 다시 시도하세요',
       PLAN_ALREADY_DONE: '이미 점검이 끝난 계획입니다',
       PLAN_ALREADY_CANCELED: '취소된 계획입니다',
+      PLAN_ALREADY_UNCHECKED: '이미 미점검으로 확정한 계획입니다 — 새로고침 후 확인하세요',
+      PLAN_NOT_OVERDUE: '예정일이 아직 지나지 않아 미점검으로 확정할 수 없습니다',
       PLAN_DATE_INVALID: '날짜를 다시 확인하세요'
     };
     var key = String(message || '').split(',')[0].trim();
-    return m[key] || m[String(code || '')] || String(message || '재등록하지 못했습니다');
+    return m[key] || m[String(code || '')] ||
+           String(message || fallback || '처리하지 못했습니다');
   }
 
   function odField_(label, value) {
@@ -721,9 +945,71 @@
     d.className = 'dash-od-field';
     var l = document.createElement('label');
     l.textContent = label;
+    if (value.id) l.htmlFor = value.id;          // 라벨을 눌러도 칸이 잡힌다(터치 타깃 확대)
     d.appendChild(l);
     d.appendChild(value);
     return d;
+  }
+
+  /** 계획 한 줄 요약 — 두 모달이 같은 문장을 쓴다(무엇을 손대는지가 제목만으로는 부족하다). */
+  function odMeta_(o) {
+    var meta = document.createElement('p');
+    meta.className = 'dash-modal-meta';
+    meta.textContent = o.company_name + ' · 원래 예정일 ' + o.planned_date +
+                       ' (' + o.days + '일 경과)';
+    return meta;
+  }
+
+  /** 사람 고르기 — 재등록과 미점검확정이 똑같이 요구한다(키는 문턱, PIN 이 신원).
+   *  · **팀으로 묶는다**(optgroup): 명단이 평평하면 자기 팀을 찾느라 전부 훑어야 한다.
+   *  · **그 계획의 담당자를 미리 골라 둔다**: 되살리거나 확정하는 사람은 거의 언제나 등록한
+   *    사람이다. 담당자가 명단에 없으면(비활성·PIN 없음·토큰 없음) 비워 둔다 — 없는 사람을
+   *    고른 척하지 않는다.
+   *  팀 이름은 시트에서 온 임의 문자열이라 사전은 null-프로토로 만든다(서버 addTeam 과 같은 이유). */
+  function odActorSelect_(data, ownerId) {
+    var sel = document.createElement('select');
+    sel.id = 'dash-od-insp';
+    var ph = document.createElement('option');
+    ph.value = ''; ph.textContent = '선택하세요';
+    sel.appendChild(ph);
+    var groups = Object.create(null), order = [];
+    (data.inspectors || []).forEach(function (i) {
+      var t = String(i.team || '') || '(팀 없음)';
+      if (!groups[t]) {
+        groups[t] = document.createElement('optgroup');
+        groups[t].label = t;
+        order.push(t);
+      }
+      var op = document.createElement('option');
+      op.value = i.id;
+      op.textContent = i.display;
+      groups[t].appendChild(op);
+    });
+    order.forEach(function (t) { sel.appendChild(groups[t]); });
+    var want = String(ownerId || '');
+    if (want) {
+      for (var k = 0; k < sel.options.length; k++) {
+        if (sel.options[k].value === want) { sel.selectedIndex = k; break; }
+      }
+    }
+    return sel;
+  }
+
+  function odPinInput_() {
+    var pin = document.createElement('input');
+    pin.type = 'password';
+    pin.id = 'dash-od-pin';
+    pin.inputMode = 'numeric';
+    pin.autocomplete = 'off';
+    pin.maxLength = 8;
+    return pin;
+  }
+
+  function odErrBox_() {
+    var err = document.createElement('p');
+    err.className = 'dash-banner dash-banner-error dash-od-err';
+    err.setAttribute('aria-live', 'polite');
+    return err;
   }
 
   function submitReschedule_(o, real, date, pin, btn, errBox) {
@@ -744,14 +1030,46 @@
       btn.textContent = '재등록';
       if (res && res.ok) {
         closeModal_();
-        showBanner_('재등록했습니다 — ' + date + ' 예정으로 올렸습니다');
-        fetchDashboard();                      // 목록을 서버 기준으로 다시 맞춘다
+        // 안내는 fetchDashboard 가 **커밋 뒤에** 띄운다 — 여기서 띄우면 같은 틱에 지워진다
+        fetchDashboard('재등록했습니다 — ' + date + ' 예정으로 올렸습니다');
         return;
       }
       var code = String((res && res.error && res.error.code) || '');
       if (code === 'AUTH') { hardReset_('키가 맞지 않습니다 — 다시 입력하세요'); return; }
       /* PIN 오류는 **모달 안에서** 알린다 — 닫아 버리면 다시 열어 처음부터 해야 한다. */
-      errBox.textContent = odErrorText_(code, res && res.error && res.error.message);
+      errBox.textContent = odErrorText_(code, res && res.error && res.error.message,
+                                        '재등록하지 못했습니다');
+    });
+  }
+
+  /** 미점검확정 제출 — 예정일을 **보내지 않는다**. 이 버튼은 날짜를 손대는 기능이 아니라
+   *  "안 했다" 를 못 박는 기능이다(사용자 지시 2026-08-19). 서버도 예정일을 안 바꾼다. */
+  function submitUnchecked_(o, real, pin, btn, errBox) {
+    errBox.textContent = '';
+    if (!real) { errBox.textContent = '확정하는 사람을 고르세요'; return; }
+    if (!String(pin || '').length) { errBox.textContent = 'PIN 을 입력하세요'; return; }
+    btn.disabled = true;
+    btn.textContent = '확정 중...';
+    requestJson(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'dash_plan_unchecked', k: state.key,
+        payload: { plan_id: o.plan_id, inspector_real_id: real, pin: pin } }),
+      redirect: 'follow'
+    }).then(function (res) {
+      btn.disabled = false;
+      btn.textContent = UNCHECK_LABEL;
+      if (res && res.ok) {
+        closeModal_();
+        // 안내는 fetchDashboard 가 **커밋 뒤에** 띄운다 — 여기서 띄우면 같은 틱에 지워진다
+        fetchDashboard('미점검으로 확정했습니다 — 목록에서 내렸습니다(점검 기록은 만들지 않았습니다)');
+        return;
+      }
+      var code = String((res && res.error && res.error.code) || '');
+      if (code === 'AUTH') { hardReset_('키가 맞지 않습니다 — 다시 입력하세요'); return; }
+      /* PIN 오류는 **모달 안에서** 알린다 — 닫아 버리면 다시 열어 처음부터 해야 한다. */
+      errBox.textContent = odErrorText_(code, res && res.error && res.error.message,
+                                        '미점검으로 확정하지 못했습니다');
     });
   }
 
@@ -760,27 +1078,12 @@
     openModal_('재등록 — ' + o.project_name);
     var body = el_('dash-modal-body');
     body.textContent = '';
-
-    var meta = document.createElement('p');
-    meta.className = 'dash-modal-meta';
-    meta.textContent = o.company_name + ' · 원래 예정일 ' + o.planned_date +
-                       ' (' + o.days + '일 경과)';
-    body.appendChild(meta);
+    body.appendChild(odMeta_(o));
 
     var form = document.createElement('div');
     form.className = 'dash-od-form';
 
-    var sel = document.createElement('select');
-    sel.id = 'dash-od-insp';
-    var ph = document.createElement('option');
-    ph.value = ''; ph.textContent = '선택하세요';
-    sel.appendChild(ph);
-    (data.inspectors || []).forEach(function (i) {
-      var op = document.createElement('option');
-      op.value = i.id;
-      op.textContent = i.display + (i.team ? ' (' + i.team + ')' : '');
-      sel.appendChild(op);
-    });
+    var sel = odActorSelect_(data, o.owner_id);
     form.appendChild(odField_('재등록하는 사람', sel));
 
     var date = document.createElement('input');
@@ -792,19 +1095,12 @@
     date.value = todayStr_();
     form.appendChild(odField_('새 예정일', date));
 
-    var pin = document.createElement('input');
-    pin.type = 'password';
-    pin.id = 'dash-od-pin';
-    pin.inputMode = 'numeric';
-    pin.autocomplete = 'off';
-    pin.maxLength = 8;
+    var pin = odPinInput_();
     form.appendChild(odField_('PIN', pin));
 
     body.appendChild(form);
 
-    var err = document.createElement('p');
-    err.className = 'dash-banner dash-banner-error dash-od-err';
-    err.setAttribute('aria-live', 'polite');
+    var err = odErrBox_();
     body.appendChild(err);
 
     var go = document.createElement('button');
@@ -817,39 +1113,92 @@
     body.appendChild(go);
   }
 
+  /** 미점검확정 모달 — 사람 + PIN 뿐이다. **날짜 칸이 없다는 것이 이 기능의 정의다.**
+   *  되돌릴 수 없는 쓰기라 무엇이 남고 무엇이 안 남는지를 누르기 전에 말한다 —
+   *  "점검 처리" 로 오해하면 하지 않은 점검이 실적으로 둔갑한다. */
+  function openUnchecked_(o) {
+    var data = state.payload || {};
+    openModal_(UNCHECK_LABEL + ' — ' + o.project_name);
+    var body = el_('dash-modal-body');
+    body.textContent = '';
+    body.appendChild(odMeta_(o));
+
+    var warn = document.createElement('p');
+    warn.className = 'dash-od-warn';
+    warn.textContent = '점검하지 않았음을 확정합니다. 공사 목록에서 내려가고 ' +
+      '점검 기록은 만들지 않습니다 — 누가 언제 확정했는지만 남습니다. ' +
+      '되돌리려면 계획을 새로 등록해야 합니다.';
+    body.appendChild(warn);
+
+    var form = document.createElement('div');
+    form.className = 'dash-od-form';
+    var sel = odActorSelect_(data, o.owner_id);
+    form.appendChild(odField_('확정하는 사람', sel));
+    var pin = odPinInput_();
+    form.appendChild(odField_('PIN', pin));
+    body.appendChild(form);
+
+    var err = odErrBox_();
+    body.appendChild(err);
+
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'dash-btn dash-od-go dash-od-danger';
+    go.textContent = UNCHECK_LABEL;
+    go.addEventListener('click', function () {
+      submitUnchecked_(o, sel.value, pin.value, go, err);
+    });
+    body.appendChild(go);
+  }
+
   function todayStr_() {
     var d = new Date();
     return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) +
            '-' + ('0' + d.getDate()).slice(-2);
   }
 
-  function overdueCard_(o) {
-    var card = document.createElement('div');
-    card.className = 'dash-od-card' + (o.days >= OD_STALE_DAYS ? ' dash-od-stale' : '');
+  /** 목록의 조치 버튼. 같은 글자('재등록')가 일곱 번 반복되므로 스크린리더용 이름에는
+   *  공사명을 붙인다 — 안 붙이면 어느 건의 버튼인지 소리만 듣고는 알 수 없다. */
+  function odActionBtn_(label, extraClass, o, onClick) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'dash-btn dash-od-btn' + (extraClass ? ' ' + extraClass : '');
+    b.textContent = label;
+    b.setAttribute('aria-label', label + ' — ' + o.project_name);
+    b.addEventListener('click', onClick);
+    return b;
+  }
 
-    var co = document.createElement('p');
-    co.className = 'dash-od-co';
-    co.textContent = o.company_name;
-    card.appendChild(co);
+  /** 미점검 한 건 = **한 행**(사용자 지시 2026-08-19): 왼쪽에 내용, 오른쪽에 조치 둘.
+   *  회사·예정일·경과·담당자는 한 줄로 접는다 — 카드 넉 줄짜리로 일곱 건이면 화면 세 장이었다.
+   *  **공사명은 말줄임하지 않는다**: 이 목록의 주소는 끝자리만 다르다(184-4 / 184-7 / 180).
+   *  잘라 버리면 서로 구별이 안 돼 어느 건을 누르는지 알 수 없다. */
+  function overdueRow_(o) {
+    var row = document.createElement('div');
+    row.className = 'dash-od-row' + (o.days >= OD_STALE_DAYS ? ' dash-od-stale' : '');
+
+    var text = document.createElement('div');
+    text.className = 'dash-od-text';
 
     var nm = document.createElement('p');
     nm.className = 'dash-od-name';
     nm.textContent = o.project_name;
-    card.appendChild(nm);
+    text.appendChild(nm);
 
     var meta = document.createElement('p');
     meta.className = 'dash-od-meta';
-    meta.textContent = o.planned_date + ' · ' + o.days + '일 경과' +
+    meta.textContent = o.company_name + ' · ' + o.planned_date + ' · ' + o.days + '일 경과' +
                        (o.owner ? ' · ' + o.owner : '') + (o.team ? '(' + o.team + ')' : '');
-    card.appendChild(meta);
+    text.appendChild(meta);
+    row.appendChild(text);
 
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'dash-btn dash-od-btn';
-    btn.textContent = '재등록';
-    btn.addEventListener('click', function () { openReschedule_(o); });
-    card.appendChild(btn);
-    return card;
+    var acts = document.createElement('div');
+    acts.className = 'dash-od-acts';
+    acts.appendChild(odActionBtn_('재등록', '', o, function () { openReschedule_(o); }));
+    acts.appendChild(odActionBtn_(UNCHECK_LABEL, 'dash-od-danger', o,
+                                  function () { openUnchecked_(o); }));
+    row.appendChild(acts);
+    return row;
   }
 
   function renderOverdue_(data) {
@@ -866,10 +1215,11 @@
     var note = document.createElement('p');
     note.className = 'dash-modal-meta';
     note.textContent = list.length
-      ? '예정일이 지나 현장 목록에서 내려간 계획입니다. 재등록하면 다시 작성할 수 있습니다.'
+      ? '예정일이 지나 현장 목록에서 내려간 계획입니다. ' +
+        '재등록하면 다시 작성할 수 있고, 미점검확정은 점검하지 않았음만 남기고 목록에서 내립니다.'
       : '지난 예정 중 점검하지 않은 건이 없습니다.';
     sec.appendChild(note);
-    list.forEach(function (o) { sec.appendChild(overdueCard_(o)); });
+    list.forEach(function (o) { sec.appendChild(overdueRow_(o)); });
     return sec;
   }
 
@@ -941,7 +1291,15 @@
     el_('btn-dash-refresh').disabled = on;
   }
 
-  function fetchDashboard() {
+  /** okMsg: 쓰기(재등록·미점검확정)가 성공한 직후의 안내. **이 함수가 띄운다.**
+   *  호출부에서 showBanner_ 로 띄우면 아래 showBanner_('') 가 **같은 틱에** 지워 사용자는
+   *  아무것도 못 본다(2026-08-19 디버깅 실측 — 재등록도 도입 때부터 같은 결함이었다).
+   *  미점검확정은 되돌릴 수 없는데 확인이 없으면 눌리기는 했는지도 모른다.
+   *
+   *  **문자열이 아니면 무시한다** — 새로고침·조회 버튼이 이 함수를 리스너로 그대로 쓴다
+   *  (addEventListener('click', fetchDashboard)). 안 걸러 내면 click 이벤트 객체가 배너 문구가 된다. */
+  function fetchDashboard(okMsg) {
+    var ok = (typeof okMsg === 'string') ? okMsg : '';
     if (!state.key) { showKeyScreen_(''); return; }
     var g = beginQuery_(state);
     var url = CONFIG.API_URL + '?action=dashboard&k=' + encodeURIComponent(state.key);
@@ -956,17 +1314,20 @@
       if (verdict === 'committed') {
         closeModal_();                         // 커밋 = 화면 통째 교체 — 옛 조건의 팝업·진행 중 상세도 함께 무효(적대 리뷰 #3)
         persistLast_(state.payload);
-        showBanner_('');                       // 복원 안내(저장된 화면…)가 남아 있으면 걷는다
+        showBanner_(ok);                       // '' 면 복원 안내(저장된 화면…)를 걷는 기존 동작
         renderTeamSelect_();
         renderView_();
         return;
       }
       var msg = (res && res.error && res.error.message) || '';
       if (verdict === 'auth') { hardReset_('키가 맞지 않습니다 — 다시 입력하세요'); return; }
-      if (verdict === 'config') { showBanner_('서버 설정 문제 — 관리자에게 문의 (' + msg + ')', true); return; }
+      /* 쓰기는 성공했는데 갱신만 실패한 경우 — **둘 다** 말한다. 실패만 말하면 쓰기까지
+         실패한 줄 알고 다시 누른다(재등록이면 날짜를 또 잡는다). */
+      function withOk(err) { return ok ? ok + ' — 다만 ' + err : err; }
+      if (verdict === 'config') { showBanner_(withOk('서버 설정 문제 — 관리자에게 문의 (' + msg + ')'), true); return; }
       /* transient — 마지막 성공 화면 유지 + 배너(K2·K3). 커밋하지 않았다(§4.1). */
       var base = state.payload ? '마지막 성공 기준 ' + state.payload.generatedAt : '표시할 데이터 없음';
-      showBanner_('동기화 실패 — ' + base + ' · ' + msg + ' — 다시 조회를 누르세요', true);
+      showBanner_(withOk('동기화 실패 — ' + base + ' · ' + msg + ' — 다시 조회를 누르세요'), true);
     });
   }
 
@@ -989,6 +1350,7 @@
     });
     el_('btn-dash-query').addEventListener('click', fetchDashboard);
     el_('btn-dash-refresh').addEventListener('click', fetchDashboard);
+    el_('btn-dash-monthly').addEventListener('click', openMonthly_);
     el_('btn-dash-clearkey').addEventListener('click', function () {
       hardReset_('저장된 키를 지웠습니다');
     });
