@@ -879,7 +879,9 @@
 
     /* 미점검확정은 **공사별로 접지 않는다** — 확정 1건 = 1행이다. 접으면 같은 공사의 확정
        두 건이 한 줄이 되어 언제 예정이던 건인지·누가 확정했는지가 사라진다. */
-    body.appendChild(monthlySection_('■ 미점검확정 — 확정 1건 = 1행', '미점검확정',
+    /* 제목에 '확정 1건 = 1행' 을 적었더니 행이 여럿인 표 위에서 **건수로 읽혔다**
+       (2026-08-19 캡처에서 발견). 행 단위 의미는 코드 주석과 문서에 남기고 제목은 이름만. */
+    body.appendChild(monthlySection_('■ 미점검확정 (확정 건별)', '미점검확정',
       ['협력회사', '공사', '원래 예정일', '확정일시', '확정자', '등록자', '점검팀'],
       d.unchecked.rows, function (r) {
         return [r.company_name, r.project_name, r.planned_date, r.confirmed_at,
@@ -1278,10 +1280,17 @@
     nm.textContent = o.project_name;
     text.appendChild(nm);
 
+    /* 담당자 표시명이 **이미 팀을 품고 있으면** 팀을 또 붙이지 않는다 — 명부의 display 는
+       '정수현(안전관리팀)' 같은 형식을 허용하고(gas/README 예시), 그때 '정수현(안전관리팀)
+       (안전관리팀)' 이 됐다(2026-08-19 데모 캡처에서 발견). 표시명에 팀이 없는 명부에서는
+       종전과 똑같이 '박종표(북부지사)' 로 나온다. */
+    var who = String(o.owner || '');
+    var team = String(o.team || '');
+    if (team && who.indexOf('(' + team + ')') < 0) who += '(' + team + ')';
     var meta = document.createElement('p');
     meta.className = 'dash-od-meta';
     meta.textContent = o.company_name + ' · ' + o.planned_date + ' · ' + o.days + '일 경과' +
-                       (o.owner ? ' · ' + o.owner : '') + (o.team ? '(' + o.team + ')' : '');
+                       (who ? ' · ' + who : '');
     text.appendChild(meta);
     row.appendChild(text);
 
