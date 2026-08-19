@@ -244,6 +244,17 @@ section.screen > .screen-body {
 /* hover/active는 5색 밖 새 색상 대신, 팔레트에 이미 있는 더 짙은 Primary 파랑으로 전환 */
 .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .btn-primary:active:not(:disabled) { background: var(--accent-active); transform: scale(0.98); }
+/* secondary — **새 점검 갈래** 전용 채움(사용자 지시 2026-08-19).
+   왜 앰버(--accent2 #8F5A10)가 아닌가: 승인 팔레트의 --warn(#93590F)과 사실상 같은 색이고,
+   이 앱에서 앰버는 이미 '보류·대기' 전용 어휘다(.continue-card · .text-warn · 큐 행 틴트).
+   새 점검이 '주의'로 읽히면 안 된다. 그래서 **짙은 먹녹(--color-text)** 으로 가른다 —
+   어떤 상태 어휘와도 겹치지 않고 초록 CTA 와 한눈에 갈린다.
+   대비(실측 계산): 흰 글자 15.7:1 · hover 10.2:1 · active 8.4:1 — 전부 AA 여유.
+   hover 가 **밝아지는** 방향인 것은 원색이 이미 거의 검정이라 어둡힐 여지가 없기 때문이다
+   (primary 는 반대로 어두워진다 — 두 계열의 규칙이 다른 이유를 여기 적어 둔다). */
+.btn-secondary { background: var(--color-text); color: var(--color-surface); }
+.btn-secondary:hover:not(:disabled) { background: color-mix(in srgb, var(--color-text) 86%, var(--color-surface)); }
+.btn-secondary:active:not(:disabled) { background: color-mix(in srgb, var(--color-text) 78%, var(--color-surface)); transform: scale(0.98); }
 .btn-outline { background: var(--color-surface); color: var(--color-primary); border-color: var(--tint-primary-strong); }
 .btn-outline:hover:not(:disabled) { background: var(--tint-primary); }
 .btn-outline:active:not(:disabled) { background: var(--tint-primary-strong); }
@@ -292,6 +303,27 @@ select.input {
 /* ---------- Home ---------- */
 .sync-line { font-size: 13px; color: var(--color-neutral); display: flex; align-items: center; gap: var(--space-2); }
 .template-list { display: flex; flex-direction: column; gap: var(--space-3); }
+
+/* 새 점검 구역 — 카드 경계 + **왼쪽 굵은 선**으로 갈래를 표시한다. 색만 바꾸면 버튼 하나만
+   달라 보이고, 카드로 묶어야 "다른 종류의 묶음" 으로 읽힌다(사용자 지시 2026-08-19). */
+.newcheck-card {
+  /* 배경은 다른 카드와 **같은 흰 카드**다. 옅은 먹 틴트(4%)로 해 봤더니 페이지 배경
+     (--color-bg #F1F6F5)과 거의 같은 색이라 카드 경계가 죽었다 — 갈래 표시는 왼쪽 굵은 선과
+     버튼 색이 진다. 덕분에 안의 글자도 다른 카드와 같은 불투명 합성이라 대비 계산이 하나로 준다. */
+  background: var(--color-surface);
+  border: 1px solid var(--tint-neutral-strong);
+  border-left: 4px solid var(--color-text);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.newcheck-card .section-title { margin-bottom: 0; }
+.newcheck-note { font-size: 13px; color: var(--color-neutral); margin: 0; line-height: 1.6; }
+/* 예정된 점검에도 대칭으로 — 두 갈래가 **나란히** 서 있음을 왼쪽 선이 말한다.
+   선이 한쪽에만 있으면 새 점검이 '예외' 로 보인다. */
+#home-plans { border-left: 4px solid var(--color-primary); }
 
 .continue-card {
   background: var(--tint-warn);   /* 보류(작성 중) 신호 — 관제 의미: 앰버 */

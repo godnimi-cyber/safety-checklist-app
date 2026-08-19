@@ -668,7 +668,9 @@
       templates.forEach(function (t) {
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'btn btn-primary btn-block template-btn';
+        /* **primary 가 아니다** — 예정된 점검의 「작성 시작」과 같은 초록 채움이면 같은
+           갈래로 읽힌다(사용자 지시 2026-08-19). secondary = 짙은 먹녹 채움. */
+        btn.className = 'btn btn-secondary btn-block template-btn';
         btn.textContent = '새 점검 시작 — ' + (t.name || t.template_id);
         btn.addEventListener('click', function () { startNewInspection(t); });
         list.appendChild(btn);
