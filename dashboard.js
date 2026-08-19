@@ -30,7 +30,10 @@
      렌더·CSV 는 payload·committedRange 만 본다. gen 은 요청 세대 — 최신 세대가 아닌
      응답은 도착해도 버린다(늦은 응답 역전·키 삭제 후 부활 방지).
      view: null=전체, 문자열=팀 name(빈 문자열 '(팀 없음)' 포함 — null 과 '' 는 다르다). */
-  var state = { key: '', gen: 0, payload: null, committedRange: null, view: null };
+  /* serverOk: **이 키로 서버 조회가 실제로 성공한 적이 있는가.** 저장본 복원(restoreLast_)은
+     서버를 부르지 않으므로 payload 만으로는 알 수 없다. 쓰기가 AUTH 로 거절됐을 때
+     "키가 틀렸다" 와 "서버가 그 action 을 아직 모른다" 를 가르는 데 쓴다(아래 odAuthFail_). */
+  var state = { key: '', gen: 0, payload: null, committedRange: null, view: null, serverOk: false };
 
   /* ---------- 순수 상태 전이 (DOM 없음 — dashboard-web.test.mjs 조각 평가 대상) ---------- */
 
@@ -54,6 +57,7 @@
     if (res && res.ok) {
       st.payload = res.data;
       st.committedRange = res.data.range;
+      st.serverOk = true;                      // 이 키로 서버가 실제로 응답했다
       if (st.view !== null && !findTeam_(res.data, st.view)) st.view = null;
       return 'committed';
     }
@@ -71,6 +75,7 @@
     st.payload = null;
     st.committedRange = null;
     st.view = null;
+    st.serverOk = false;
   }
 
   /** 현재 보기의 블록들. 범위 오류면 null(호출부가 사유를 그린다). */
@@ -944,6 +949,22 @@
            String(message || fallback || '처리하지 못했습니다');
   }
 
+  /** 쓰기가 AUTH 로 거절됐을 때 — **키를 지우기 전에 한 번 의심한다.**
+   *  조회는 방금 그 키로 됐는데(serverOk) 쓰기만 AUTH 라면, 키가 틀린 게 아니라 **서버가 그
+   *  action 을 아직 모르는** 것이다: 배포 안 된 새 action 은 대시보드 게이트에 안 걸려
+   *  공유키 게이트로 떨어지고, 거기서 '키 불일치'(AUTH)가 된다.
+   *  실측(2026-08-19): 공사취소를 눌렀더니 키가 지워지고 키 입력창이 떠서, 사용자가 PIN 을
+   *  키 칸에 넣었다. 원인은 Apps Script 새 버전 배포가 안 된 것이었다. 키를 지워 버리면
+   *  사용자는 원인을 모른 채 키부터 다시 찾아야 한다 — 조회는 멀쩡히 되는데도. */
+  function odAuthFail_(errBox) {
+    if (state.serverOk) {
+      errBox.textContent = '서버가 이 기능을 아직 모릅니다 — Apps Script 새 버전 배포가 ' +
+        '필요합니다(키 문제가 아닙니다). 조회는 그대로 됩니다.';
+      return;
+    }
+    hardReset_('키가 맞지 않습니다 — 다시 입력하세요');
+  }
+
   function odField_(label, value) {
     var d = document.createElement('div');
     d.className = 'dash-od-field';
@@ -1039,7 +1060,7 @@
         return;
       }
       var code = String((res && res.error && res.error.code) || '');
-      if (code === 'AUTH') { hardReset_('키가 맞지 않습니다 — 다시 입력하세요'); return; }
+      if (code === 'AUTH') { odAuthFail_(errBox); return; }
       /* PIN 오류는 **모달 안에서** 알린다 — 닫아 버리면 다시 열어 처음부터 해야 한다. */
       errBox.textContent = odErrorText_(code, res && res.error && res.error.message,
                                         '재등록하지 못했습니다');
@@ -1070,7 +1091,7 @@
         return;
       }
       var code = String((res && res.error && res.error.code) || '');
-      if (code === 'AUTH') { hardReset_('키가 맞지 않습니다 — 다시 입력하세요'); return; }
+      if (code === 'AUTH') { odAuthFail_(errBox); return; }
       /* PIN 오류는 **모달 안에서** 알린다 — 닫아 버리면 다시 열어 처음부터 해야 한다. */
       errBox.textContent = odErrorText_(code, res && res.error && res.error.message,
                                         '미점검으로 확정하지 못했습니다');
@@ -1141,7 +1162,7 @@
         return;
       }
       var code = String((res && res.error && res.error.code) || '');
-      if (code === 'AUTH') { hardReset_('키가 맞지 않습니다 — 다시 입력하세요'); return; }
+      if (code === 'AUTH') { odAuthFail_(errBox); return; }
       errBox.textContent = odErrorText_(code, res && res.error && res.error.message,
                                         '공사를 취소하지 못했습니다');
     });

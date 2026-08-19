@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-9f1a754b">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-9f1a754b">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-596de98c">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-596de98c">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -91,9 +91,12 @@
 .dash-od-name { margin: 0; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; }
 .dash-od-meta { margin: 2px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
 .dash-od-stale .dash-od-meta { color: var(--danger); }
-.dash-od-acts { display: flex; flex-direction: column; gap: 6px; flex: 0 0 auto; width: 112px; }
-/* 세로로 쌓은 조치 버튼 — 높이 44px 는 터치 타깃 하한이라 더 줄이지 않는다. */
-.dash-od-btn { width: 100%; min-height: 44px; padding: 0 8px; font-size: 0.88rem; }
+/* 조치는 **가로로** 나란히 둔다(사용자 지시 2026-08-19) — 세로로 쌓으면 행 하나가 세 배로
+   높아져 "한 줄로 만들라"던 목적이 사라진다. 폭이 모자라면 아래 미디어쿼리가 행 자체를
+   접는다(내용 위 / 조치 아래). */
+.dash-od-acts { display: flex; flex-direction: row; gap: 6px; flex: 0 0 auto; }
+/* 높이 44px 는 터치 타깃 하한이라 더 줄이지 않는다. 글자는 줄바꿈하지 않는다. */
+.dash-od-btn { min-height: 44px; padding: 0 12px; font-size: 0.88rem; white-space: nowrap; }
 /* 되돌릴 수 없는 조치는 테두리·글자로 구분한다 — 채우지 않는다(빨간 면이 두 줄 걸러 나오면
    목록 전체가 경보로 보여 정작 오래 밀린 건이 안 띈다). */
 .dash-od-danger { border-color: var(--danger); color: var(--danger); }
@@ -112,11 +115,11 @@
   line-height: 1.6; color: var(--text);
   border: 1px solid var(--danger);
   background: color-mix(in srgb, var(--danger) 8%, transparent); }
-/* 좁은 화면에서는 버튼을 아래로 내린다 — 108px 를 떼고 나면 공사명이 서너 줄이 된다. */
-@media (max-width: 420px) {
+/* 좁은 화면에서는 조치를 아래로 내린다 — 조치 셋이 가로로 230px 쯤 되어, 그만큼 떼고 나면
+   공사명이 대여섯 줄이 된다. 그때는 내용 한 줄 / 조치 한 줄이 낫다. */
+@media (max-width: 560px) {
   .dash-od-row { flex-direction: column; align-items: stretch; gap: 8px; }
-  .dash-od-acts { flex-direction: row; width: auto; }
-  /* 조치 셋이 한 줄에 들어간다 — 좁아도 글자가 잘리지 않게 좌우 여백만 줄인다 */
+  /* 셋이 폭을 고르게 나눠 갖는다 — 좁아도 글자가 잘리지 않게 좌우 여백만 줄인다 */
   .dash-od-acts .dash-btn { flex: 1 1 0; min-width: 0; padding: 0 4px; font-size: 0.84rem; }
 }
 .dash-od-form { display: grid; gap: 16px; margin: 16px 0; }
@@ -338,7 +341,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-9f1a754b"></script>
-<script src="./dashboard.js?v=0.5.5-9f1a754b"></script>
+<script src="./config.js?v=0.5.5-596de98c"></script>
+<script src="./dashboard.js?v=0.5.5-596de98c"></script>
 </body>
 </html>
