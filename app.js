@@ -491,6 +491,58 @@
       }, 400);
     });
   }
+  /* ── 부팅 1회 왕복 (2026-08-20) ────────────────────────────────────────
+     실측: 요청 1건당 붙는 플랫폼 고정비가 **1.76초**다(시트를 한 탭도 안 읽는 요청도
+     1.36초 + 배달 0.40초). 부팅이 masters+plans 두 번이면 그 고정비를 두 번 낸다.
+     한 번으로 합치면 그 절반이 그냥 사라진다.
+
+     **캐시된 마스터가 온전할 때만 rev 를 보낸다.** rev 만 맞고 실제 데이터가 깨져 있으면
+     서버가 masters 를 생략하고, 앱은 빈 목록으로 영영 돈다. rev 는 마스터 객체 **안에**
+     있으므로 데이터가 없으면 rev 도 없지만, 형태까지 확인해야 부분 손상을 거른다. */
+  function mastersUsable_(m) {
+    return !!(m && typeof m.rev === 'string' && m.rev &&
+      m.companies && m.companies.length !== undefined &&
+      m.projects && m.projects.length !== undefined &&
+      m.inspectors && m.inspectors.length !== undefined &&
+      m.templates && m.templates.length !== undefined);
+  }
+
+  function fetchBootstrapRemote(rev) {
+    /* v(앱 버전)는 서버가 읽고 버린다 — 신·구 클라이언트를 **나눠 보기** 위한 표식이다.
+       전환기에는 갱신 안 된 폰이 옛 두 경로를 계속 부르므로, 이게 없으면 "개선했는데
+       체감이 그대로"인지 "아직 안 퍼진 것"인지 구별할 수 없다. */
+    var q = CONFIG.API_URL + '?action=bootstrap&k=' + CONFIG.SHARED_KEY +
+      '&v=' + encodeURIComponent(CONFIG.APP_VER);
+    if (rev) q += '&rev=' + encodeURIComponent(rev);
+    return getJson(q, syncNotice_);
+  }
+
+  /** 부팅 시 1회. 실패하면 **옛 두 경로로 되돌아간다** — 서버가 아직 bootstrap 을 모를 수도
+      있고(배포 순서), 그 한 번의 실패로 부팅을 통째로 잃으면 안 된다. */
+  function bootstrapOnce() {
+    if (CONFIG.MOCK) { refreshMasters(); refreshPlans(); return; }
+    var rev = mastersUsable_(state.masters) ? state.masters.rev : '';
+    return fetchBootstrapRemote(rev).then(function (res) {
+      if (!res || !res.ok || !res.data) { refreshMasters(); refreshPlans(); return; }
+      var d = res.data;
+      if (d.masters) {
+        refreshMasters({ ok: true, data: d.masters });
+      } else if (mastersUsable_(state.masters)) {
+        /* 서버가 "안 바뀌었다"고 했다. 캐시본을 그대로 쓰되 **준비상태(caps)는 매번 최신**이다
+           — 스코프 승인·탭 생성이 끝나면 버튼이 나와야 하는데 그건 마스터 내용이 아니다. */
+        state.masters.caps = d.caps;
+        state.mastersSyncedAt = new Date().toISOString();
+        state.storage.saveMasters({ data: state.masters, syncedAt: state.mastersSyncedAt });
+        state.masterBanner = null;
+        if (state.currentScreen === 'home') renderHome();
+      } else {
+        /* 여기 오면 안 된다(온전할 때만 rev 를 보내므로). 와도 조용히 넘어가지 않는다. */
+        refreshMasters();
+      }
+      refreshPlans(null, { ok: true, data: { plans: (d.plans || []) } });
+    });
+  }
+
   function loadPlansFromNetwork() {
     return CONFIG.MOCK ? mockPlansList() : fetchPlansRemote();
   }
@@ -1915,12 +1967,14 @@
      - plansSeq: 조회끼리도 도착 순서가 뒤집힌다. 늦게 보낸 R2 가 먼저 도착해 반영된 뒤
        R1 이 도착하면 최신 목록이 옛 목록으로 되돌아간다 — 세대만으로는 이걸 못 막는다.
        **가장 마지막에 시작한 조회만** 반영한다. */
-  function refreshPlans(retriesLeft) {
+  function refreshPlans(retriesLeft, prefetched) {
     var gen = state.plansGen || 0;
     var seq = state.plansSeq = (state.plansSeq || 0) + 1;
     /* 재조회 상한 — 매번 세대가 밀리면(사용자가 계속 조작 중) 무한 재귀가 된다. */
     var left = (retriesLeft == null) ? 2 : retriesLeft;
-    return loadPlansFromNetwork().then(function (result) {
+    /* prefetched 를 줘도 **세대·순번 검사는 그대로 탄다** — 부팅 응답이 늦게 도착하는
+       사이에 사용자가 계획을 취소했다면 그 낙관값을 덮으면 안 된다. */
+    return (prefetched ? Promise.resolve(prefetched) : loadPlansFromNetwork()).then(function (result) {
       if (seq !== state.plansSeq) return;   /* 더 나중에 시작한 조회가 있다 — 이 응답은 버린다 */
       if ((state.plansGen || 0) !== gen) {
         /* 이 조회가 도는 동안 수정·취소가 성공했다 — 이 응답은 이미 낡았다. 조용히 버리지
@@ -2976,8 +3030,11 @@
     var cached = state.storage.loadMasters();
     if (cached && cached.data) { state.masters = cached.data; state.mastersSyncedAt = cached.syncedAt || null; }
   }
-  function refreshMasters() {
-    return loadMastersFromNetwork().then(function (result) {
+  /* prefetched: bootstrap 이 이미 받아 온 봉투. 주면 네트워크를 다시 타지 않는다.
+     **적용 로직을 복사하지 않기 위한 입구**다 — 배너·저장·렌더 규칙이 두 벌이 되면
+     한쪽만 고치는 날이 온다(이 저장소가 여러 번 밟은 자리). */
+  function refreshMasters(prefetched) {
+    return (prefetched ? Promise.resolve(prefetched) : loadMastersFromNetwork()).then(function (result) {
       if (result.ok) {
         state.masters = result.data;
         state.mastersSyncedAt = new Date().toISOString();
@@ -3203,8 +3260,7 @@
     }
     if (draftsErr && isCorruptOp(draftsErr.op)) notices.push(corruptNotice('작성 중이던 점검이', draftsErr));
     if (notices.length) showBanner('error', notices.join(' / '));
-    refreshMasters();
-    refreshPlans();
+    bootstrapOnce();   /* 부팅은 1회 왕복 — 실패하면 그 안에서 옛 두 경로로 되돌아간다 */
   }
 
   document.addEventListener('DOMContentLoaded', init);
