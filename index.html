@@ -8,11 +8,11 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-0ccbab4a">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-ce51a059">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-0ccbab4a">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-ce51a059">
 <title>현장 안전점검</title>
 </head>
 <body>
@@ -424,7 +424,13 @@
 <template id="tpl-plan-row">
   <div class="plan-row">
     <div class="plan-row-info">
-      <span class="plan-date"></span>
+      <!-- 첫 줄은 날짜(왼쪽) + 팀 칩(오른쪽). 팀 칩이 오른쪽 끝에 고정되면 목록을 훑을 때
+           세로로 한 줄이 생겨 "어느 팀 것인지"가 한눈에 잡힌다(사용자 지시 2026-08-21). -->
+      <span class="plan-line1">
+        <span class="plan-date"></span>
+        <span class="plan-team" hidden></span>
+      </span>
+
       <span class="plan-project"></span>
       <span class="plan-company"></span>
       <span class="plan-note" hidden></span>
@@ -454,7 +460,13 @@
 <template id="tpl-manage-plan-row">
   <div class="plan-row">
     <div class="plan-row-info">
-      <span class="plan-date"></span>
+      <!-- 첫 줄은 날짜(왼쪽) + 팀 칩(오른쪽). 팀 칩이 오른쪽 끝에 고정되면 목록을 훑을 때
+           세로로 한 줄이 생겨 "어느 팀 것인지"가 한눈에 잡힌다(사용자 지시 2026-08-21). -->
+      <span class="plan-line1">
+        <span class="plan-date"></span>
+        <span class="plan-team"></span>
+      </span>
+
       <span class="plan-project"></span>
       <span class="plan-company"></span>
       <span class="plan-note" hidden></span>
@@ -481,9 +493,9 @@
   </div>
 </template>
 
-<script src="./config.js?v=0.5.5-0ccbab4a"></script>
-<script src="./lib.js?v=0.5.5-0ccbab4a"></script>
-<script src="./logic.js?v=0.5.5-0ccbab4a"></script>
-<script src="./app.js?v=0.5.5-0ccbab4a"></script>
+<script src="./config.js?v=0.5.5-ce51a059"></script>
+<script src="./lib.js?v=0.5.5-ce51a059"></script>
+<script src="./logic.js?v=0.5.5-ce51a059"></script>
+<script src="./app.js?v=0.5.5-ce51a059"></script>
 </body>
 </html>

@@ -1059,6 +1059,15 @@
      표시명 채우기)가 **뒤에 선언돼 이긴다**. 그러면 필터는 아무 일도 안 하고, 팀을 고를
      때마다 사전등록 폼의 점검자 목록이 조용히 덮어써진다(실측 결함). */
   function onPlansFilterChange() { setPlanTeamFilter($('home-plans-team').value); }
+  /** 계획 카드의 팀 칩. 빈 팀은 필터가 쓰는 말과 같은 「팀 미상」으로 — 화면마다 다른 말을
+   *  쓰면 같은 것을 다른 것으로 읽는다. show=false 면 자리도 차지하지 않는다. */
+  function setPlanTeam(node, plan, show) {
+    var el = node.querySelector('.plan-team');
+    if (!el) return;
+    el.hidden = !show;
+    if (show) el.textContent = plan.team || '팀 미상';
+  }
+
   function renderPlanList() {
     var wrap = $('home-plans-list');
     wrap.innerHTML = '';
@@ -1095,6 +1104,12 @@
       dateEl.classList.toggle('plan-overdue', overdue);
       node.querySelector('.plan-project').textContent = p.project_name;
       node.querySelector('.plan-company').textContent = p.company_name;
+      /* 팀은 **「전체」 보기일 때만** 보인다(사용자 지시 2026-08-21). 여러 팀 계획이 섞이면
+         카드가 날짜·공사·협력회사만 다를 뿐 「작성 시작」이 전부 똑같아 보인다 — 남의 팀
+         계획을 열어 작성하는 길이 열린다. 팀을 골라 놓은 상태에서는 모두 같은 값이라 소음이다.
+         **색으로 팀을 가르지 않는다**: 승인 팔레트는 5색인데 팀 수는 늘 수 있고, 색만으로
+         의미를 전달하면 WCAG 1.4.1 을 어긴다. 글자와 테두리로 말한다. */
+      setPlanTeam(node, p, state.planTeamFilter == null || state.planTeamFilter === ALL_TEAMS);
 
       var hasDraft = !!(state.drafts && state.drafts[p.plan_id]);
       var startBtn = node.querySelector('.plan-btn-start');
@@ -1598,6 +1613,9 @@
       dateEl.classList.toggle('plan-overdue', overdue);
       node.querySelector('.plan-project').textContent = p.project_name;
       node.querySelector('.plan-company').textContent = p.company_name;
+      /* 관리 화면에는 **팀 필터가 없다** — 늘 전 팀이 섞여 나온다. 그래서 항상 보인다.
+         여기 버튼은 「예정일 변경」과 「취소」라, 남의 팀 계획을 건드리는 값이 홈보다 크다. */
+      setPlanTeam(node, p, true);
 
       var editBtn = node.querySelector('.plan-btn-edit');
       var cancelBtn = node.querySelector('.plan-btn-cancel');

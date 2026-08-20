@@ -480,7 +480,22 @@ h1, h2, h3 { font-family: var(--font-heading, var(--font-sans)); }   /* 킷 헤�
   border: 1px solid var(--tint-neutral-strong);
 }
 #home-plans .plan-row-info, #screen-manage .plan-row-info { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+#home-plans .plan-line1, #screen-manage .plan-line1 {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+}
 #home-plans .plan-date, #screen-manage .plan-date { font-weight: 700; }
+/* 팀 칩 — **글자와 테두리로** 말한다. 색으로 팀을 가르지 않는 이유는 app.js 주석 참고
+   (팔레트 5색 · 팀 수 가변 · WCAG 1.4.1). 줄바꿈 금지: 오른쪽 끝 정렬이 스캔의 핵심이다. */
+#home-plans .plan-team, #screen-manage .plan-team {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-neutral-text);
+  border: 1px solid var(--tint-neutral-strong);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
 #home-plans .plan-overdue, #screen-manage .plan-overdue { color: var(--color-danger); }
 #home-plans .plan-project, #screen-manage .plan-project { font-weight: 600; }
 #home-plans .plan-company, #screen-manage .plan-company { color: var(--color-neutral); }
