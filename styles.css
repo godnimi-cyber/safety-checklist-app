@@ -540,15 +540,18 @@ h1, h2, h3 { font-family: var(--font-heading, var(--font-sans)); }   /* 킷 헤�
 }
 .progress-fill { height: 100%; background: var(--color-cta); width: 0%; border-radius: 999px; }
 #progress-text { font-size: 13px; font-weight: 700; white-space: nowrap; }
+/* 아이콘 + **보이는 라벨**(사용자 지시 2026-08-19 UX 개선) — 라벨을 넣느라 터치 타깃을
+   깎지 않는다. 높이 48px 유지, 폭만 글자만큼 늘린다(장갑 착용 조작 전제). */
+.jump-label { font-size: 13px; font-weight: 700; }
 #btn-jump-unanswered {
-  /* 아이콘 전용이지만 장갑 착용 조작을 전제로 48px 터치 타깃 */
-  width: 48px;
+  min-width: 48px;
   height: 48px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   flex-shrink: 0;
-  padding: 0;
+  padding: 0 12px;
   border-radius: 999px;
   background: var(--tint-primary);
   color: var(--color-primary);
@@ -607,6 +610,9 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
 .item-text { font-size: 15px; font-weight: 600; line-height: 1.5; }
 .item-criteria { font-size: 13px; }
 /* 접이식 '점검기준' — 텍스트 높이(약 26px)로는 터치 타깃이 부족해 44px 하한을 강제 */
+/* 펼침 표시를 **되살린다**(사용자 지시 2026-08-19 UX 개선). 기본 삼각형을 지워 놓아
+   접힌 상태인지 알 방법이 없었다 — NN/g 아코디언 지침은 "펼칠 수 있음을 시각적으로 분명히
+   드러내라(캐럿·플러스)"고 못 박는다. 기본 마커 대신 우리 캐럿을 그린다(회전으로 상태 표시). */
 .item-criteria summary {
   list-style: none;
   color: var(--color-primary);
@@ -614,9 +620,23 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
   min-height: 44px;
   display: flex;
   align-items: center;
+  gap: var(--space-2);
   padding: var(--space-1) 0;
+  cursor: pointer;
 }
 .item-criteria summary::-webkit-details-marker { display: none; }
+.item-criteria summary::after {
+  content: '';
+  width: 8px; height: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform 0.15s ease;
+}
+.item-criteria[open] summary::after { transform: rotate(-135deg) translate(-2px, -2px); }
+@media (prefers-reduced-motion: reduce) {
+  .item-criteria summary::after { transition: none; }
+}
 .criteria-body { color: var(--color-neutral); padding-top: var(--space-1); line-height: 1.5; }
 
 .seg { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-2); }

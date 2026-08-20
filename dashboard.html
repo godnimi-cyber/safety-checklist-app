@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-dffe72ef">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-dffe72ef">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-0ccbab4a">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-0ccbab4a">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -46,6 +46,15 @@
   border-color: color-mix(in srgb, var(--on-accent) 70%, transparent); color: var(--on-accent); }
 .dash-topbar .dash-btn:hover { background: color-mix(in srgb, var(--on-accent) 26%, transparent); border-color: var(--on-accent); }
 .dash-topbar .dash-btn:focus-visible { outline-color: var(--on-accent); }
+/* 파괴적 조치 — 간격으로 떼고(오탭 방지) 테두리·글자로도 구분한다. 상단바가 진한 초록이라
+   danger 원색은 대비가 안 나온다: 밝은 면 + danger 글자로 뒤집어 5.7:1 을 확보한다. */
+.dash-topbar .dash-btn-danger {
+  margin-left: 28px;
+  background: var(--on-accent);
+  color: var(--danger);
+  border-color: var(--on-accent);
+}
+.dash-topbar .dash-btn-danger:hover { background: var(--surface); border-color: var(--surface); }
 .dash-btn { min-height: 44px; padding: 0 18px; border: 1px solid var(--border);
   border-radius: 10px; background: var(--surface); color: var(--text);
   cursor: pointer; font-size: 0.95rem; font-weight: 600;
@@ -89,7 +98,21 @@
 .dash-od-text { flex: 1 1 auto; min-width: 0; }
 /* 공사명은 **자르지 않는다** — 이 목록의 주소는 끝자리만 다르다(dashboard.js overdueRow_ 주석). */
 .dash-od-name { margin: 0; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; }
-.dash-od-meta { margin: 2px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
+.dash-od-meta { margin: 3px 0 0; font-size: 13px; color: var(--muted); line-height: 1.5;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* 경과일 배지 — 숫자를 앞세워 조치 순서를 정하게 한다. 테두리를 함께 둬서 색을 못 보는
+   사람에게도 '오래 밀림'이 전달되게 한다(WCAG 1.4.1 색만으로 의미 전달 금지). */
+.dash-od-days {
+  flex: none;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text);
+  background: var(--surface);
+}
+.dash-od-days-stale { border-color: var(--danger); color: var(--danger); }
 .dash-od-stale .dash-od-meta { color: var(--danger); }
 /* 조치는 **가로로** 나란히 둔다(사용자 지시 2026-08-19) — 세로로 쌓으면 행 하나가 세 배로
    높아져 "한 줄로 만들라"던 목적이 사라진다. 폭이 모자라면 아래 미디어쿼리가 행 자체를
@@ -299,7 +322,10 @@
     <button type="button" class="dash-btn" id="btn-dash-theme">어둡게</button>
     <button type="button" class="dash-btn" id="btn-dash-refresh" hidden>새로고침</button>
     <button type="button" class="dash-btn" id="btn-dash-monthly" hidden>월간 리포트</button>
-    <button type="button" class="dash-btn" id="btn-dash-clearkey" hidden>키 지우기</button>
+    <!-- 「키 지우기」는 되돌릴 수 없는 조치다. 일상 조치(새로고침·월간 리포트) 바로 옆에 같은
+         무게로 두지 않는다 — NN/g 「Dangerous UX: Consequential Options Close to Benign
+         Options」. 간격을 벌리고(피츠 법칙으로 일부러 멀게) 색·테두리로도 구분한다. -->
+    <button type="button" class="dash-btn dash-btn-danger" id="btn-dash-clearkey" hidden>키 지우기</button>
   </header>
 
   <div id="dash-banner" aria-live="polite"></div>
@@ -341,7 +367,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-dffe72ef"></script>
-<script src="./dashboard.js?v=0.5.5-dffe72ef"></script>
+<script src="./config.js?v=0.5.5-0ccbab4a"></script>
+<script src="./dashboard.js?v=0.5.5-0ccbab4a"></script>
 </body>
 </html>

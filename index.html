@@ -8,11 +8,11 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-dffe72ef">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-0ccbab4a">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-dffe72ef">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-0ccbab4a">
 <title>현장 안전점검</title>
 </head>
 <body>
@@ -173,8 +173,12 @@
       <div class="progress-bar" id="write-progress-bar" hidden>
         <span id="progress-text">0/0</span>
         <span class="progress-track"><span class="progress-fill" id="progress-fill"></span></span>
+        <!-- 아이콘만 두지 않는다(사용자 지시 2026-08-19 UX 개선). NN/g: 아이콘에는 텍스트
+             라벨이 필요하고, 라벨 없는 아이콘은 '검색·닫기·재생' 처럼 만인이 아는 것에만 쓴다.
+             아래 화살표가 "미응답 항목으로 이동"을 뜻한다고 알 사람은 없다. -->
         <button type="button" id="btn-jump-unanswered" aria-label="미응답 항목으로 이동">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M12 4v14m0 0l-5-5m5 5l5-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M12 4v14m0 0l-5-5m5 5l5-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="jump-label">미응답</span>
         </button>
       </div>
 
@@ -375,7 +379,11 @@
 <template id="tpl-item-card">
   <article class="item-card">
     <p class="item-text"></p>
-    <details class="item-criteria">
+    <!-- open: 판정 근거를 **접어 두지 않는다**(사용자 지시 2026-08-19 UX 개선).
+         NN/g 아코디언 지침 — "핵심 정보는 접힌 패널 안에 두지 말라". 안전점검에서 판정 기준은
+         부수 정보가 아니라 판정 그 자체의 근거다. 접어 두면 안 보고 찍는(pencil whipping)
+         길을 UI 가 열어 주는 셈이다. 접을 수는 있게 남긴다 — 외운 사람은 접고 훑는다. -->
+    <details class="item-criteria" open>
       <summary>점검기준</summary>
       <p class="criteria-body"></p>
     </details>
@@ -473,9 +481,9 @@
   </div>
 </template>
 
-<script src="./config.js?v=0.5.5-dffe72ef"></script>
-<script src="./lib.js?v=0.5.5-dffe72ef"></script>
-<script src="./logic.js?v=0.5.5-dffe72ef"></script>
-<script src="./app.js?v=0.5.5-dffe72ef"></script>
+<script src="./config.js?v=0.5.5-0ccbab4a"></script>
+<script src="./lib.js?v=0.5.5-0ccbab4a"></script>
+<script src="./logic.js?v=0.5.5-0ccbab4a"></script>
+<script src="./app.js?v=0.5.5-0ccbab4a"></script>
 </body>
 </html>

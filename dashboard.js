@@ -1344,10 +1344,20 @@
     var who = String(o.owner || '');
     var team = String(o.team || '');
     if (team && who.indexOf('(' + team + ')') < 0) who += '(' + team + ')';
+    /* 경과일을 **배지로 앞세운다**(사용자 지시 2026-08-19 UX 개선). 이전에는 메타 한 줄
+       가운데 묻혀 있어 '1일'과 '8일'이 같은 무게로 읽혔다. 오래 밀린 건이 먼저 눈에 들어와야
+       조치 순서가 정해진다.
+       **색만으로 말하지 않는다**(WCAG 1.4.1) — 왼쪽 선 색이 유일한 신호였는데, 배지에 숫자와
+       테두리를 함께 둬 색을 못 보는 사람에게도 같은 정보가 간다. */
     var meta = document.createElement('p');
     meta.className = 'dash-od-meta';
-    meta.textContent = o.company_name + ' · ' + o.planned_date + ' · ' + o.days + '일 경과' +
-                       (who ? ' · ' + who : '');
+    var badge = document.createElement('span');
+    badge.className = 'dash-od-days' + (o.days >= OD_STALE_DAYS ? ' dash-od-days-stale' : '');
+    badge.textContent = o.days + '일 경과';
+    meta.appendChild(badge);
+    var rest = document.createElement('span');
+    rest.textContent = o.company_name + ' · ' + o.planned_date + (who ? ' · ' + who : '');
+    meta.appendChild(rest);
     text.appendChild(meta);
     row.appendChild(text);
 
@@ -1520,6 +1530,10 @@
     el_('btn-dash-refresh').addEventListener('click', fetchDashboard);
     el_('btn-dash-monthly').addEventListener('click', openMonthly_);
     el_('btn-dash-clearkey').addEventListener('click', function () {
+      /* **한 번 묻는다.** 지우면 저장된 키와 마지막 화면이 함께 사라지고, 키를 다시 구해
+         넣기 전까지 아무것도 못 본다 — 되돌릴 수 없는 조치를 즉시 실행하지 않는다
+         (NN/g 파괴적 조치 지침). 상단바에서 바로 눌리는 자리라 오탭 위험이 실재한다. */
+      if (!confirm('저장된 키를 지웁니다.\n\n이 기기에서 대시보드를 다시 보려면 키를 다시 입력해야 합니다. 계속할까요?')) return;
       hardReset_('저장된 키를 지웠습니다');
     });
     el_('dash-team').addEventListener('change', onTeamChange_);
