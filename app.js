@@ -334,6 +334,12 @@
      고착돼 제출 버튼과 큐가 함께 얼어붙는다(사용자가 앱을 다시 띄우는 것 말고 할 게 없어진다).
      타임아웃은 재시도 가능(NETWORK)으로 취급한다. */
   var REQUEST_TIMEOUT_MS = 25000;
+  /* 제출 화면의 **대기 상한**(2026-08-21, 응답속도 개선). 라이브 실측: 쓰기 경로 중앙 3.3초,
+     관측 최대 6.1초 — 12초는 그 두 배 여유다. 25초 타임아웃과 별개로, 12초가 지나면
+     기다림만 멈추고 큐에 보관한다(아래 withDeadline 주석 참고). */
+  var SUBMIT_DEADLINE_MS = 12000;
+  /* 버튼 문구를 바꾸는 시점 — 4초를 넘기면 '느린 것'이지 '죽은 것'이 아님을 말해 준다. */
+  var SUBMIT_SLOW_HINT_MS = 4000;
   var TIMEOUT_MESSAGE = '서버 응답이 없어 ' + Math.round(REQUEST_TIMEOUT_MS / 1000) + '초 만에 요청을 중단했습니다';
   /* 항상 { ok, ... } 봉투로 resolve 한다 — 절대 reject 하지 않는다.
      AbortController 가 없는 구형 브라우저에서도 타이머가 봉투를 확정하므로 프로미스가 매달리지 않는다. */
@@ -365,6 +371,23 @@
         finish({ ok: false, error: { code: 'NETWORK', message: (err && err.message) || '네트워크 오류' } });
       });
     });
+  }
+
+  /* 약속에 **마감**을 건다 — ms 안에 안 끝나면 NETWORK 봉투로 확정한다.
+   *  **끊지 않는다(abort 없음)** 는 것이 요점이다: 서버가 이미 쓰는 중일 수 있는 요청을
+   *  죽이지 않고 그대로 완주하게 두되, 사용자만 먼저 풀어 준다. 늦게 온 응답은 버려진다.
+   *  이래도 안전한 근거: 제출은 submission_id 로 멱등이라, 마감 뒤 큐 재시도가
+   *  ① 서버가 이미 썼으면 dup:true(성공) ② 못 썼으면 이번에 쓴다 — 두 경우 다 한 번만 남는다
+   *  (flushQueue 가 result.ok 로 dup 도 성공 처리하는 것을 확인하고 설계했다).
+   *  **제출에만 쓴다.** 계획 등록·취소에는 이 멱등 안전망이 없다 — 거기 걸면 이중 등록이 열린다. */
+  function withDeadline(promise, ms) {
+    return Promise.race([promise, new Promise(function (resolve) {
+      setTimeout(function () {
+        resolve({ ok: false, error: { code: 'NETWORK',
+          message: '서버 응답이 ' + Math.round(ms / 1000) + '초를 넘겨 기다림을 멈췄습니다. '
+            + '미전송 큐에서 자동 재전송되며, 서버에 이미 닿았다면 중복 없이 한 번만 기록됩니다' } });
+      }, ms);
+    })]);
   }
 
   /* ── GET 재시도 (2026-08-19) ─────────────────────────────────────────
@@ -3028,7 +3051,12 @@
     btn.disabled = true;
     btn.textContent = '제출 중...';
     $('btn-review-back').disabled = true;
-    submitToServer(payload).then(function (result) {
+    /* 4초를 넘기면 문구로 상황을 알린다 — 정지한 버튼 글자는 4초부터 '죽었나' 로 읽힌다.
+       실측 중앙 3.3초라 대부분은 이 문구를 보기 전에 끝난다. */
+    var slowHint = setTimeout(function () {
+      btn.textContent = '제출 중 — 서버 응답 대기(최대 ' + Math.round(SUBMIT_DEADLINE_MS / 1000) + '초)...';
+    }, SUBMIT_SLOW_HINT_MS);
+    withDeadline(submitToServer(payload), SUBMIT_DEADLINE_MS).then(function (result) {
       if (result.ok) {
         /* H1: 서버가 제출을 접수하면 그 계획은 done 으로 전이해 GET plans 에서 더 이상 내려오지
            않는다 — 재조회를 기다리지 않고 로컬에서도 즉시 지운다(오프라인이면 refreshPlans 가
@@ -3102,6 +3130,7 @@
       show('home');
     }).finally(function () {
       /* 어느 경로로 끝나든 submitting 을 반드시 푼다 — 여기서 새면 제출 버튼이 영구히 잠긴다 */
+      clearTimeout(slowHint);
       state.submitting = false;
       if (state.currentScreen === 'review') renderReview();
     }).catch(function (e) {
