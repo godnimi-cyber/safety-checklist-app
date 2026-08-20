@@ -2601,8 +2601,8 @@
   var cardPainters = {};
 
   /* 기본안전수칙 item_id -> 그 분류의 세부 항목을 감싼 <details>.
-     적합·부적합이면 펼치고, 해당없음이면 접은 채로 일괄 처리한다. cardPainters 와 같은
-     이유로 buildStep2 마다 비운다(옛 DOM 을 붙잡지 않게). */
+     **어느 답이든 펼친다**(사용자 지시 2026-08-21 — 아래 클릭 처리부 주석 참고).
+     cardPainters 와 같은 이유로 buildStep2 마다 비운다(옛 DOM 을 붙잡지 않게). */
   var subBoxOf = {};
 
   /* 기본안전수칙(group)에서 '해당없음' 을 고르면 같은 분류의 일반 안전수칙(item)을 함께 처리한다.
@@ -2755,13 +2755,17 @@
           if (r === 'NA') {
             cascaded = cascadeNaToCategory(it);
             cascaded.forEach(function (id) { if (cardPainters[id]) cardPainters[id](); });
-            /* 접은 채로 둔다 — 해당없음이면 세부를 볼 이유가 없다. 필요하면 사용자가 직접 편다. */
-            if (box) box.open = false;
-          } else if (box) {
-            /* 적합·부적합은 둘 다 편다. 부적합이면 어느 세부 항목 때문인지 남겨야 하므로
-               적합보다 더 필요하다. */
-            box.open = true;
           }
+          /* **어느 답이든 펼친다**(사용자 지시 2026-08-21: "해당없음 체크해도 카테고리를
+             펼쳐서 어떤 내용이 있는지 알게 해줘").
+             전에는 해당없음일 때만 접었다 — 스크롤을 줄이려는 것이었다. 그런데 이 조작은
+             **하위 여러 항목의 답을 한꺼번에 바꾼다.** 바꿔 놓고 감추면 무엇이 해당없음으로
+             처리됐는지 확인할 방법이 없다. 안전점검 기록은 법정 보존 대상이라, 내가 낸 답을
+             내가 못 보는 상태를 만들면 안 된다.
+             일관성 문제도 있었다: 화면을 다시 그리면(buildStep2 의 subBox.open = subItems.some)
+             답이 있는 하위는 어차피 펼쳐졌다 — 클릭 직후에만 접히는 반쪽 규칙이었다.
+             스크롤 비용은 사용자가 그 분류를 직접 골랐을 때만 든다(자동으로 늘지 않는다). */
+          if (box) box.open = true;
         }
         invalidateAck();
         /* paint() 를 안내보다 **먼저** 부른다. 부적합(사유 미입력) 상태의 그룹을 해당없음으로
@@ -2772,7 +2776,7 @@
         if (cascadeNote) {
           if (cascaded.length) {
             cascadeNote.textContent = '이 분류의 하위 ' + cascaded.length +
-              '개 항목을 해당없음으로 함께 처리했습니다. 필요하면 개별로 바꿀 수 있습니다.';
+              '개 항목을 해당없음으로 함께 처리했습니다 — 아래에서 확인하고 개별로 바꿀 수 있습니다.';
             cascadeNote.hidden = false;
           } else if (r !== 'NA') {
             cascadeNote.hidden = true;
