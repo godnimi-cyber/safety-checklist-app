@@ -6,6 +6,7 @@ var SafetyLogic = (function () {
   var MASTERS_KEY = 'sc_masters';
   var PLANS_KEY = 'sc_plans';
   var SENT_KEY = 'sc_sent';   /* 오늘 보낸 점검 영수증(당일분만 보관) */
+  var TEL_KEY = 'sc_tel';     /* 서버 호출 실패 카운터 — 다음 성공 부팅에 실려 간다 */
   var RECENT_EMAIL_KEY = 'sc_recent_email';   /* 점검자별 최근 발송 주소 — { <inspector_id>: [addr,...] } 맵 */
 
   function hasWebCrypto() {
@@ -437,6 +438,15 @@ var SafetyLogic = (function () {
     /* 마스터/계획 캐시 — draft/queue 와 같은 방식(saveJSON/loadJSON, 예외 없이 false/lastError).
        app.js 가 이 래퍼를 거치지 않고 window.localStorage 를 직접 만지면 안 된다(감사 지적,
        tests-js/wiring.test.mjs §18c). 값 형태는 호출자(app.js) 자유 — 여기서는 불투명 JSON 블롭이다. */
+    /* 서버 호출 실패 카운터. **다음 부팅이 성공했을 때** 서버로 실려 가고, 서버가
+       확인(ACK)해 준 뒤에야 지워진다 — 먼저 지우면 전송이 유실된 순간 숫자가 사라진다.
+       담기는 것은 숫자 3개와 배치 id 뿐이다(주소·메시지·식별정보 없음). */
+    api.saveTel = function (entry) { api.lastError = null; return saveJSON(TEL_KEY, entry); };
+    api.loadTel = function () {
+      api.lastError = null;
+      var result = loadJSON(TEL_KEY, null);
+      return result.ok ? result.value : null;
+    };
     api.saveMasters = function (entry) { api.lastError = null; return saveJSON(MASTERS_KEY, entry); };
     api.loadMasters = function () {
       api.lastError = null;   /* R4 */

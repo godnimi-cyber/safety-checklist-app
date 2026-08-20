@@ -406,6 +406,58 @@
     return code === 'NETWORK' || code === 'LOCK_TIMEOUT';
   }
 
+  /* ── 실패 카운터 (2026-08-20) ──────────────────────────────────────────
+     **이 숫자는 현장 실패율이 아니다.** 앱이 **다시 접속에 성공했을 때만** 실려 가므로,
+     앱을 다시 안 연 사람의 실패는 영영 안 온다. 서버가 계속 죽어 있으면 보고 자체가 못
+     온다 — 가장 나쁜 날의 값이 가장 작게 잡힌다. **재방문 클라이언트가 보고한 하한**이다.
+     그래도 두는 이유: 지금까지 현장 실패에 대해 가진 것이 사용자의 말과 개발 PC 의 curl
+     뿐이었다. 하한이라도 숫자가 있는 편이 낫다.
+
+     담기는 것은 **숫자 3개**뿐이다 — 주소·오류 메시지·식별 정보는 싣지 않는다. */
+  var tel = { net: 0, lock: 0, recovered: 0 };   /* 이번 세션분(아직 안 봉인) */
+  var telPending = null;                          /* 봉인된 배치 — ACK 를 받아야 지운다 */
+
+  function telCount_(code, recovered) {
+    if (recovered) { tel.recovered += 1; return; }
+    if (code === 'NETWORK') tel.net += 1;
+    else if (code === 'LOCK_TIMEOUT') tel.lock += 1;
+  }
+
+  /** 부팅 때 **직전 세션까지의** 카운터를 배치로 봉인한다. 이미 봉인된 것이 있으면
+      (= 지난번에 ACK 를 못 받았으면) 그것을 그대로 다시 보낸다. */
+  function telSeal_() {
+    var saved = state.storage.loadTel();
+    if (saved && saved.id) { telPending = saved; return telPending; }
+    var carry = (saved && saved.acc) || { net: 0, lock: 0, recovered: 0 };
+    if (!(carry.net || carry.lock || carry.recovered)) return null;   /* 0이면 안 보낸다 */
+    telPending = {
+      id: telBatchId_(),
+      net: carry.net || 0, lock: carry.lock || 0, recovered: carry.recovered || 0
+    };
+    state.storage.saveTel({ id: telPending.id, net: telPending.net,
+                            lock: telPending.lock, recovered: telPending.recovered });
+    return telPending;
+  }
+
+  /* 배치 id — 서버 정규식(영숫자·_·- 40자 이내)을 만족해야 한다.
+     시각 + 난수. 겹쳐도 서버는 그냥 두 행으로 적고 분석에서 걸러낸다(at-least-once). */
+  function telBatchId_() {
+    return 'b' + String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8);
+  }
+
+  /** 서버가 확인해 준 배치만 지운다. */
+  function telAck_(ackId) {
+    if (!ackId || !telPending || ackId !== telPending.id) return;
+    telPending = null;
+    state.storage.saveTel({ acc: { net: tel.net, lock: tel.lock, recovered: tel.recovered } });
+  }
+
+  /** 이번 세션 카운터를 저장소에 눌러 둔다(앱이 닫혀도 남게). */
+  function telPersist_() {
+    if (telPending) return;   /* 봉인분이 아직 있으면 덮지 않는다 */
+    state.storage.saveTel({ acc: { net: tel.net, lock: tel.lock, recovered: tel.recovered } });
+  }
+
   function getJson(url, onRetry, attempt) {
     var n = attempt || 0;
     return requestJson(url, null).then(function (res) {
@@ -413,7 +465,13 @@
          `if (res.ok) return res` 를 따로 두면 안전해 보이지만 **어떤 입력으로도 결과가
          달라지지 않는 죽은 줄**이다(뮤테이션 R4 가 동치로 살아남아 드러났다). */
       var code = res && res.error && res.error.code;
-      if (!getRetryable_(code)) return res;            // 성공·영구 오류는 그대로 올린다
+      if (!getRetryable_(code)) {
+        /* 재시도 끝에 성공했다면 "구해 낸 횟수"다 — 재시도가 실제로 얼마를 구했는지는
+           이것 없이는 추정밖에 못 한다(지금까지의 80%→41% 도 계산값이었다). */
+        if (n > 0 && res && res.ok) telCount_(null, true);
+        return res;                                    // 성공·영구 오류는 그대로 올린다
+      }
+      telCount_(code, false);
       if (n >= GET_RETRY_MAX) return res;
       if (onRetry) onRetry(n + 2, GET_RETRY_MAX + 1);  // 사람이 세는 번호(2/4 …)
       return new Promise(function (resolve) {
@@ -507,13 +565,19 @@
       m.templates && m.templates.length !== undefined);
   }
 
-  function fetchBootstrapRemote(rev) {
+  function fetchBootstrapRemote(rev, batch) {
     /* v(앱 버전)는 서버가 읽고 버린다 — 신·구 클라이언트를 **나눠 보기** 위한 표식이다.
        전환기에는 갱신 안 된 폰이 옛 두 경로를 계속 부르므로, 이게 없으면 "개선했는데
        체감이 그대로"인지 "아직 안 퍼진 것"인지 구별할 수 없다. */
     var q = CONFIG.API_URL + '?action=bootstrap&k=' + CONFIG.SHARED_KEY +
       '&v=' + encodeURIComponent(CONFIG.APP_VER);
     if (rev) q += '&rev=' + encodeURIComponent(rev);
+    /* 직전 세션의 실패 보고. **새 요청을 만들지 않는다** — 부팅 요청에 얹어 보낸다.
+       0이면 telSeal_ 이 null 을 주므로 파라미터 자체가 안 붙는다(정상 부팅엔 시트 쓰기 0). */
+    if (batch) {
+      q += '&e=' + [batch.net, batch.lock, batch.recovered].join(',') +
+           '&eb=' + encodeURIComponent(batch.id);
+    }
     return getJson(q, syncNotice_);
   }
 
@@ -522,9 +586,11 @@
   function bootstrapOnce() {
     if (CONFIG.MOCK) { refreshMasters(); refreshPlans(); return; }
     var rev = mastersUsable_(state.masters) ? state.masters.rev : '';
-    return fetchBootstrapRemote(rev).then(function (res) {
-      if (!res || !res.ok || !res.data) { refreshMasters(); refreshPlans(); return; }
+    var batch = telSeal_();
+    return fetchBootstrapRemote(rev, batch).then(function (res) {
+      if (!res || !res.ok || !res.data) { telPersist_(); refreshMasters(); refreshPlans(); return; }
       var d = res.data;
+      telAck_(d.tel_ack);   /* 서버가 확인해 준 배치만 지운다 */
       if (d.masters) {
         refreshMasters({ ok: true, data: d.masters });
       } else if (mastersUsable_(state.masters)) {
