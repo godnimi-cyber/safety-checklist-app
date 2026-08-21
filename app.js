@@ -264,8 +264,22 @@
        걸러 별도 처리한다) — 이 분기가 실제로 발화하는 경우는 재시도(flushQueue/'다시 시도')에서
        뒤늦게 payload 자체가 무효로 밝혀졌을 때뿐이다. 그때는 최초 큐 적재 때 세운 tombstone 을
        풀어야 현장이 다시 점검할 수 있다(계획을 영원히 막아두면 안 된다). */
-    if (item && item.plan_id && isPermanentError(error.code)) {
-      unmarkPlanConsumed(item.plan_id);
+    /* retire 조건 확장(적대 리뷰 A2): 계획 없는(새 점검) 제출도, **초안 사본이 남아 있으면**
+       retire 한다 — 죽은 큐 항목과 살아 있는 초안이 나란히 있으면 재제출 경로가 둘이 된다
+       (U2 와 같은 위험). 초안이 유일한 사본인 무계획·무초안 항목은 종전대로 보관(park)한다 —
+       지우면 사본이 아예 사라진다. */
+    var draftCopyKept = false;
+    if (item && state.drafts) {
+      Object.keys(state.drafts).forEach(function (k) {
+        if (state.drafts[k] && state.drafts[k].submission_id === id) draftCopyKept = true;
+      });
+    }
+    if (item && isPermanentError(error.code) && (item.plan_id || draftCopyKept)) {
+      /* tombstone 해제가 영속에 실패하면 알린다(적대 리뷰 A2-3) — 조용히 넘기면 재시작 후
+         계획이 계속 막힌 채로 남는다(K4). */
+      if (item.plan_id && !unmarkPlanConsumed(item.plan_id)) {
+        notifySaveFailure('재작성 방지 표시 해제', 'tombstone:' + item.plan_id);
+      }
       /* U2: tombstone 을 푸는 것만으로는 안 끝난다 — 이 죽은 큐 항목을 '다시 시도' 가능한 채로
          남겨두면(629행 retryBtn 은 state==='failed' 면 이유를 안 가리고 보인다), '계획을 다시
          열어 제출'(tombstone 해제로 열린 정상 경로, 새 submission_id)과 '이 죽은 항목을
@@ -276,7 +290,10 @@
          재전송 불가로 확정(retire)한다: 조용히 없애면 안 되므로(K4) 배너로 알린다. */
       state.queue = state.queue.filter(function (q) { return q.submission_id !== id; });
       showBanner('error', '이전 제출이 입력 오류로 거절되어 미전송 목록에서 정리했습니다 — '
-        + '계획을 다시 열어 확인 후 제출하세요: ' + (error.message || '') + ' (' + error.code + ')');
+        + (draftCopyKept
+            ? '작성하던 내용은 남아 있습니다. 이어쓰기 또는 계획에서 열어 고친 뒤 다시 제출하세요: '
+            : '계획을 다시 열어 확인 후 제출하세요: ')
+        + (error.message || '') + ' (' + error.code + ')');
       window.scrollTo(0, 0);
     }
   }
@@ -313,6 +330,19 @@
     state.draft = null;
     state.draftKey = null;
     return ok;
+  }
+  /** submission_id 로 임시저장을 찾아 지운다 — 마감 스필로 보존해 둔 초안이, 큐 전송이
+   *  성공(dup 포함)한 뒤에도 이어쓰기 카드로 남아 헷갈리게 하지 않도록(적대 리뷰 A2 후속).
+   *  일치가 없으면 아무것도 안 한다(스필이 아닌 보통 큐 항목은 초안이 이미 지워져 있다). */
+  function clearDraftBySubmissionId(sid) {
+    if (!state.drafts || !sid) return;
+    Object.keys(state.drafts).forEach(function (k) {
+      var d = state.drafts[k];
+      if (!d || d.submission_id !== sid) return;
+      state.storage.clearDraft(k);
+      delete state.drafts[k];
+      if (state.draftKey === k) { state.draft = null; state.draftKey = null; }
+    });
   }
   function persistQueue() {
     var ok = state.storage.saveQueue(state.queue);
@@ -379,15 +409,24 @@
    *  이래도 안전한 근거: 제출은 submission_id 로 멱등이라, 마감 뒤 큐 재시도가
    *  ① 서버가 이미 썼으면 dup:true(성공) ② 못 썼으면 이번에 쓴다 — 두 경우 다 한 번만 남는다
    *  (flushQueue 가 result.ok 로 dup 도 성공 처리하는 것을 확인하고 설계했다).
-   *  **제출에만 쓴다.** 계획 등록·취소에는 이 멱등 안전망이 없다 — 거기 걸면 이중 등록이 열린다. */
+   *  **제출에만 쓴다.** 계획 쪽도 plan_id 재사용(planFormId)으로 멱등이지만(적대 리뷰 A5 정정),
+   *  거기엔 큐·자동 재전송이 없어 마감이 '더 빨리 실패 배너를 보이는 것' 이상을 못 한다 —
+   *  사용자가 어차피 화면에 남아 수동 재시도한다. 이득이 작아 파일럿 범위에서 뺀다. */
   function withDeadline(promise, ms) {
-    return Promise.race([promise, new Promise(function (resolve) {
-      setTimeout(function () {
-        resolve({ ok: false, error: { code: 'NETWORK',
-          message: '서버 응답이 ' + Math.round(ms / 1000) + '초를 넘겨 기다림을 멈췄습니다. '
-            + '미전송 큐에서 자동 재전송되며, 서버에 이미 닿았다면 중복 없이 한 번만 기록됩니다' } });
-      }, ms);
-    })]);
+    /* 패자 타이머를 정리한다(적대 리뷰 A3) — 원 요청이 먼저 끝나면 12초 타이머가 남아
+       제출이 반복될수록 미발화 타이머가 쌓였다. error.deadline 표식은 onSubmit 이 '마감 스필'
+       을 일반 네트워크 오류와 구별해 초안을 보존하는 데 쓴다(A2). */
+    var timer = null;
+    return Promise.race([
+      promise.finally(function () { clearTimeout(timer); }),
+      new Promise(function (resolve) {
+        timer = setTimeout(function () {
+          resolve({ ok: false, error: { code: 'NETWORK', deadline: true,
+            message: '서버 응답이 ' + Math.round(ms / 1000) + '초를 넘겨 기다림을 멈췄습니다. '
+              + '미전송 큐에서 자동 재전송되며, 서버에 이미 닿았다면 중복 없이 한 번만 기록됩니다' } });
+        }, ms);
+      })
+    ]);
   }
 
   /* ── GET 재시도 (2026-08-19) ─────────────────────────────────────────
@@ -2397,6 +2436,7 @@
           if (result.ok) {
             recordSent(payload);   /* 큐에 있다가 나중에 나간 것도 '오늘 보낸' 것이다 */
             state.queue = SafetyLogic.queueReducer(state.queue, { type: 'SENT', id: payload.submission_id });
+            clearDraftBySubmissionId(payload.submission_id);   /* 스필로 보존한 초안 정리(A2) */
             if (removePlanLocally(payload.plan_id)) removedPlan = true;
           } else {
             markQueueFailure(payload.submission_id, normalizeError(result.error));
@@ -3086,6 +3126,8 @@
         refreshPlans();   /* 서버 진실로 최종 정합(성공해도 실패해도 위에서 이미 로컬은 맞다) */
         return;
       }
+      /* 마감 스필 여부는 normalize 전에 읽는다 — normalizeError 는 code·message 만 남긴다. */
+      var spilled = !!(result.error && result.error.deadline);
       var err = normalizeError(result.error);
       if (isPermanentError(err.code)) {
         /* VALIDATION: 제출 내용 자체의 결함이라 같은 payload 는 몇 번을 보내도 거절된다.
@@ -3117,12 +3159,17 @@
          submission_id 를 재사용할 수 있는 유일한 사본을 남긴다). 큐 항목 자체는 이미
          saveQueue 로 영속을 확인했으니(위 1631행) 되돌리지 않는다 — 이 문제는 tombstone 이라는
          "두 번째 방어선"만의 문제고, 되돌려야 할 대상이 아니다. */
-      var cleared2 = consumedOk2 ? clearActiveDraft() : false;   /* H8 — 반환값을 쓴다. 계획은 여기서 지우지 않는다(H1) —
+      /* **마감 스필이면 초안을 지우지 않는다**(적대 리뷰 A2). 큐 재시도가 뒤늦게 영구 오류
+         (PIN 오타 등)로 밝혀지면 retire 가 큐 사본을 정리하는데, 초안까지 지워져 있으면
+         전 항목을 다시 작성해야 한다. 초안이 남아 있으면 같은 submission_id 로 이어 제출하므로
+         이중 기록도 없다(서버 dup 흡수). 전송이 끝나면 flushQueue 가 이 초안을 정리한다. */
+      var cleared2 = (consumedOk2 && !spilled) ? clearActiveDraft() : false;   /* H8 — 반환값을 쓴다. 계획은 여기서 지우지 않는다(H1) —
         서버는 아직 이 계획을 done 으로 전이하지 않았다(제출이 큐에 있을 뿐이다). renderPlanList 의
         queuedPlanIdSet 이 이 큐 항목을 보고 '작성 시작'을 막는다. */
       showBanner('error', (isAdminError(err.code)
         ? ('전송 실패 — 큐에 보관됨. 관리자 확인이 필요합니다. 해결되면 자동으로 전송됩니다: ' + err.message + ' (' + err.code + ')')
         : ('전송 실패 — 큐에 보관됨: ' + err.message + ' (' + err.code + ')'))
+        + (spilled ? ' 작성 내용은 이 기기에 남겨 두었습니다 — 전송이 확인되면 자동으로 정리됩니다.' : '')
         + (!consumedOk2
             ? ' 다만 이 기기에 재작성 방지 표시를 저장하지 못해 작성 내용을 지우지 않고 남겨뒀습니다 — '
               + '안전을 위한 것이니 그대로 두세요.' + saveErrorSuffix()
