@@ -546,6 +546,10 @@
       }
       /* 사유는 별도 열이 아니라 항목 아래 강조 박스 — 사유 있는 행이 소수라 열을 상시
          차지하면 폰에서 항목이 너무 잘게 접힌다(부적합 카드 note 와 같은 문법). */
+      /* 기본안전수칙(group)은 그 분류의 **머리 항목**이다 — 아래 일반 안전수칙들이 딸린다.
+         한 줄씩 늘어놓으면 어디서 분류가 바뀌는지 안 보여서, 머리 행에만 음영을 준다
+         (사용자 지시 2026-08-21). 색이 아니라 배경 명도 차이라 흑백 인쇄에서도 남는다. */
+      if (r.grp) tr.className = 'dash-sheet-grp';
       var t1 = document.createElement('td');
       t1.className = 'dash-wraptext';
       var txt = document.createElement('div');
@@ -993,7 +997,7 @@
     var m = {
       PIN_MISMATCH: 'PIN 이 맞지 않습니다',
       PIN_LOCKED: 'PIN 을 여러 번 틀려 잠겼습니다 — 10분 뒤에 다시 시도하세요',
-      PLAN_DATE_PAST: '지난 날짜로는 재등록할 수 없습니다',
+      PLAN_DATE_PAST: '지난 날짜는 원래 예정일로만 되돌릴 수 있습니다',
       INSPECTOR_UNKNOWN: '점검자를 찾을 수 없습니다',
       PLAN_NOT_FOUND: '계획을 찾을 수 없습니다 — 새로고침 후 다시 시도하세요',
       PLAN_ID_INVALID: '계획 번호가 올바르지 않습니다 — 새로고침 후 다시 시도하세요',
@@ -1173,11 +1177,24 @@
     var date = document.createElement('input');
     date.type = 'date';
     date.id = 'dash-od-date';
-    /* **과거는 못 고른다** — 고르는 순간 다시 미점검이 되어 버튼의 목적이 사라진다.
-       서버도 같은 규칙으로 거절하지만, 누르기 전에 막는 편이 낫다. */
-    date.min = todayStr_();
+    date.setAttribute('aria-describedby', 'dash-od-date-hint');
+    /* **원래 예정일까지 거슬러 고를 수 있다**(사용자 지시 2026-08-21) — "점검은 그날 했는데
+       등록이 늦은" 경우에 today 로 올리면 점검일이 사실과 달라진다.
+       그 사이의 임의 과거는 서버가 PLAN_DATE_PAST 로 막는다(원래 예정일만 예외).
+       기본값은 오늘 — 대부분은 지금부터 다시 잡는다. */
+    date.min = (o.planned_date && o.planned_date < todayStr_()) ? o.planned_date : todayStr_();
     date.value = todayStr_();
     form.appendChild(odField_('새 예정일', date));
+    /* 원래 예정일로 되돌릴 수 있다는 사실은 **말해 주지 않으면 아무도 모른다** —
+       날짜 칸의 min 만 바꿔 두면 달력에서 눌러 봐야 알게 된다. */
+    var dateHint = document.createElement('p');
+    dateHint.id = 'dash-od-date-hint';
+    dateHint.className = 'dash-od-hint';
+    dateHint.textContent = (o.planned_date && o.planned_date < todayStr_())
+      ? '오늘 이후 또는 원래 예정일(' + o.planned_date + ')로 되돌릴 수 있습니다. '
+        + '그날 점검한 것을 늦게 등록할 때 쓰세요.'
+      : '오늘 이후로 고르세요.';
+    form.appendChild(dateHint);
 
     var pin = odPinInput_();
     form.appendChild(odField_('PIN', pin));

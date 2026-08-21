@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-cbfbc156">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-cbfbc156">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-cf37c0d4">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-cf37c0d4">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -132,6 +132,8 @@
 .dash-od-mute:hover { background: color-mix(in srgb, var(--muted) 10%, transparent);
   border-color: var(--muted); }
 .dash-od-mute:active { background: color-mix(in srgb, var(--muted) 18%, transparent); }
+/* 날짜 칸 아래 안내 — 칸과 붙여 읽히도록 위 여백을 좁힌다 */
+.dash-od-hint { margin: -6px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
 .dash-od-warn-mute { border-color: var(--muted);
   background: color-mix(in srgb, var(--muted) 8%, transparent); }
 .dash-od-warn { margin: 12px 0 0; padding: 12px; border-radius: 8px; font-size: 0.9rem;
@@ -261,6 +263,11 @@
    한 줄로 화면 밖까지 밀리던 원인. */
 .dash-block td.dash-wraptext { white-space: normal; min-width: 220px; }
 .dash-sheet-section { background: var(--bg); font-weight: 700; }
+/* 기본안전수칙(분류 머리) 행 — 딸린 일반 안전수칙과 갈라 보이게 음영을 준다.
+   구획 줄(.dash-sheet-section)과 같은 --bg 를 쓰되 글자는 그대로 둔다(판정 열이 있는 행이라
+   굵게까지 하면 판정 글자와 경쟁한다). td 에 걸어야 배경이 행 전체를 덮는다. */
+.dash-sheet-grp > td { background: var(--bg); }
+.dash-sheet-grp > td:first-child { font-weight: 600; }
 .dash-findcard { border: 1px solid var(--border); border-left: 4px solid var(--danger);
   border-radius: 10px; padding: 12px 16px; margin: 0 0 10px; background: var(--surface); }
 .dash-findcard .meta { color: var(--muted); font-size: 0.85rem; margin: 0 0 6px; }
@@ -367,7 +374,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-cbfbc156"></script>
-<script src="./dashboard.js?v=0.5.5-cbfbc156"></script>
+<script src="./config.js?v=0.5.5-cf37c0d4"></script>
+<script src="./dashboard.js?v=0.5.5-cf37c0d4"></script>
 </body>
 </html>
