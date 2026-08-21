@@ -932,10 +932,13 @@
     body.appendChild(monthlySummary_(d));
     body.appendChild(monthlyNote_(d));
 
+    /* 점검자는 **맨 끝**이다(사용자 지시 2026-08-22) — 앞의 수·날짜가 이 표를 읽는 축이고,
+       사람은 그 뒤에 확인하는 값이다. 열을 가운데 끼우면 숫자 세 개가 갈라져 훑기 나빠진다. */
     body.appendChild(monthlySection_('■ 수행 — 공사별', '수행',
-      ['협력회사', '공사', '점검 건수', '부적합 건수', '첫 점검일', '마지막 점검일'],
+      ['협력회사', '공사', '점검 건수', '부적합 건수', '첫 점검일', '마지막 점검일', '점검자'],
       d.done.rows, function (r) {
-        return [r.company_name, r.project_name, r.count, r.findings, r.first, r.last];
+        return [r.company_name, r.project_name, r.count, r.findings, r.first, r.last,
+                r.inspectors];
       }));
 
     /* 미점검확정은 **공사별로 접지 않는다** — 확정 1건 = 1행이다. 접으면 같은 공사의 확정
