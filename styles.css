@@ -486,6 +486,22 @@ h1, h2, h3 { font-family: var(--font-heading, var(--font-sans)); }   /* 킷 헤�
 #home-plans .plan-date, #screen-manage .plan-date { font-weight: 700; }
 /* 팀 칩 — **글자와 테두리로** 말한다. 색으로 팀을 가르지 않는 이유는 app.js 주석 참고
    (팔레트 5색 · 팀 수 가변 · WCAG 1.4.1). 줄바꿈 금지: 오른쪽 끝 정렬이 스캔의 핵심이다. */
+/* 「재등록」 — 지난 예정일인데 목록에 있는 이유. 팀 칩과 같은 문법(글자+테두리)이되
+   색으로 갈라 준다: 이건 '분류' 가 아니라 '상태' 라 눈에 먼저 들어와야 한다. */
+#home-plans .plan-reopened, #screen-manage .plan-reopened {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-primary-text);
+  border: 1px solid var(--tint-primary-strong);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+  margin-left: auto;
+}
+#home-plans .plan-reopened + .plan-team, #screen-manage .plan-reopened + .plan-team {
+  margin-left: var(--space-2);
+}
 #home-plans .plan-team, #screen-manage .plan-team {
   flex: none;
   font-size: 12px;

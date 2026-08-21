@@ -1162,8 +1162,15 @@
       var node = $('tpl-plan-row').content.firstElementChild.cloneNode(true);
       var overdue = p.planned_date < today;
       var dateEl = node.querySelector('.plan-date');
-      dateEl.textContent = p.planned_date + (overdue ? ' · 지남' : '');
-      dateEl.classList.toggle('plan-overdue', overdue);
+      /* 재등록된 건은 '지남' 을 붙이지 않는다 — 관리자가 다시 하라고 되살린 것이라
+         '놓친 것' 이 아니다. 지난 날짜인 이유는 아래 「재등록」 표시가 말한다. */
+      var reopened = !!p.reopened;
+      dateEl.textContent = p.planned_date + ((overdue && !reopened) ? ' · 지남' : '');
+      dateEl.classList.toggle('plan-overdue', overdue && !reopened);
+      /* 지난 예정일인데 목록에 떠 있는 이유를 말해 준다(사용자 지시 2026-08-22) —
+         표시가 없으면 현장은 왜 어제 날짜가 보이는지 알 수 없다. */
+      var reEl = node.querySelector('.plan-reopened');
+      if (reEl) reEl.hidden = !reopened;
       node.querySelector('.plan-project').textContent = p.project_name;
       node.querySelector('.plan-company').textContent = p.company_name;
       /* 팀은 **「전체」 보기일 때만** 보인다(사용자 지시 2026-08-21). 여러 팀 계획이 섞이면
