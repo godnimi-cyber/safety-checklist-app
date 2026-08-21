@@ -1344,7 +1344,10 @@
    *  잘라 버리면 서로 구별이 안 돼 어느 건을 누르는지 알 수 없다. */
   function overdueRow_(o) {
     var row = document.createElement('div');
-    row.className = 'dash-od-row' + (o.days >= OD_STALE_DAYS ? ' dash-od-stale' : '');
+    /* 재등록된 건은 **경보 표시를 하지 않는다** — 밀린 게 아니라 이미 손을 쓴 것이다.
+       빨간 왼쪽 선을 그대로 두면 조치한 건과 안 한 건이 같은 무게로 읽힌다. */
+    row.className = 'dash-od-row'
+      + (o.reopened ? ' dash-od-reopened' : (o.days >= OD_STALE_DAYS ? ' dash-od-stale' : ''));
 
     var text = document.createElement('div');
     text.className = 'dash-od-text';
@@ -1369,8 +1372,12 @@
     var meta = document.createElement('p');
     meta.className = 'dash-od-meta';
     var badge = document.createElement('span');
-    badge.className = 'dash-od-days' + (o.days >= OD_STALE_DAYS ? ' dash-od-days-stale' : '');
-    badge.textContent = o.days + '일 경과';
+    /* 재등록된 건의 앞자리는 '며칠 밀렸나' 가 아니라 **'무슨 상태인가'** 다. 경과일을 그대로
+       두면 방금 되살린 건이 가장 오래 밀린 건처럼 보인다 — 날짜를 과거로 되돌리는 조치라
+       오히려 숫자가 크다. 지금 필요한 답은 "이건 이미 눌렀다" 하나뿐이다. */
+    badge.className = o.reopened ? 'dash-od-days dash-od-days-reopened'
+      : ('dash-od-days' + (o.days >= OD_STALE_DAYS ? ' dash-od-days-stale' : ''));
+    badge.textContent = o.reopened ? '재등록됨' : (o.days + '일 경과');
     meta.appendChild(badge);
     var rest = document.createElement('span');
     rest.textContent = o.company_name + ' · ' + o.planned_date + (who ? ' · ' + who : '');
@@ -1380,6 +1387,9 @@
 
     var acts = document.createElement('div');
     acts.className = 'dash-od-acts';
+    /* 세 조치를 **그대로 남긴다**. 재등록은 날짜를 다시 잡는 길이고(되살린 뒤 다른 날로
+       옮길 수 있다), 확정·취소는 현장이 끝내 안 했을 때 닫는 창구다 — 재등록했다고
+       버튼을 없애면 그 건은 영영 못 닫는다. */
     acts.appendChild(odActionBtn_('재등록', '', o, function () { openReschedule_(o); }));
     acts.appendChild(odActionBtn_(UNCHECK_LABEL, 'dash-od-danger', o,
                                   function () { openUnchecked_(o); }));
@@ -1395,7 +1405,15 @@
     /* 이 화면이 나오기 전에 저장된 payload 에는 overdue 가 없다 — 그때는 블록 자체를
        만들지 않는다(빈 목록으로 그리면 "밀린 게 없다"는 **거짓말**이 된다). */
     if (!data || !data.overdue) return null;
-    var list = overdueFor_(data, state.view);
+    var all = overdueFor_(data, state.view);
+    /* **재등록한 건을 셈에서 뺀다**(사용자 지적 2026-08-21 "재등록은 됐는데 안 사라져").
+       이 카드가 말하는 "예정일이 지나 현장 목록에서 내려간 계획" 이 재등록 뒤에는 사실이
+       아니게 된다 — 그 건은 현장 목록에 다시 올라가 있다. 같이 세면 눌러도 숫자가 안 줄어
+       **눌린 건지 아닌지 알 수 없고**, 관리자는 같은 건을 계속 다시 누른다.
+       그렇다고 화면에서 통째로 지우지는 않는다: 현장이 끝내 작성하지 않으면 확정·취소로
+       닫아야 하는데, 사라지면 그 창구가 대시보드에서 없어진다. 아래에 따로 모은다. */
+    var list = all.filter(function (o) { return !o.reopened; });
+    var back = all.filter(function (o) { return !!o.reopened; });
     var sec = document.createElement('section');
     sec.className = 'dash-block dash-overdue';
     var h = document.createElement('h2');
@@ -1410,6 +1428,19 @@
       : '지난 예정 중 점검하지 않은 건이 없습니다.';
     sec.appendChild(note);
     list.forEach(function (o) { sec.appendChild(overdueRow_(o)); });
+
+    if (back.length) {
+      var h2 = document.createElement('h3');
+      h2.className = 'dash-od-subhead';
+      h2.textContent = '재등록됨 ' + back.length;
+      sec.appendChild(h2);
+      var n2 = document.createElement('p');
+      n2.className = 'dash-modal-meta';
+      n2.textContent = '현장 목록에 다시 올려 둔 계획입니다 — 작성을 기다리는 중입니다. '
+        + '끝내 점검하지 못했다면 여기서 미점검확정이나 공사취소로 닫을 수 있습니다.';
+      sec.appendChild(n2);
+      back.forEach(function (o) { sec.appendChild(overdueRow_(o)); });
+    }
     return sec;
   }
 

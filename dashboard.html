@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-8cb21100">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-8cb21100">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-e3425ad2">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-e3425ad2">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -114,6 +114,15 @@
 }
 .dash-od-days-stale { border-color: var(--danger); color: var(--danger); }
 .dash-od-stale .dash-od-meta { color: var(--danger); }
+/* 「재등록됨」 — 경보가 아니라 **이미 손을 쓴 상태**다. 밀린 건과 같은 자리에 있지만 색
+   계열을 갈라 한눈에 나뉘게 한다. 색만으로 말하지 않는다(WCAG 1.4.1) — 배지 글자가
+   '재등록됨' 이라 색을 못 보는 사람에게도 같은 정보가 간다. */
+.dash-od-days-reopened { border-color: var(--accent); color: var(--accent); }
+.dash-od-reopened { border-left: 4px solid var(--accent); }
+/* 한 카드 안의 두 번째 묶음 — 위 목록과 붙어 보이지 않게 경계를 준다. */
+.dash-od-subhead { margin: 22px 0 6px; padding-top: 14px; border-top: 1px solid var(--border);
+  font-size: 16px; font-weight: 700; color: var(--text);
+  font-family: var(--font-heading); }
 /* 조치는 **가로로** 나란히 둔다(사용자 지시 2026-08-19) — 세로로 쌓으면 행 하나가 세 배로
    높아져 "한 줄로 만들라"던 목적이 사라진다. 폭이 모자라면 아래 미디어쿼리가 행 자체를
    접는다(내용 위 / 조치 아래). */
@@ -374,7 +383,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-8cb21100"></script>
-<script src="./dashboard.js?v=0.5.5-8cb21100"></script>
+<script src="./config.js?v=0.5.5-e3425ad2"></script>
+<script src="./dashboard.js?v=0.5.5-e3425ad2"></script>
 </body>
 </html>
