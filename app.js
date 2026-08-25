@@ -78,9 +78,6 @@
     plansSnapshotAt: null,
     serverToday: null,
     plansLoading: false,
-    /* 갱신으로 목록에서 사라진 계획. 말없이 지우면 사용자는 완료·취소·오류를 구별하지 못하고,
-       그 계획으로 쓰던 임시저장은 진입점을 잃는다. 사용자가 확인할 때까지 남는다. */
-    planTombstones: [],
     /* T1: 이 기기에서 이미 제출 시도(성공 또는 큐 적재)로 소비된 plan_id 표식(tombstone).
        큐 항목과 독립적으로 sc_plans 캐시에 함께 영속된다(persistPlansCache) — 큐 항목을
        지워도 남아야 응답 유실 → 큐 삭제 → 재작성 경로의 이중 기록을 막는다. */
@@ -936,7 +933,6 @@
     renderMasterBanner();
     renderPlansSyncLine();
     renderPlansProgress();
-    renderPlansGone();
     renderPlansBanner();
     renderPlanTeams();
     renderPlanList();
@@ -1740,36 +1736,6 @@
     var el = $('home-plans-progress');
     if (el) el.hidden = !state.plansLoading;
   }
-  /* 사라진 계획을 보여 준다. **이유는 창작하지 않는다** — 서버는 왜 빠졌는지 알려주지 않으므로
-     「다른 사람이 완료함」이라고 쓰면 관리자가 취소한 경우에 거짓말이 된다.
-     임시저장이 딸린 건은 따로 말한다: 그 초안은 목록에서 진입점을 잃어 손이 닿지 않는다. */
-  function renderPlansGone() {
-    var box = $('home-plans-gone');
-    if (!box) return;
-    var list = state.planTombstones || [];
-    if (!list.length) { box.hidden = true; return; }
-    box.hidden = false;
-    var titleEl = $('home-plans-gone-title');
-    var title = '최신 목록에서 빠진 예정 점검 ' + list.length +
-                '건 — 다른 사람이 처리했거나 관리자가 바꿨을 수 있습니다.';
-    /* 상자에 role="status" 가 붙어 있다 — 같은 문구를 다시 쓰면 낭독이 되풀이된다. */
-    if (titleEl.textContent !== title) titleEl.textContent = title;
-    var wrap = $('home-plans-gone-list');
-    wrap.innerHTML = '';
-    list.forEach(function (t) {
-      var row = document.createElement('div');
-      row.className = 'tombstone-item';
-      row.textContent = (t.planned_date ? t.planned_date + ' · ' : '') +
-                        (t.company_name || '') + (t.project_name ? ' / ' + t.project_name : '');
-      if (t.has_draft) {
-        var note = document.createElement('span');
-        note.className = 'tombstone-note';
-        note.textContent = '작성 중이던 임시저장이 있습니다 — 관리자에게 확인하세요.';
-        row.appendChild(note);
-      }
-      wrap.appendChild(row);
-    });
-  }
 
   function renderPlansBanner() {
     var el = $('home-plans-banner');
@@ -2370,14 +2336,6 @@
          묘비가 안 뜬다. **길이까지 같을 때만** 지름길을 탄다(Codex 재심 #3의 값싼 절반). */
       var unchanged = !!(state.plansRev && d.plans_rev && state.plansRev === d.plans_rev &&
                          (state.plans || []).length === d.plans.length);
-      var removed = unchanged ? [] : missingPlans_(state.plans, d.plans);
-      /* **"첫 동기화" 는 이 세션의 첫 응답이 아니라 이 기기의 첫 응답이다.**
-         plansLastOkAt 만 보면 모듈 변수라 페이지를 새로 열 때마다 0 이고, 그러면
-         **앱을 닫았다 켠 뒤에는 묘비가 절대 안 뜬다** — 그 사이에 남이 처리한 계획이
-         말없이 사라지고, 그 계획으로 쓰던 임시저장은 진입점을 잃는다(도달 불가).
-         저장본에 동기화 시각이 있다는 것은 "예전에 받은 적이 있다" 는 뜻이므로
-         그때의 차이는 진짜 '사라짐' 이다. */
-      var first = !plansLastOkAt && !state.plansSyncedAt;
       if (!unchanged) state.plans = d.plans;
       state.plansRev = d.plans_rev || null;
       /* 서버가 읽은 시각과 폰이 받은 시각을 구별해 둔다 — 「N분 전」을 폰 시계로만 세면
@@ -2387,13 +2345,6 @@
       state.plansSyncedAt = new Date().toISOString();
       plansLastOkAt = Date.now();
       plansTrailLeft = 2;                  /* 깨끗이 반영됐다 — 예산을 되돌린다 */
-      /* **묘비 판정이 표식 정리보다 먼저다.** 순서를 뒤집으면 거짓 경고가 뜬다:
-         pruneConsumedPlanIds 는 "새 목록에 없는" 소비 표식을 지우는데, 내가 방금 제출한
-         계획이 정확히 그 조건이다. 먼저 지우면 noteVanishedPlans 가 표식을 못 찾고
-         **내가 제출한 계획**을 「다른 사람이 처리했거나 관리자가 바꿨다」고 알린다.
-         (조각 테스트는 pruneConsumedPlanIds 를 스텁으로 죽여 놔서 이걸 못 봤다 —
-          tests-js/app-integration.test.mjs 가 실물로 잡는다.) */
-      if (!first && completeSnapshot) noteVanishedPlans(removed);   /* 첫 동기화의 캐시 차이는 "사라짐" 이 아니다 */
       /* **인자는 서버 목록(d.plans)이다 — 로컬 목록이 아니다.**
          제출이 성공하면 removePlanLocally 가 state.plans 에서 그 계획을 먼저 뺀다(낙관 반영).
          그 상태로 `state.plans` 를 넘기면, 서버가 아직 그 계획을 planned 로 주고 있는데도
@@ -2423,45 +2374,6 @@
   function renderPlansScreens() {
     if (state.currentScreen === "home") renderHome();
     else if (state.currentScreen === "manage") renderManage();
-  }
-
-  /** 옛 목록에는 있고 새 목록에는 없는 계획. 순서·내용은 보지 않는다 — 사라짐만 본다. */
-  function missingPlans_(before, after) {
-    var live = {};
-    (after || []).forEach(function (p) { live[String(p.plan_id)] = true; });
-    return (before || []).filter(function (p) { return !live[String(p.plan_id)]; });
-  }
-
-  /* 사라진 계획을 **말없이 지우지 않는다**(검토 #5). 안전점검 목록에서 항목이 소리 없이
-     빠지면 사용자는 완료·취소·오류를 구별할 수 없고, 그 계획으로 쓰던 임시저장은
-     진입점을 잃어 영영 닿지 못한다.
-     **이유는 창작하지 않는다** — 서버는 "왜 빠졌는지" 를 주지 않는다. 「다른 사람이 완료함」
-     이라고 단정하면 관리자가 취소한 경우에 거짓말이 된다. */
-  function noteVanishedPlans(removed) {
-    if (!removed || !removed.length) return;
-    var seen = {};
-    (state.planTombstones || []).forEach(function (t) { seen[t.plan_id] = true; });
-    var today = todayStr();
-    var add = removed.filter(function (p) {
-      /* 내가 방금 제출해서 없어진 것은 알릴 일이 아니다 — 사용자가 이미 안다. */
-      if (seen[String(p.plan_id)] || state.consumedPlanIds[String(p.plan_id)]) return false;
-      /* **예정일이 지나서 빠진 것도 알릴 일이 아니다.** 서버는 지난 예정일을 안 내려보내고
-         (대시보드의 「미점검」으로 옮긴다) 그건 정상 흐름이다. 이걸 안 거르면 자정마다
-         어제 계획 전부가 묘비로 쏟아져 진짜 신호가 묻힌다. */
-      return !(String(p.planned_date || '') && String(p.planned_date) < today);
-    }).map(function (p) {
-      return { plan_id: String(p.plan_id), company_name: String(p.company_name || ""),
-               project_name: String(p.project_name || ""), planned_date: String(p.planned_date || ""),
-               has_draft: !!(state.drafts && state.drafts[p.plan_id]) };
-    });
-    if (!add.length) return;
-    state.planTombstones = (state.planTombstones || []).concat(add);
-  }
-
-  function clearPlanTombstones() {
-    if (!state.planTombstones || !state.planTombstones.length) return false;
-    state.planTombstones = [];
-    return true;
   }
 
   /* ---------- 홈: 새 점검/이어쓰기(계획 없이, adhoc) ---------- */
@@ -3540,9 +3452,6 @@
     $('btn-continue-draft').addEventListener('click', continueDraft);
     $('btn-discard-draft').addEventListener('click', function () { discardDraft('adhoc'); });
     $('btn-sync-now').addEventListener('click', flushQueue);
-    $('btn-plans-gone-ack').addEventListener('click', function () {
-      if (clearPlanTombstones()) renderHome();
-    });
 
     $('btn-open-plan-form').addEventListener('click', openPlanForm);
     $('btn-plan-form-cancel').addEventListener('click', function () {

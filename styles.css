@@ -337,40 +337,6 @@ select.input {
   100% { transform: translateX(250%); }
 }
 
-/* 갱신으로 사라진 계획의 묘비. 누를 수 없는 항목이므로 **정말로** 비활성으로 보여야 한다 —
-   여기서는 흐림이 맞는 신호다(위 목록과 반대인 이유: 이건 실제로 못 누른다). */
-.tombstone-box {
-  border: 1px solid var(--color-warn);
-  border-left: 4px solid var(--color-warn);
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-  margin-bottom: var(--space-3);
-  /* 배경은 다른 카드와 **같은 불투명 흰 카드**다 — 옅은 경고 틴트를 깔면 페이지 배경과
-     구별이 죽고(.newcheck-card 에서 이미 겪었다), 안의 글자마다 합성 대비를 따로 계산해야
-     한다. 경고 표시는 왼쪽 굵은 선과 제목 색이 진다. */
-  background: var(--color-surface);
-}
-.tombstone-title { font-size: 13px; font-weight: 600; color: var(--color-warn-text); margin: 0 0 var(--space-2); }
-.tombstone-item {
-  font-size: 13px;
-  color: var(--color-neutral-text);
-  padding: var(--space-2) 0;
-  border-top: 1px solid var(--tint-neutral);
-  text-decoration: line-through;
-}
-/* **`text-decoration: none` 은 조상의 취소선을 못 끈다.** CSS Text Decoration L3 상
-   데코레이션은 in-flow 블록 자손까지 전파되고 자손이 끌 수 없다 — 새 포맷 컨텍스트여야
-   끊긴다. `display: block` 이면 「작성 중이던 임시저장이 있습니다」 경고에 줄이 그어져
-   "이미 지난 이야기" 로 읽힌다. `inline-block` 이면 atomic inline 이라 전파가 끊긴다. */
-.tombstone-item .tombstone-note {
-  display: inline-block;
-  width: 100%;
-  text-decoration: none;
-  color: var(--color-warn-text);
-  font-weight: 600;
-  margin-top: 2px;
-}
-.tombstone-box .btn { margin-top: var(--space-2); }
 
 .template-list { display: flex; flex-direction: column; gap: var(--space-3); }
 
