@@ -372,25 +372,6 @@ select.input {
 }
 .tombstone-box .btn { margin-top: var(--space-2); }
 
-/* 새로 들어온 계획. 묘비와 **같은 자리·같은 짜임**이되 색만 다르다 — 둘이 나란히 뜰 수 있어
-   경고색을 같이 쓰면 "빠진 것" 과 "들어온 것" 이 한 덩어리로 읽힌다. 여기 항목은 아래
-   목록에 실제로 있으므로 취소선·흐림을 쓰지 않는다(못 누르는 것이 아니다). */
-.arrival-box {
-  border: 1px solid var(--color-primary);
-  border-left: 4px solid var(--color-primary);
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-  margin-bottom: var(--space-3);
-  background: var(--color-surface);
-}
-.arrival-title { font-size: 13px; font-weight: 600; color: var(--color-primary-text); margin: 0 0 var(--space-2); }
-.arrival-item {
-  font-size: 13px;
-  color: var(--color-neutral-text);
-  padding: var(--space-2) 0;
-  border-top: 1px solid var(--tint-neutral);
-}
-.arrival-box .btn { margin-top: var(--space-2); }
 .template-list { display: flex; flex-direction: column; gap: var(--space-3); }
 
 /* 새 점검 구역 — 카드 경계 + **왼쪽 굵은 선**으로 갈래를 표시한다. 색만 바꾸면 버튼 하나만

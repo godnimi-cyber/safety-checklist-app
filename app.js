@@ -81,9 +81,6 @@
     /* 갱신으로 목록에서 사라진 계획. 말없이 지우면 사용자는 완료·취소·오류를 구별하지 못하고,
        그 계획으로 쓰던 임시저장은 진입점을 잃는다. 사용자가 확인할 때까지 남는다. */
     planTombstones: [],
-    /* 갱신으로 **새로 들어온** 계획(적대 검토 §11). 묘비와 같은 수명 — 세션 한정이고
-       영속하지 않는다: 이 항목은 아래 목록에 실제로 있으므로 앱을 다시 열면 그냥 보인다. */
-    planArrivals: [],
     /* T1: 이 기기에서 이미 제출 시도(성공 또는 큐 적재)로 소비된 plan_id 표식(tombstone).
        큐 항목과 독립적으로 sc_plans 캐시에 함께 영속된다(persistPlansCache) — 큐 항목을
        지워도 남아야 응답 유실 → 큐 삭제 → 재작성 경로의 이중 기록을 막는다. */
@@ -940,7 +937,6 @@
     renderPlansSyncLine();
     renderPlansProgress();
     renderPlansGone();
-    renderPlansNew();
     renderPlansBanner();
     renderPlanTeams();
     renderPlanList();
@@ -1775,29 +1771,6 @@
     });
   }
 
-  /* 새로 들어온 계획 — 묘비 상자와 같은 짜임. 이 항목들은 아래 목록에 **실제로 있으므로**
-     흐리게도, 취소선도 쓰지 않는다(못 누르는 것이 아니다). */
-  function renderPlansNew() {
-    var box = $('home-plans-new');
-    if (!box) return;
-    var list = state.planArrivals || [];
-    if (!list.length) { box.hidden = true; return; }
-    box.hidden = false;
-    var titleEl = $('home-plans-new-title');
-    var title = '새로 들어온 예정 점검 ' + list.length + '건 — 아래 목록에 추가되었습니다.';
-    /* role="status" 가 붙어 있다 — 같은 문구를 다시 쓰면 낭독이 되풀이된다(묘비와 같은 이유). */
-    if (titleEl.textContent !== title) titleEl.textContent = title;
-    var wrap = $('home-plans-new-list');
-    wrap.innerHTML = '';
-    list.forEach(function (a) {
-      var row = document.createElement('div');
-      row.className = 'arrival-item';
-      row.textContent = (a.planned_date ? a.planned_date + ' · ' : '') +
-                        (a.company_name || '') + (a.project_name ? ' / ' + a.project_name : '');
-      wrap.appendChild(row);
-    });
-  }
-
   function renderPlansBanner() {
     var el = $('home-plans-banner');
     if (!state.plansBanner) { el.hidden = true; return; }
@@ -2398,8 +2371,6 @@
       var unchanged = !!(state.plansRev && d.plans_rev && state.plansRev === d.plans_rev &&
                          (state.plans || []).length === d.plans.length);
       var removed = unchanged ? [] : missingPlans_(state.plans, d.plans);
-      /* **state.plans 를 교체하기 전에** 양방향 차이를 다 뜬다 — 뒤에서 뜨면 항상 0 이다. */
-      var arrived = unchanged ? [] : arrivedPlans_(state.plans, d.plans);
       /* **"첫 동기화" 는 이 세션의 첫 응답이 아니라 이 기기의 첫 응답이다.**
          plansLastOkAt 만 보면 모듈 변수라 페이지를 새로 열 때마다 0 이고, 그러면
          **앱을 닫았다 켠 뒤에는 묘비가 절대 안 뜬다** — 그 사이에 남이 처리한 계획이
@@ -2423,8 +2394,6 @@
          (조각 테스트는 pruneConsumedPlanIds 를 스텁으로 죽여 놔서 이걸 못 봤다 —
           tests-js/app-integration.test.mjs 가 실물로 잡는다.) */
       if (!first && completeSnapshot) noteVanishedPlans(removed);   /* 첫 동기화의 캐시 차이는 "사라짐" 이 아니다 */
-      /* 첫 동기화에서는 목록 전체가 '새로 들어온 것' 이라 알릴 일이 아니다(묘비와 같은 근거). */
-      if (!first && completeSnapshot) notePlanArrivals(arrived);
       /* **인자는 서버 목록(d.plans)이다 — 로컬 목록이 아니다.**
          제출이 성공하면 removePlanLocally 가 state.plans 에서 그 계획을 먼저 뺀다(낙관 반영).
          그 상태로 `state.plans` 를 넘기면, 서버가 아직 그 계획을 planned 로 주고 있는데도
@@ -2463,13 +2432,6 @@
     return (before || []).filter(function (p) { return !live[String(p.plan_id)]; });
   }
 
-  /** 새 목록에만 있는 계획. missingPlans_ 의 반대 방향이다. */
-  function arrivedPlans_(before, after) {
-    var had = {};
-    (before || []).forEach(function (p) { had[String(p.plan_id)] = true; });
-    return (after || []).filter(function (p) { return !had[String(p.plan_id)]; });
-  }
-
   /* 사라진 계획을 **말없이 지우지 않는다**(검토 #5). 안전점검 목록에서 항목이 소리 없이
      빠지면 사용자는 완료·취소·오류를 구별할 수 없고, 그 계획으로 쓰던 임시저장은
      진입점을 잃어 영영 닿지 못한다.
@@ -2499,34 +2461,6 @@
   function clearPlanTombstones() {
     if (!state.planTombstones || !state.planTombstones.length) return false;
     state.planTombstones = [];
-    return true;
-  }
-
-  /* 새로 들어온 계획도 **말없이 끼워 넣지 않는다**(적대 검토 §11). 빠진 것만 알리면 새로
-     배정된 점검이 목록 중간에 조용히 나타나 그대로 지나간다 — 안전점검에서 그 누락은
-     묘비를 안 띄우는 것과 같은 무게다.
-     **내가 만든 계획은 여기 안 걸린다** — 등록 성공 시 upsertPlan 이 state.plans 에 먼저
-     넣으므로(낙관 반영) 서버 목록과의 차이가 아니다. */
-  function notePlanArrivals(added) {
-    if (!added || !added.length) return;
-    var seen = {};
-    (state.planArrivals || []).forEach(function (a) { seen[a.plan_id] = true; });
-    var add = added.filter(function (p) {
-      /* 이미 알린 것은 다시 알리지 않는다 — 폴링마다 되풀이하면 배경 소음이 된다. */
-      if (seen[String(p.plan_id)]) return false;
-      /* 내가 이 기기에서 이미 소비한 계획이 되돌아온 것은 사용자가 아는 일이다. */
-      return !state.consumedPlanIds[String(p.plan_id)];
-    }).map(function (p) {
-      return { plan_id: String(p.plan_id), company_name: String(p.company_name || ''),
-               project_name: String(p.project_name || ''), planned_date: String(p.planned_date || '') };
-    });
-    if (!add.length) return;
-    state.planArrivals = (state.planArrivals || []).concat(add);
-  }
-
-  function clearPlanArrivals() {
-    if (!state.planArrivals || !state.planArrivals.length) return false;
-    state.planArrivals = [];
     return true;
   }
 
@@ -3608,9 +3542,6 @@
     $('btn-sync-now').addEventListener('click', flushQueue);
     $('btn-plans-gone-ack').addEventListener('click', function () {
       if (clearPlanTombstones()) renderHome();
-    });
-    $('btn-plans-new-ack').addEventListener('click', function () {
-      if (clearPlanArrivals()) renderHome();
     });
 
     $('btn-open-plan-form').addEventListener('click', openPlanForm);
