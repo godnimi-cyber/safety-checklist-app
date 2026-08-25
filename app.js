@@ -70,6 +70,17 @@
     plans: [],
     plansSyncedAt: null,
     plansBanner: null,
+    /* 갱신 엔진 상태(2026-08-25). plansSyncedAt 은 **폰이 받은 시각**이고 plansSnapshotAt 은
+       **서버가 읽은 시각**이다 — 폰 시계가 틀어져도 후자로 진실을 말할 수 있다.
+       serverToday 는 목록을 거른 기준 날짜다: 자정을 넘겨 앱을 켜면 캐시가 어제 기준이라는
+       사실을 폰 시계에 의존하지 않고 안다. */
+    plansRev: null,
+    plansSnapshotAt: null,
+    serverToday: null,
+    plansLoading: false,
+    /* 갱신으로 목록에서 사라진 계획. 말없이 지우면 사용자는 완료·취소·오류를 구별하지 못하고,
+       그 계획으로 쓰던 임시저장은 진입점을 잃는다. 사용자가 확인할 때까지 남는다. */
+    planTombstones: [],
     /* T1: 이 기기에서 이미 제출 시도(성공 또는 큐 적재)로 소비된 plan_id 표식(tombstone).
        큐 항목과 독립적으로 sc_plans 캐시에 함께 영속된다(persistPlansCache) — 큐 항목을
        지워도 남아야 응답 유실 → 큐 삭제 → 재작성 경로의 이중 기록을 막는다. */
@@ -647,8 +658,17 @@
       있고(배포 순서), 그 한 번의 실패로 부팅을 통째로 잃으면 안 된다. */
   function bootstrapOnce() {
     if (CONFIG.MOCK) { refreshMasters(); refreshPlans(); return; }
+    /* **오프라인이면 아예 나가지 않는다.** 실측(가짜 DOM 하네스): 오프라인 부팅이
+       bootstrap 4시도 + masters 4시도 + plans 4시도 = **12요청 11.2초**를 태우고,
+       그동안 화면에는 「서버 응답이 느립니다 — 다시 시도 중 (4/4)」가 떠 있었다.
+       통신이 없는 현장에서 그건 "앱이 고장" 으로 읽힌다 — 저장본으로 일하면 되는 상황인데도.
+       `navigator.onLine === false` 는 신뢰할 수 있다(true 가 도달을 보장하지 않을 뿐이다).
+       연결이 돌아오면 아래 online 처리기가 이 함수를 다시 부른다. */
+    if (!appOnline_()) { markBootDeferred_(); return; }
     var rev = mastersUsable_(state.masters) ? state.masters.rev : '';
     var batch = telSeal_();
+    /* 요청을 **보내는 지금**의 세대를 붙잡아 둔다 — 응답이 도착할 때가 아니라. */
+    var bootGen = state.plansGen || 0;
     return fetchBootstrapRemote(rev, batch).then(function (res) {
       if (!res || !res.ok || !res.data) { telPersist_(); refreshMasters(); refreshPlans(); return; }
       var d = res.data;
@@ -667,8 +687,25 @@
         /* 여기 오면 안 된다(온전할 때만 rev 를 보내므로). 와도 조용히 넘어가지 않는다. */
         refreshMasters();
       }
-      refreshPlans(null, { ok: true, data: { plans: (d.plans || []) } });
+      /* 부팅 응답의 계획 부분을 **계약 그대로** 넘긴다 — `plans` 만 뽑아 감싸면
+         완전성·rev·서버시각이 버려져, 첫 화면이 "언제 기준인지 모르는 목록" 이 된다. */
+      refreshPlans({ ok: true, data: { plans: d.plans, plans_complete: d.plans_complete,
+                                       plans_rev: d.plans_rev, snapshot_at: d.snapshot_at,
+                                       server_today: d.server_today } }, bootGen);
     });
+  }
+
+  /* 오프라인이라 부팅을 미뤘다. **조용히 넘어가지 않는다** — 마스터가 없으면 새 점검을
+     시작조차 못 하는데, 이유를 안 알리면 사용자는 앱이 비어 있는 줄 안다. */
+  var bootDeferred = false;
+  function markBootDeferred_() {
+    bootDeferred = true;
+    if (!mastersUsable_(state.masters)) {
+      state.masterBanner = { level: 'warn',
+        text: '오프라인입니다 — 저장된 자료가 없어 새 점검을 시작할 수 없습니다. 연결되면 자동으로 받아옵니다.' };
+    }
+    renderPlansSyncLine();
+    if (state.currentScreen === 'home') renderHome();
   }
 
   function loadPlansFromNetwork() {
@@ -853,10 +890,13 @@
     $('screen-plan').hidden = name !== 'plan';
     $('screen-manage').hidden = name !== 'manage';
     updateTopbar(name);
-    if (name === 'home') { renderHome(); flushQueue(); }
-    else if (name === 'write') { renderWrite(); }
-    else if (name === 'review') { renderReview(); }
-    else if (name === 'manage') { renderManage(); }
+    /* 홈에 머무는 동안에만 주기 갱신이 돈다 — 다른 화면·배경에서는 멈춘다.
+       요청 예산을 화면 밖으로 새게 두면 31대 × 하루가 곧바로 동시 실행 천장을 민다. */
+    if (name === 'home') { renderHome(); flushQueue(); schedulePlansPoll(); }
+    else if (name === 'write') { renderWrite(); stopPlansPoll(); }
+    else if (name === 'review') { renderReview(); stopPlansPoll(); }
+    else if (name === 'manage') { renderManage(); stopPlansPoll(); }
+    else { stopPlansPoll(); }
     window.scrollTo(0, 0);
   }
   function updateTopbar(name) {
@@ -895,6 +935,8 @@
     renderStorageBanner();
     renderMasterBanner();
     renderPlansSyncLine();
+    renderPlansProgress();
+    renderPlansGone();
     renderPlansBanner();
     renderPlanTeams();
     renderPlanList();
@@ -1636,11 +1678,99 @@
       : /SUBMISSION_DUPLICATE/.test(message) ? '같은 제출이 장부에 두 번 있습니다 — 관리자에게 알리세요.'
       : message;
   }
-  function renderPlansSyncLine() {
-    $('home-plans-sync-line').textContent = state.plansSyncedAt
-      ? ('예정 점검 동기화: ' + formatDateTime(state.plansSyncedAt))
-      : '예정 점검 동기화 안 됨';
+  /* 「2026-08-24 14:55」는 **1분 전인지 어제인지 말해 주지 않는다.** 사람들이 낡은 캐시를
+     최신으로 읽은 원인이 이것이다(사용자 신고 2026-08-25). 상대시각 + 상태로 바꾼다.
+     경고를 **색으로만** 하지 않는다 — 글로도 말한다(WCAG 1.4.1). */
+  var PLANS_STALE_WARN_MS = 10 * 60 * 1000;
+  function plansSyncText_(now) {
+    if (state.plansLoading) return { text: '예정 점검 불러오는 중…', stale: false };
+    if (!state.plansSyncedAt) return { text: '예정 점검 동기화 안 됨', stale: true };
+    var age = now - new Date(state.plansSyncedAt).getTime();
+    var off = (typeof navigator !== 'undefined' && navigator && navigator.onLine === false);
+    var when = relativeAge_(age);
+    /* 날짜가 바뀐 목록은 "낡음" 보다 강한 말이 필요하다 — 오늘 예정이 통째로 없을 수 있다. */
+    if (plansFromOtherDay_()) {
+      return { text: (off ? '오프라인 · ' : '') + state.serverToday + ' 기준 목록입니다 — 오늘 예정을 아직 못 받았습니다',
+               stale: true };
+    }
+    if (off) return { text: '오프라인 · ' + when + ' 확인한 저장본을 쓰는 중', stale: true };
+    if (age >= PLANS_STALE_WARN_MS) return { text: when + ' 확인 · 최신이 아닐 수 있습니다', stale: true };
+    return { text: when + ' 확인', stale: false };
   }
+  /* 시계가 뒤로 가거나(수동 조정) 저장본이 미래 시각이면 age 가 음수다 — 「-3분 전」 대신
+     방금으로 읽는다. 거짓 경고보다 낫고, 어차피 다음 성공이 시각을 바로잡는다. */
+  function relativeAge_(ms) {
+    if (ms < 60 * 1000) return '방금';
+    var m = Math.floor(ms / 60000);
+    if (m < 60) return m + '분 전';
+    var h = Math.floor(m / 60);
+    if (h < 24) return h + '시간 전';
+    return Math.floor(h / 24) + '일 전';
+  }
+  /* **캐시가 다른 근무일 것인가.** 서버가 목록을 거른 기준 날짜(server_today)를 들고 있다가
+     오늘과 비교한다. 폰 시계로만 판단하지 않는 이유는, 판단의 한쪽(무엇을 기준으로 걸렀는지)이
+     서버 값이기 때문이다 — 폰 시계가 틀어져도 "서버는 8/25 기준으로 줬다" 는 사실은 안 변한다.
+     이게 중요한 자리는 **오프라인**이다: 「10시간 전 확인」은 낡았다는 말이지만
+     「어제 기준 목록」은 오늘 예정이 통째로 빠져 있다는 말이라 뜻이 다르다. */
+  function plansFromOtherDay_() {
+    return !!(state.serverToday && state.serverToday !== todayStr());
+  }
+  function renderPlansSyncLine() {
+    var el = $('home-plans-sync-line');
+    var st = plansSyncText_(Date.now());
+    var text = '예정 점검: ' + st.text;
+    /* **바뀔 때만 쓴다.** 이 줄은 aria-live 라 텍스트를 다시 넣을 때마다 스크린리더가
+       다시 읽는다 — 상대시각 타이머가 30초마다 도는데 매번 쓰면 「3분 전 확인」을
+       30초마다 낭독한다. (같은 규율이 renderStorageBanner 에도 적혀 있다.) */
+    if (el.textContent !== text) el.textContent = text;
+    el.classList.toggle('sync-line-stale', st.stale);
+    el.classList.toggle('sync-line-loading', !!state.plansLoading);
+  }
+
+  /* 목록을 흐리게(dim) 만들지 않는다 — 적대 검토가 짚은 대로 dim 은 「사용 불가」로 읽히는데
+     이 목록은 로딩 중에도 눌러야 한다(통신이 나쁜 현장에서 저장본으로 작업한다).
+     대신 **움직이는 진행 막대**로 "지금 확인 중"을 말한다. 정지한 흐림은 고장으로 보이고,
+     움직이는 막대는 진행으로 보인다 — 그 차이가 여기서는 결정적이다. */
+  function setPlansLoading(on) {
+    if (state.plansLoading === !!on) return;
+    state.plansLoading = !!on;
+    if (state.currentScreen === 'home') { renderPlansSyncLine(); renderPlansProgress(); }
+  }
+  function renderPlansProgress() {
+    var el = $('home-plans-progress');
+    if (el) el.hidden = !state.plansLoading;
+  }
+  /* 사라진 계획을 보여 준다. **이유는 창작하지 않는다** — 서버는 왜 빠졌는지 알려주지 않으므로
+     「다른 사람이 완료함」이라고 쓰면 관리자가 취소한 경우에 거짓말이 된다.
+     임시저장이 딸린 건은 따로 말한다: 그 초안은 목록에서 진입점을 잃어 손이 닿지 않는다. */
+  function renderPlansGone() {
+    var box = $('home-plans-gone');
+    if (!box) return;
+    var list = state.planTombstones || [];
+    if (!list.length) { box.hidden = true; return; }
+    box.hidden = false;
+    var titleEl = $('home-plans-gone-title');
+    var title = '최신 목록에서 빠진 예정 점검 ' + list.length +
+                '건 — 다른 사람이 처리했거나 관리자가 바꿨을 수 있습니다.';
+    /* 상자에 role="status" 가 붙어 있다 — 같은 문구를 다시 쓰면 낭독이 되풀이된다. */
+    if (titleEl.textContent !== title) titleEl.textContent = title;
+    var wrap = $('home-plans-gone-list');
+    wrap.innerHTML = '';
+    list.forEach(function (t) {
+      var row = document.createElement('div');
+      row.className = 'tombstone-item';
+      row.textContent = (t.planned_date ? t.planned_date + ' · ' : '') +
+                        (t.company_name || '') + (t.project_name ? ' / ' + t.project_name : '');
+      if (t.has_draft) {
+        var note = document.createElement('span');
+        note.className = 'tombstone-note';
+        note.textContent = '작성 중이던 임시저장이 있습니다 — 관리자에게 확인하세요.';
+        row.appendChild(note);
+      }
+      wrap.appendChild(row);
+    });
+  }
+
   function renderPlansBanner() {
     var el = $('home-plans-banner');
     if (!state.plansBanner) { el.hidden = true; return; }
@@ -1927,7 +2057,9 @@
     state.storage.saveSent(state.sent, today);
   }
   function persistPlansCache() {
-    var ok = state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt, consumed: state.consumedPlanIds });
+    var ok = state.storage.savePlans({ data: state.plans, syncedAt: state.plansSyncedAt,
+                                       consumed: state.consumedPlanIds, rev: state.plansRev,
+                                       snapshotAt: state.plansSnapshotAt, serverToday: state.serverToday });
     if (ok) state.lastSaveFailureKey = null;
     else notifySaveFailure('예정 점검 목록', 'plans');
     return ok;
@@ -2060,6 +2192,12 @@
       { k: '서비스워커', v: (state.swState || '확인 중') + (state.swDetail ? ' — ' + state.swDetail : ''),
         bad: state.swState === '실패' || state.swState === '미지원' },
       { k: '설치 신호', v: inst.v, bad: inst.bad },
+      /* 목록이 **서버 기준 언제 것**인지. 폰 시계와 무관한 값이라, 현장에서
+         "내 폰만 이상한가" 를 가를 때 이것부터 본다. */
+      { k: '예정 점검 기준', v: state.plansSnapshotAt
+          ? (state.plansSnapshotAt + (state.serverToday ? ' (' + state.serverToday + ' 기준)' : ''))
+          : '아직 서버 응답 없음',
+        bad: plansFromOtherDay_() },
       { k: '주소', v: location.origin + location.pathname, bad: false },
       { k: '브라우저', v: navigator.userAgent, bad: false }
     ];
@@ -2120,45 +2258,184 @@
      - plansSeq: 조회끼리도 도착 순서가 뒤집힌다. 늦게 보낸 R2 가 먼저 도착해 반영된 뒤
        R1 이 도착하면 최신 목록이 옛 목록으로 되돌아간다 — 세대만으로는 이걸 못 막는다.
        **가장 마지막에 시작한 조회만** 반영한다. */
-  function refreshPlans(retriesLeft, prefetched) {
-    var gen = state.plansGen || 0;
+  /* ---------- 갱신 엔진 (2026-08-25, Codex 적대 검토 NO-GO 반영) ----------
+     검토가 짚은 것: 세대·순번 가드는 **결과의 적용 순서**만 막고, 이미 나간 요청의 비용은
+     막지 못한다. 복귀 트리거를 붙이면 그 구멍이 곧바로 커진다 — 네트워크 재시도 4회와
+     `left=2` 논리 재귀가 곱해져 한 체인이 최대 12번 전송할 수 있었다.
+     그래서 진입점을 하나로 모으고 규칙을 셋으로 바꾼다.
+       ① single-flight — 조회가 도는 중이면 **새 요청을 만들지 않고** 요구만 적어 둔다
+       ② trailing 1회 — 끝난 뒤 요구가 있으면 정확히 한 번 더 돈다(예산으로 상한)
+       ③ 재시도는 전송 계층(getJson) 한 곳에서만 — 논리 재귀는 없앤다 */
+  var plansFlight = null;        /* 진행 중 조회. null 이 아니면 새 요청을 시작하지 않는다 */
+  var plansPending = false;      /* 도는 동안 들어온 갱신 요구 */
+  var plansTrailLeft = 2;        /* trailing 예산. 깨끗이 반영되면 되돌아온다 */
+  var plansLastOkAt = 0;         /* **성공** 시각. 신선도·쿨다운의 기준은 시도가 아니라 성공이다 */
+
+  function plansAgeMs() { return plansLastOkAt ? (Date.now() - plansLastOkAt) : Infinity; }
+
+  /** 갱신 진입점. `prefetched` 는 이미 비용을 치른 응답(부팅 동봉)이라 그대로 반영한다. */
+  function refreshPlans(prefetched, sentGen) {
+    if (!prefetched && plansFlight) { plansPending = true; return plansFlight; }
+    /* **동봉값은 세대를 스스로 채번하면 안 된다.** 부팅 응답은 요청을 보낸 뒤 몇 초 만에
+       도착하는데, 그 사이에 큐 전송이 성공해 계획이 지워졌을 수 있다(콜드 부팅에서
+       flushQueue 와 bootstrapOnce 가 나란히 뜬다). 도착 시점에 채번하면 그때 이미 올라간
+       세대를 그대로 읽어 **가드가 통과**하고, 지운 계획이 되살아나 캐시에까지 박힌다.
+       그래서 보낸 시점의 세대를 받아서 쓴다. */
+    var gen = (typeof sentGen === 'number') ? sentGen : (state.plansGen || 0);
     var seq = state.plansSeq = (state.plansSeq || 0) + 1;
-    /* 재조회 상한 — 매번 세대가 밀리면(사용자가 계속 조작 중) 무한 재귀가 된다. */
-    var left = (retriesLeft == null) ? 2 : retriesLeft;
-    /* prefetched 를 줘도 **세대·순번 검사는 그대로 탄다** — 부팅 응답이 늦게 도착하는
-       사이에 사용자가 계획을 취소했다면 그 낙관값을 덮으면 안 된다. */
-    return (prefetched ? Promise.resolve(prefetched) : loadPlansFromNetwork()).then(function (result) {
-      if (seq !== state.plansSeq) return;   /* 더 나중에 시작한 조회가 있다 — 이 응답은 버린다 */
-      if ((state.plansGen || 0) !== gen) {
-        /* 이 조회가 도는 동안 수정·취소가 성공했다 — 이 응답은 이미 낡았다. 조용히 버리지
-           않고 새 조회를 걸어 최종 정합을 맞춘다(버리기만 하면 화면이 로컬 낙관값에 머문다). */
-        if (left > 0) return refreshPlans(left - 1);
-        /* 상한 소진 — 조용히 포기하면 사용자는 목록이 왜 낡았는지 알 수 없다(K4).
-           로컬 낙관값은 맞아 있으므로 데이터는 안전하다. 다시 맞추라고 알린다. */
-        state.plansBanner = { level: 'warn', text: '예정 점검 동기화를 마치지 못했습니다 — 잠시 후 새로고침하세요.' };
-        if (state.currentScreen === 'home') renderHome();
-        else if (state.currentScreen === 'manage') renderManage();
-        return;
+    setPlansLoading(true);
+    var src = prefetched ? Promise.resolve(prefetched) : loadPlansFromNetwork();
+    var flight = src.then(function (result) {
+      applyPlansResult(result, gen, seq);
+    })["catch"](function (e) {
+      /* 여기까지 오면 전송 계층이 못 삼킨 예외다. 조용히 끝내면 loading 이 영원히 켜져
+         화면이 고장 난 것처럼 보인다 — 실패로 못 박고 아래에서 상태를 끈다. */
+      applyPlansResult({ ok: false, error: { code: "CLIENT_" + String((e && e.name) || "ERROR") } }, gen, seq);
+    }).then(function () {
+      /* 성공·실패·폐기 **모두**에서 loading 을 끈다(검토 #4: finally 성격으로 종료).
+         한 갈래라도 빠지면 오프라인일 때 화면이 영구히 「불러오는 중」에 머문다. */
+      if (!prefetched) plansFlight = null;
+      /* 동봉값 처리가 **남의 비행 중**에 진행 표시를 끄면, 화면은 「방금 확인」이라고 말하는데
+         실제로는 조회가 아직 돌고 있다. 비행이 없을 때만 끈다. */
+      if (!plansFlight) setPlansLoading(false);
+      /* 세대 충돌 없이 한 바퀴를 마쳤으면 예산을 되돌린다. 성공(usable)에서만 되돌리면
+         네트워크가 나쁜 구간에서 예산이 0 으로 굳고, 그 뒤로는 사용자 조작과 겹칠 때마다
+         곧바로 「동기화를 마치지 못했습니다」가 뜬다. */
+      if ((state.plansGen || 0) === gen) plansTrailLeft = 2;
+      if (plansPending && plansTrailLeft > 0) {
+        plansPending = false; plansTrailLeft -= 1;
+        return refreshPlans();
       }
-      if (result.ok) {
-        state.plans = (result.data && result.data.plans) || [];
-        state.plansSyncedAt = new Date().toISOString();
-        pruneConsumedPlanIds(state.plans);   /* T1: 서버가 확인해 준 시점에만 표식을 정리한다 */
-        persistPlansCache();
-        state.plansBanner = null;
-      } else {
-        /* F7(Task 3 인계, 계약 K2): CONFIG(탭 없음·헤더 손상) 등 실패라도 캐시를 빈 목록으로
-           덮어쓰지 않는다 — state.plans 를 건드리지 않고 마지막 저장본 + 동기화 시각을 그대로 보여준다. */
-        state.plansBanner = (state.plans.length || state.plansSyncedAt)
-          ? { level: 'warn', text: '예정된 점검 동기화 실패 — 마지막 저장본 사용 (' + result.error.code + ')' }
-          : { level: 'error', text: '예정된 점검을 불러오지 못했습니다 (' + result.error.code + ')' };
-      }
-      /* 계획을 보여주는 화면은 둘이다 — 홈과 관리. 홈만 다시 그리면 관리 화면에 머무는 동안
-         state.plans 가 새 배열로 갈렸는데 화면은 옛 목록을 계속 보인다(다른 사람이 취소·추가한
-         계획이 안 보이거나 이미 사라진 계획이 남는다). */
-      if (state.currentScreen === 'home') renderHome();
-      else if (state.currentScreen === 'manage') renderManage();
+      plansPending = false;
     });
+    /* 동봉값(prefetched)은 왕복이 아니므로 비행으로 등록하지 않는다. 다만 **이미 떠 있는
+       비행을 지우지도 않는다** — 덮어쓰면 그 순간 single-flight 가 풀려 겹친 요청이 나간다. */
+    if (!prefetched) plansFlight = flight;
+    return flight;
+  }
+
+  /* 조회 응답의 역전을 막는 장치가 **둘** 필요하다(3차 검증 #8).
+     - plansGen: 조회가 도는 동안 로컬 수정·취소가 성공하면 그 응답은 낡았다
+     - plansSeq: 조회끼리도 도착 순서가 뒤집힌다. 늦게 보낸 R2 가 먼저 도착해 반영된 뒤
+       R1 이 도착하면 최신 목록이 옛 목록으로 되돌아간다 — 세대만으로는 이걸 못 막는다.
+       **가장 마지막에 시작한 조회만** 반영한다. */
+  function applyPlansResult(result, gen, seq) {
+    if (seq !== state.plansSeq) return;   /* 더 나중에 시작한 조회가 있다 — 이 응답은 버린다 */
+    if ((state.plansGen || 0) !== gen) {
+      /* 이 조회가 도는 동안 수정·취소가 성공했다 — 이 응답은 이미 낡았다. 조용히 버리지
+         않고 trailing 으로 넘겨 최종 정합을 맞춘다(버리기만 하면 화면이 로컬 낙관값에 머문다).
+         **여기서 새 요청을 만들지 않는 것**이 옛 재귀와의 차이다 — 예산은 위에서 센다. */
+      if (plansTrailLeft > 0) { plansPending = true; return; }
+      /* 예산 소진 — 조용히 포기하면 사용자는 목록이 왜 낡았는지 알 수 없다(K4).
+         로컬 낙관값은 맞아 있으므로 데이터는 안전하다. 다시 맞추라고 알린다. */
+      state.plansBanner = { level: "warn", text: "예정 점검 동기화를 마치지 못했습니다 — 잠시 후 새로고침하세요." };
+      renderPlansScreens();
+      return;
+    }
+    var d = result && result.data;
+    /* **배열인지 먼저 본다.** `plans` 필드가 없거나 잘린 응답도 `|| []` 를 거치면 "0건" 이
+       되고, 그 0건이 캐시를 덮으면 현장 목록이 조용히 사라진다(F7 이 막으려던 사고).
+       "데이터 없음" 은 정상이지만 "필드 없음" 은 정상 데이터가 아니다.
+       `plans_complete` 는 새 서버만 보낸다 — 없으면 판정에 쓰지 않고(구서버 호환),
+       `false` 로 명시된 것만 거부한다. */
+    var usable = !!(result && result.ok && d && Array.isArray(d.plans) && d.plans_complete !== false);
+    if (usable) {
+      /* 내용이 그대로면(rev 동일) 목록 교체·묘비 판정·저장을 되풀이하지 않는다.
+         폴링은 대부분 "안 바뀜" 이라 이 갈래가 기본 경로다 — 매번 localStorage 를 다시 쓰면
+         현장 폰에서 이유 없는 저장 실패 위험만 는다. 확인 시각은 갱신한다(확인은 했으니까). */
+      var unchanged = !!(state.plansRev && d.plans_rev && state.plansRev === d.plans_rev);
+      var removed = unchanged ? [] : missingPlans_(state.plans, d.plans);
+      /* **"첫 동기화" 는 이 세션의 첫 응답이 아니라 이 기기의 첫 응답이다.**
+         plansLastOkAt 만 보면 모듈 변수라 페이지를 새로 열 때마다 0 이고, 그러면
+         **앱을 닫았다 켠 뒤에는 묘비가 절대 안 뜬다** — 그 사이에 남이 처리한 계획이
+         말없이 사라지고, 그 계획으로 쓰던 임시저장은 진입점을 잃는다(도달 불가).
+         저장본에 동기화 시각이 있다는 것은 "예전에 받은 적이 있다" 는 뜻이므로
+         그때의 차이는 진짜 '사라짐' 이다. */
+      var first = !plansLastOkAt && !state.plansSyncedAt;
+      if (!unchanged) state.plans = d.plans;
+      state.plansRev = d.plans_rev || null;
+      /* 서버가 읽은 시각과 폰이 받은 시각을 구별해 둔다 — 「N분 전」을 폰 시계로만 세면
+         시계가 틀어진 만큼 거짓말이 된다. 서버 값이 있으면 그것도 같이 들고 있는다. */
+      state.plansSnapshotAt = d.snapshot_at || null;
+      state.serverToday = d.server_today || null;
+      state.plansSyncedAt = new Date().toISOString();
+      plansLastOkAt = Date.now();
+      plansTrailLeft = 2;                  /* 깨끗이 반영됐다 — 예산을 되돌린다 */
+      /* **묘비 판정이 표식 정리보다 먼저다.** 순서를 뒤집으면 거짓 경고가 뜬다:
+         pruneConsumedPlanIds 는 "새 목록에 없는" 소비 표식을 지우는데, 내가 방금 제출한
+         계획이 정확히 그 조건이다. 먼저 지우면 noteVanishedPlans 가 표식을 못 찾고
+         **내가 제출한 계획**을 「다른 사람이 처리했거나 관리자가 바꿨다」고 알린다.
+         (조각 테스트는 pruneConsumedPlanIds 를 스텁으로 죽여 놔서 이걸 못 봤다 —
+          tests-js/app-integration.test.mjs 가 실물로 잡는다.) */
+      if (!first) noteVanishedPlans(removed);   /* 첫 동기화의 캐시 차이는 "사라짐" 이 아니다 */
+      /* **인자는 서버 목록(d.plans)이다 — 로컬 목록이 아니다.**
+         제출이 성공하면 removePlanLocally 가 state.plans 에서 그 계획을 먼저 뺀다(낙관 반영).
+         그 상태로 `state.plans` 를 넘기면, 서버가 아직 그 계획을 planned 로 주고 있는데도
+         "새 목록에 없다"는 이유로 소비 표식을 지운다. 표식이 지워지면 나중에 목록이 갱신될 때
+         그 계획이 **버튼이 열린 채** 되살아나고, 다시 작성하면 새 submission_id 라 서버 멱등에도
+         안 걸려 **점검대장에 2행**이 생긴다.
+         함수 주석의 약속("서버 응답을 근거로 지운다")을 인자로도 지킨다.
+         rev 동일 갈래에서는 state.plans 를 교체하지 않으므로 이 구멍이 특히 잘 열린다. */
+      pruneConsumedPlanIds(d.plans);   /* T1: 서버가 확인해 준 목록만 근거로 정리한다 */
+      persistPlansCache();   /* 안 바뀐 경우에도 저장한다 — 확인 시각·기준 날짜가 바뀌었다 */
+      state.plansBanner = null;
+    } else {
+      /* F7(Task 3 인계, 계약 K2): CONFIG(탭 없음·헤더 손상) 등 실패라도 캐시를 빈 목록으로
+         덮어쓰지 않는다 — state.plans 를 건드리지 않고 마지막 저장본 + 동기화 시각을 그대로 보여준다. */
+      var code = (result && result.error && result.error.code) ||
+                 (result && result.ok ? "PLANS_INCOMPLETE" : "UNKNOWN");
+      state.plansBanner = (state.plans.length || state.plansSyncedAt)
+        ? { level: "warn", text: "예정된 점검 동기화 실패 — 마지막 저장본 사용 (" + code + ")" }
+        : { level: "error", text: "예정된 점검을 불러오지 못했습니다 (" + code + ")" };
+    }
+    renderPlansScreens();
+  }
+
+  /* 계획을 보여주는 화면은 둘이다 — 홈과 관리. 홈만 다시 그리면 관리 화면에 머무는 동안
+     state.plans 가 새 배열로 갈렸는데 화면은 옛 목록을 계속 보인다(다른 사람이 취소·추가한
+     계획이 안 보이거나 이미 사라진 계획이 남는다). */
+  function renderPlansScreens() {
+    if (state.currentScreen === "home") renderHome();
+    else if (state.currentScreen === "manage") renderManage();
+  }
+
+  /** 옛 목록에는 있고 새 목록에는 없는 계획. 순서·내용은 보지 않는다 — 사라짐만 본다. */
+  function missingPlans_(before, after) {
+    var live = {};
+    (after || []).forEach(function (p) { live[String(p.plan_id)] = true; });
+    return (before || []).filter(function (p) { return !live[String(p.plan_id)]; });
+  }
+
+  /* 사라진 계획을 **말없이 지우지 않는다**(검토 #5). 안전점검 목록에서 항목이 소리 없이
+     빠지면 사용자는 완료·취소·오류를 구별할 수 없고, 그 계획으로 쓰던 임시저장은
+     진입점을 잃어 영영 닿지 못한다.
+     **이유는 창작하지 않는다** — 서버는 "왜 빠졌는지" 를 주지 않는다. 「다른 사람이 완료함」
+     이라고 단정하면 관리자가 취소한 경우에 거짓말이 된다. */
+  function noteVanishedPlans(removed) {
+    if (!removed || !removed.length) return;
+    var seen = {};
+    (state.planTombstones || []).forEach(function (t) { seen[t.plan_id] = true; });
+    var today = todayStr();
+    var add = removed.filter(function (p) {
+      /* 내가 방금 제출해서 없어진 것은 알릴 일이 아니다 — 사용자가 이미 안다. */
+      if (seen[String(p.plan_id)] || state.consumedPlanIds[String(p.plan_id)]) return false;
+      /* **예정일이 지나서 빠진 것도 알릴 일이 아니다.** 서버는 지난 예정일을 안 내려보내고
+         (대시보드의 「미점검」으로 옮긴다) 그건 정상 흐름이다. 이걸 안 거르면 자정마다
+         어제 계획 전부가 묘비로 쏟아져 진짜 신호가 묻힌다. */
+      return !(String(p.planned_date || '') && String(p.planned_date) < today);
+    }).map(function (p) {
+      return { plan_id: String(p.plan_id), company_name: String(p.company_name || ""),
+               project_name: String(p.project_name || ""), planned_date: String(p.planned_date || ""),
+               has_draft: !!(state.drafts && state.drafts[p.plan_id]) };
+    });
+    if (!add.length) return;
+    state.planTombstones = (state.planTombstones || []).concat(add);
+  }
+
+  function clearPlanTombstones() {
+    if (!state.planTombstones || !state.planTombstones.length) return false;
+    state.planTombstones = [];
+    return true;
   }
 
   /* ---------- 홈: 새 점검/이어쓰기(계획 없이, adhoc) ---------- */
@@ -3222,7 +3499,13 @@
   /* 계획 캐시(sc_plans) — 마스터와 같은 패턴({data, syncedAt}) + T1 소비 표식(consumed). */
   function loadCachedPlans() {
     var cached = state.storage.loadPlans();
-    if (cached && cached.data) { state.plans = cached.data; state.plansSyncedAt = cached.syncedAt || null; }
+    if (cached && cached.data) {
+      state.plans = cached.data;
+      state.plansSyncedAt = cached.syncedAt || null;
+      state.plansRev = cached.rev || null;
+      state.plansSnapshotAt = cached.snapshotAt || null;
+      state.serverToday = cached.serverToday || null;
+    }
     if (cached && cached.consumed) { state.consumedPlanIds = cached.consumed; }
   }
 
@@ -3231,6 +3514,9 @@
     $('btn-continue-draft').addEventListener('click', continueDraft);
     $('btn-discard-draft').addEventListener('click', function () { discardDraft('adhoc'); });
     $('btn-sync-now').addEventListener('click', flushQueue);
+    $('btn-plans-gone-ack').addEventListener('click', function () {
+      if (clearPlanTombstones()) renderHome();
+    });
 
     $('btn-open-plan-form').addEventListener('click', openPlanForm);
     $('btn-plan-form-cancel').addEventListener('click', function () {
@@ -3382,17 +3668,157 @@
     } catch (e) { /* 구형 브라우저 */ }
     return true;
   }
+  /* ---------- 복귀·주기 갱신 (2026-08-25) ----------
+     사용자 신고: "앱을 잠시 닫아 뒀다 다시 켜도 자동 갱신이 안 된다."
+     사실이었다 — 여기서 하던 일은 서비스워커 확인뿐이고 계획 목록은 건드리지 않았다.
+
+     적대 검토가 바로잡은 것: **이벤트를 많이 듣는다고 신선해지지 않는다.** 덮어야 할 것은
+     경로 셋이다.
+       ① 콜드 부팅(OS 가 프로세스를 지웠다)     → init() → bootstrapOnce() 가 이미 책임진다
+       ② 진짜 hidden→visible 복귀              → visibilitychange
+       ③ bfcache 복원                          → pageshow 의 persisted
+     `focus` 는 **듣지 않는다** — 키보드·창 포커스만 바뀌어도 반복 발생해 갱신 근거로 쓰면
+     요청만 늘고 신선도는 안 는다. `online` 은 갱신 트리거가 아니라 **실패 뒤 재개 허가**다.
+     `pagehide` 는 나가는 신호이므로 폴링을 멈추는 데만 쓴다. */
+  var PLANS_COALESCE_MS = 800;        /* 동시에 터진 이벤트 합치기 — 신선도 문턱과 다른 값이다 */
+  var PLANS_FRESH_MS = 45 * 1000;     /* 이보다 최근에 **성공**했으면 복귀 갱신을 건너뛴다 */
+  /* **폴링 간격은 동시 실행이 아니라 하루 실행시간이 정한다.**
+     처음에 300초로 잡았던 근거는 "동시 실행 30/계정" 한 축뿐이었다. 그 축만 보면 300초 +
+     jitter 로 충분하다. 그런데 Apps Script 에는 축이 하나 더 있다 — **소비자 계정
+     일일 스크립트 실행시간 90분**(FIELD-NOTES §-실행기록, gas/main.gs 주석에도 같은 문장).
+     저장소 자기 실측으로 계산해 보면:
+       웹앱 실행시간 0.77~6.17초(FIELD-NOTES 실측) · 현재 하루 소비 약 3분(한도의 3%)
+       300초 폴링 → 31명 × 8시간 = 2,976요청 → × 1.5초만 잡아도 **74분** = 한도의 82%
+     즉 폴링 하나로 하루치를 통째로 먹고, 자동등록·주간백업까지 더하면 **쿼터가 터진다**.
+     쿼터가 터지면 제출도 대시보드도 같이 죽는다 — 유령 공사보다 훨씬 나쁜 고장이다.
+     그래서 900초로 늘리고, **손을 안 댄 폰에서는 아예 돌지 않게** 한다(주머니 속 폰이
+     하루 종일 요청을 쌓는 것이 이 예산의 진짜 누수다).
+       900초 + jitter → 31명 × 8시간 ≈ 930요청 × 1.5초 ≈ **23분**(한도의 26%)
+     이 숫자는 「최대 15분 유령」을 받아들인 대가다. 못 받아들이면 답은 더 짧은 주기가
+     아니라 **서버 쪽 캐시**(mastersPublicCached_ 와 같은 방식)다 — 요청 수가 아니라
+     요청당 실행시간을 깎아야 한다. */
+  var PLANS_POLL_MS = 900 * 1000;
+  var PLANS_POLL_JITTER_MS = 120 * 1000;
+  /* 마지막 사용자 조작. 이보다 오래 손을 안 댔으면 폴링을 멈춘다 — 화면이 켜져 있다는 것과
+     사람이 보고 있다는 것은 다르다. 다시 만지면 그 자리에서 되살아난다. */
+  var PLANS_IDLE_MS = 15 * 60 * 1000;
+  var lastUserActionAt = 0;
+  var plansCoalesceTimer = null;
+  var plansPollTimer = null;
+  var plansLastFailed = false;
+
+  function appVisible_() { return !(document && document.hidden); }
+  function appOnline_() {
+    return !(typeof navigator !== 'undefined' && navigator && navigator.onLine === false);
+  }
+
+  /** 복귀·주기 갱신의 공통 입구. `force` 는 신선도 문턱을 무시한다(온라인 복귀 등). */
+  function requestPlansRefresh(force) {
+    if (!appVisible_()) return false;
+    /* 오프라인이면 **요청을 시작하지 않는다** — 시작해 봐야 재시도 사슬만 쌓이고,
+       화면은 그동안 「불러오는 중」에 갇힌다. 저장본 상태로 바로 말해 준다. */
+    if (!appOnline_()) { renderPlansSyncLine(); return false; }
+    /* 날짜가 바뀐 목록은 방금 받았어도 못 쓴다 — 신선도 문턱을 무시하고 다시 받는다.
+       (자정 직전에 받은 목록으로 자정 직후를 버티면 오늘 예정이 통째로 빠진다.) */
+    if (!force && !plansFromOtherDay_() && plansAgeMs() < PLANS_FRESH_MS) return false;
+    if (plansCoalesceTimer) return true;           /* 이미 합치는 중 — 하나로 모은다 */
+    plansCoalesceTimer = setTimeout(function () {
+      plansCoalesceTimer = null;
+      refreshPlans().then(function () {
+        plansLastFailed = !!state.plansBanner;
+        schedulePlansPoll();
+      });
+    }, PLANS_COALESCE_MS);
+    return true;
+  }
+
+  /* 홈에 앱을 켜 둔 사람은 복귀 이벤트가 없다 — 남이 제출한 공사가 화면에 계속 남는다
+     (사용자 신고의 '유령 공사'). 그래서 주기 갱신이 필요하다. 단 **고정 주기는 위험하다**:
+     31명이 같은 위상으로 돌면 매 주기 31건이 한꺼번에 나가 동시 실행 30 천장을 넘는다.
+     그래서 ① 300초 기준 ② 기기별 무작위 jitter ③ **완료 뒤에 다음 것을 예약**(겹치지 않음)
+     ④ 홈·visible·online 일 때만. */
+  function userIsAround_() {
+    return !!lastUserActionAt && (Date.now() - lastUserActionAt) < PLANS_IDLE_MS;
+  }
+  function schedulePlansPoll() {
+    if (plansPollTimer) { clearTimeout(plansPollTimer); plansPollTimer = null; }
+    if (state.currentScreen !== 'home' || !appVisible_() || !appOnline_()) return;
+    /* 손을 안 댄 지 오래면 멈춘다 — 다음 조작·복귀가 다시 건다(watchUserActivity). */
+    if (!userIsAround_()) return;
+    var wait = PLANS_POLL_MS + Math.floor(Math.random() * PLANS_POLL_JITTER_MS);
+    plansPollTimer = setTimeout(function () {
+      plansPollTimer = null;
+      requestPlansRefresh(true);
+    }, wait);
+  }
+  function stopPlansPoll() {
+    if (plansPollTimer) { clearTimeout(plansPollTimer); plansPollTimer = null; }
+  }
+
+  /* 「3분 전 확인」은 가만히 두면 영원히 3분 전이다 — 글자만 주기적으로 다시 그린다
+     (네트워크를 쓰지 않는다). 이게 없으면 상대시각이 절대시각보다 더 나쁜 거짓말이 된다. */
+  var PLANS_TICK_MS = 30 * 1000;
+  function startSyncLineTicker() {
+    setInterval(function () {
+      if (state.currentScreen === 'home' && appVisible_()) renderPlansSyncLine();
+    }, PLANS_TICK_MS);
+  }
+
+  /* 사람이 앱을 **보고 있는가**. 화면이 켜져 있다는 것과 다르다 — 주머니 속에서 화면만
+     켜진 폰이 하루 종일 요청을 쌓는 것이 폴링 예산의 진짜 누수다.
+     조작을 잡으면 멈춰 있던 폴링을 그 자리에서 되살린다. */
+  function watchUserActivity() {
+    if (!document || !document.addEventListener) return;
+    var mark = function () {
+      var wasAway = !userIsAround_();
+      lastUserActionAt = Date.now();
+      if (wasAway) schedulePlansPoll();   /* 쉬고 있던 폴링을 깨운다 */
+    };
+    ['pointerdown', 'keydown', 'touchstart'].forEach(function (n) {
+      document.addEventListener(n, mark, true);
+    });
+    mark();   /* 앱을 연 것 자체가 조작이다 */
+  }
+
   function watchAppResume() {
     if (!document || !document.addEventListener) return;
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) recheckServiceWorkerUpdate();
+      if (document.hidden) { stopPlansPoll(); return; }   /* 배경에서 타이머를 돌리지 않는다 */
+      lastUserActionAt = Date.now();   /* 앱으로 돌아온 것도 조작이다 */
+      recheckServiceWorkerUpdate();
+      requestPlansRefresh(false);
+      schedulePlansPoll();
     });
+    if (window && window.addEventListener) {
+      /* bfcache 복원 — visibilitychange 가 안 뜨는 경로다. 복원일 때만(persisted) 반응한다:
+         일반 최초 로드에서도 pageshow 는 뜨는데 그때는 부팅이 이미 갱신한다. */
+      window.addEventListener('pageshow', function (e) {
+        if (e && e.persisted) { recheckServiceWorkerUpdate(); requestPlansRefresh(true); }
+      });
+      window.addEventListener('pagehide', stopPlansPoll);
+      /* 온라인 복귀는 **실패 뒤 재개 허가**다. 직전이 성공이었다면 굳이 다시 묻지 않는다 —
+         쿨다운 기준을 '마지막 시도' 로 두면 이 경로가 통째로 막히므로 기준은 '마지막 성공'. */
+      window.addEventListener('online', function () {
+        /* 오프라인이라 부팅을 통째로 미뤘다면 **부팅부터** 되살린다 — 계획만 받아 봐야
+           마스터가 없으면 새 점검 화면이 여전히 비어 있다. */
+        if (bootDeferred) { bootDeferred = false; bootstrapOnce(); schedulePlansPoll(); return; }
+        if (plansLastFailed || plansAgeMs() >= PLANS_FRESH_MS) requestPlansRefresh(true);
+        else renderPlansSyncLine();
+        /* **양쪽 갈래 모두** 폴을 다시 건다. offline 이 타이머를 지웠으므로, 갱신을 건너뛰는
+           갈래에서 안 걸면 잠깐의 통신 끊김(엘리베이터·지하) 한 번이 그 세션의 폴링을
+           통째로 죽인다 — 그러면 유령 공사가 영영 남는다. */
+        schedulePlansPoll();
+      });
+      window.addEventListener('offline', function () { stopPlansPoll(); renderPlansSyncLine(); });
+    }
   }
 
   function init() {
     registerServiceWorker();
     watchServiceWorkerUpdate();
     watchAppResume();
+    watchUserActivity();
+    startSyncLineTicker();
     probeInstalled();   /* 「앱 상태」를 처음 펼쳤을 때 곧바로 맞는 값이 보이게 미리 물어 둔다 */
     state.storage = SafetyLogic.storage(window);
     state.queue = state.storage.loadQueue();

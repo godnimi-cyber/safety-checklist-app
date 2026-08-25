@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-ca642952">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-9e5c26ee">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <!-- 데이터 API 오리진 2곳 — 첫 요청의 DNS+TLS 를 선행한다(대시보드와 같은 처방).
      GAS 는 script.google.com 에서 302 로 googleusercontent 로 넘어가므로 둘 다 필요하다.
@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-ca642952">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-9e5c26ee">
 <title>현장 안전점검</title>
 </head>
 <body>
@@ -55,8 +55,24 @@
               <button type="button" class="btn btn-outline" id="btn-open-plan-form">사전등록</button>
             </div>
           </div>
-          <p class="sync-line" id="home-plans-sync-line">예정 점검 동기화 안 됨</p>
+          <!-- 라이브 영역은 **글이 있는 이 줄**에 붙인다. 아래 진행 막대에 role="status" 를
+               붙였더니 그 안에 텍스트 노드가 없어 스크린리더가 읽을 것이 없었다(적대 검토
+               2026-08-25). 라이브 영역은 '내용' 을 읽지 '존재' 를 읽지 않는다. -->
+          <p class="sync-line" id="home-plans-sync-line" role="status" aria-live="polite"
+             >예정 점검 동기화 안 됨</p>
+          <!-- 확인 중임을 **움직임**으로 말한다. 목록을 흐리게 하면 「사용 불가」로 읽히는데
+               이 목록은 로딩 중에도 눌러야 한다(통신 나쁜 현장에서 저장본으로 작업).
+               장식이므로 보조기술에서 숨긴다 — 같은 사실을 위 줄이 글로 말한다. -->
+          <div class="sync-progress" id="home-plans-progress" aria-hidden="true"
+               hidden><span></span></div>
           <div id="home-plans-banner" class="banner" hidden></div>
+          <!-- 갱신으로 목록에서 빠진 계획. 말없이 지우면 사용자는 완료·취소·오류를 구별할 수
+               없고, 그 계획으로 쓰던 임시저장은 진입점을 잃는다. -->
+          <div class="tombstone-box" id="home-plans-gone" role="status" aria-live="polite" hidden>
+            <p class="tombstone-title" id="home-plans-gone-title"></p>
+            <div id="home-plans-gone-list"></div>
+            <button type="button" class="btn btn-outline" id="btn-plans-gone-ack">확인했습니다</button>
+          </div>
           <!-- 팀 거르기 — 팀이 둘 이상일 때만 보인다(하나뿐이면 고를 것이 없다).
                앱의 다른 고르기 칸과 같은 select 를 쓴다(같은 조작은 같은 모양으로). -->
           <div class="filter-row" id="home-plans-teams" hidden>
@@ -502,9 +518,9 @@
   </div>
 </template>
 
-<script src="./config.js?v=0.5.5-ca642952"></script>
-<script src="./lib.js?v=0.5.5-ca642952"></script>
-<script src="./logic.js?v=0.5.5-ca642952"></script>
-<script src="./app.js?v=0.5.5-ca642952"></script>
+<script src="./config.js?v=0.5.5-9e5c26ee"></script>
+<script src="./lib.js?v=0.5.5-9e5c26ee"></script>
+<script src="./logic.js?v=0.5.5-9e5c26ee"></script>
+<script src="./app.js?v=0.5.5-9e5c26ee"></script>
 </body>
 </html>
