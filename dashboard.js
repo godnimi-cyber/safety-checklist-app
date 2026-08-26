@@ -152,7 +152,12 @@
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'dash-btn';
-    btn.textContent = 'CSV 다운로드';
+    /* 쪽을 나눠 보는 블록에서는 **버튼 자신이** 전체 건수를 말한다 — 화면에 15건만 있는데
+       'CSV 다운로드' 라고만 적혀 있으면 그 15건을 받는 줄 안다(Codex 렌즈B #6).
+       안내문이 목록 아래 3~4화면 뒤에 있어서, 버튼 앞에 선 사람에게는 닿지 않는다. */
+    btn.textContent = (block.keys && block.rows.length > PROJ_PAGE_SIZE)
+      ? 'CSV 다운로드 (전체 ' + block.rows.length + '건)'
+      : 'CSV 다운로드';
     btn.addEventListener('click', function () {
       var team = state.view === null ? '전체' : (findTeam_(state.payload, state.view) || { label: '전체' }).label;
       downloadCsv_(csvFileName_(kind, team, state.committedRange), buildCsv_(block));
@@ -720,18 +725,203 @@
     return grid;
   }
 
+  /* ---------- 쪽 나눔 (사용자 지시 2026-08-26) ----------------------------
+     "공사별 목록을 15개씩 1페이지로 나눠서 페이지번호를 누르는 방식으로 변경해.
+      100개가 쌓이면 스크롤이 엄청 길어질거 같아."
+     표(넓은 화면)와 카드(좁은 화면)는 **같은 쪽**을 보여야 하므로 자르는 자리를
+     pageSlice_ 한 곳으로 둔다. **CSV 는 자르지 않는다** — 받는 파일은 늘 전체이고,
+     요약줄이 그 사실을 적는다(보이는 것과 받는 것이 다르면 말해 준다). */
+  var PROJ_PAGE_SIZE = 15;
+
+  /** 총 건수 → 쪽 수. 0건이어도 1쪽이다("0/0쪽"은 읽는 사람에게 고장으로 보인다). */
+  function pageCount_(total, size) {
+    var n = Math.ceil(Number(total) / Number(size));
+    return n > 0 ? n : 1;
+  }
+
+  /** 범위 밖 쪽 번호를 끌어들인다 — 숫자가 아니거나 목록보다 크면 가장 가까운 쪽. */
+  function clampPage_(page, pages) {
+    var p = Math.floor(Number(page));
+    if (!isFinite(p) || p < 1) return 1;
+    return p > pages ? pages : p;
+  }
+
+  /** 그 쪽에 보일 행 + 사람이 읽는 번호. offset 은 **원본 배열의 인덱스**다 —
+   *  드릴다운이 block.keys[offset + i] 로 되짚으므로 자른 뒤에도 어긋나면 안 된다
+   *  (여기가 어긋나면 A 공사를 눌렀는데 B 공사의 점검표가 열린다 — 조용한 오답이다). */
+  function pageSlice_(rows, page, size) {
+    var all = rows || [];
+    var pages = pageCount_(all.length, size);
+    var p = clampPage_(page, pages);
+    var offset = (p - 1) * size;
+    return {
+      page: p, pages: pages, offset: offset, total: all.length,
+      rows: all.slice(offset, offset + size),
+      from: all.length ? offset + 1 : 0,
+      to: Math.min(offset + size, all.length)
+    };
+  }
+
+  /** 쪽 버튼 줄의 **모형**(DOM 없음 — 조각 평가로 검증한다). 첫·끝 쪽은 늘 보이고 사이는
+   *  현재 쪽 주변만: 숫자 칸 최대 7개다(그 이상은 전화기 폭에서 세 줄이 된다).
+   *  'gap' 은 갈 수 없는 자리라 버튼이 아니다. */
+  function pagerModel_(page, pages) {
+    var WIN = 7;
+    var out = [{ t: 'prev', page: page - 1, disabled: page <= 1 }];
+    var nums = [], i;
+    if (pages <= WIN) {
+      for (i = 1; i <= pages; i++) nums.push(i);
+    } else {
+      var left = page - 1, right = page + 1;
+      /* 끝에 붙으면 반대쪽으로 늘린다 — 안 그러면 1쪽에서 보이는 숫자가 1,2 둘뿐이다 */
+      if (page <= 3) { left = 2; right = 4; }
+      else if (page >= pages - 2) { left = pages - 3; right = pages - 1; }
+      nums.push(1);
+      if (left > 2) nums.push('gap');
+      for (i = left; i <= right; i++) nums.push(i);
+      if (right < pages - 1) nums.push('gap');
+      nums.push(pages);
+    }
+    nums.forEach(function (n) {
+      out.push(n === 'gap' ? { t: 'gap' } : { t: 'num', page: n, current: n === page });
+    });
+    out.push({ t: 'next', page: page + 1, disabled: page >= pages });
+    return out;
+  }
+
+  /** 어디까지 보고 있는지 한 줄. 쪽 번호만으로는 "몇 건 중 몇 건" 을 알 수 없다. */
+  function pagerSummary_(sl) {
+    return '총 ' + sl.total + '건 중 ' + sl.from + '~' + sl.to + '번째 · '
+      + sl.page + '/' + sl.pages + '쪽';
+  }
+
+  /** 눌림을 붙인다 — 그 클릭이 **포인터 조작**이었는지를 함께 알려 준다.
+   *
+   *  스크롤을 여기서 갈라야 하는 이유: 키보드로 쪽을 넘겼는데 화면을 목록 머리로 끌어
+   *  올리면 **초점(쪽 버튼)이 화면 밖에 남는다** — 방금 누른 것이 어디 있는지 알 수
+   *  없어진다(Codex 렌즈B #1).
+   *
+   *  판정을 `click.detail` 로 하지 않는다: 합성 클릭이 `detail: 1` 을 달고 오면 포인터로
+   *  오인한다(Codex 2차 N-1). 대신 **실제 `pointerdown` 이 있었는지**를 기록해 한 번 쓰고
+   *  버린다 — pointerdown 은 마우스·손가락·펜에만 오고 키보드·보조기술 합성 클릭에는
+   *  오지 않는다. 남은 표식이 다음 조작으로 새지 않게 click 에서 반드시 지운다
+   *  (끌다가 버튼 밖에서 떼면 click 이 안 와서 표식이 남는다 — pointercancel 도 지운다). */
+  function bindActivate_(shell, btn, run) {
+    btn.addEventListener('pointerdown', function () { shell.pointer = true; });
+    btn.addEventListener('pointercancel', function () { shell.pointer = false; });
+    btn.addEventListener('click', function () {
+      var byPointer = !!shell.pointer;
+      shell.pointer = false;
+      run(byPointer);
+    });
+  }
+
+  /** 쪽 이동 줄의 **고정 뼈대** — 쪽을 넘길 때 갈아 끼우는 것은 버튼뿐이다.
+   *  요약줄(aria-live)을 영역째 새로 넣으면 스크린리더가 **아무 말도 하지 않는다**:
+   *  라이브 영역은 미리 DOM 에 있어야 그 안의 글 변화가 낭독된다(Codex 렌즈B #2).
+   *  「전체 보기」 토글도 여기서 한 번만 만든다(리스너 중복 배선 방지). */
+  function buildPagerShell_() {
+    var nav = document.createElement('nav');
+    nav.className = 'dash-pager';
+    nav.setAttribute('aria-label', '공사별 목록 쪽 이동');
+
+    var sum = document.createElement('p');
+    sum.className = 'dash-pager-sum';
+    sum.setAttribute('aria-live', 'polite');
+    nav.appendChild(sum);
+
+    var btns = document.createElement('div');
+    btns.className = 'dash-pager-btns';
+    nav.appendChild(btns);
+
+    var foot = document.createElement('div');
+    foot.className = 'dash-pager-foot';
+    var all = document.createElement('button');
+    all.type = 'button';
+    all.className = 'dash-btn dash-pager-all';
+    var note = document.createElement('span');
+    note.className = 'dash-pager-csv';
+    foot.appendChild(all);
+    foot.appendChild(note);
+    nav.appendChild(foot);
+
+    return { nav: nav, sum: sum, btns: btns, all: all, note: note };
+  }
+
+  /** 뼈대에 현재 상태를 그린다 — **버튼만** 교체하고 요약·안내는 글만 바꾼다.
+   *  focusKind('prev'|'next'|'num'|'all')가 있으면 그 자리로 초점을 되돌린다.
+   *  초점은 버튼을 **뼈대에 붙인 뒤** 준다: 떨어져 있는 노드에 focus() 는 조용히
+   *  아무 일도 하지 않는다(Codex 렌즈B #1·#3 — 실제로 그렇게 깨져 있었다).
+   *  이전/다음이 끝에 닿아 비활성이 되면 현재 쪽 숫자로 대신 옮긴다.
+   *  showAll 이면 쪽 버튼을 만들지 않는다 — 나눌 것이 없다. */
+  function fillPager_(shell, sl, showAll, onGo, focusKind) {
+    shell.sum.textContent = showAll
+      ? '총 ' + sl.total + '건을 한 화면에 모두 보고 있습니다'
+      : pagerSummary_(sl);
+    /* 나눠 보는 화면은 브라우저 「페이지에서 찾기」로 다른 쪽 공사를 못 찾는다 —
+       그 능력을 되찾는 탈출구다(Codex 렌즈B #7). */
+    shell.all.textContent = showAll ? '15건씩 나눠 보기' : '전체 ' + sl.total + '건 한 화면에 보기';
+    /* 보이는 것과 받는 것이 다르다는 사실을 적어 둔다 — 15건만 보이는 화면에서
+       CSV 가 전체를 준다는 것은 눌러 보기 전에는 알 수 없다. */
+    shell.note.textContent = 'CSV 다운로드는 언제나 전체 ' + sl.total + '건입니다';
+    shell.btns.textContent = '';
+
+    var want = null, current = null;
+    if (!showAll) {
+      pagerModel_(sl.page, sl.pages).forEach(function (it) {
+        if (it.t === 'gap') {
+          var gap = document.createElement('span');
+          gap.className = 'dash-page-gap';
+          gap.setAttribute('aria-hidden', 'true');   // 갈 수 없는 자리다 — 읽어 봐야 방해다
+          gap.textContent = '...';
+          shell.btns.appendChild(gap);
+          return;
+        }
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'dash-page';
+        if (it.t === 'num') {
+          b.textContent = String(it.page);
+          b.setAttribute('aria-label', it.page + '쪽');   // 홀로 선 '3' 은 무엇의 3인지 모른다
+          if (it.current) {
+            b.setAttribute('aria-current', 'page');       // 현재 쪽의 정본 — 색·밑줄은 그 사본이다
+            current = b;
+          }
+        } else {
+          b.textContent = (it.t === 'prev' ? '이전' : '다음');
+          b.disabled = !!it.disabled;
+        }
+        if (focusKind === it.t && !b.disabled && (it.t !== 'num' || it.current)) want = b;
+        bindActivate_(shell, b, function (byPointer) { onGo(it.page, it.t, byPointer); });
+        shell.btns.appendChild(b);                        // 붙인 **뒤에** 초점을 준다
+      });
+    }
+
+    var target = focusKind === 'all' ? shell.all : (focusKind ? (want || current) : null);
+    if (target && typeof target.focus === 'function') target.focus();
+  }
+
+  /** 쪽을 넘기면 목록 머리로 올린다 — 목록 끝의 버튼을 누른 자리에 그대로 있으면
+   *  새 쪽의 **끝**이 보여서 무엇이 바뀌었는지 알 수 없다. 포인터 조작에만 건다
+   *  (위 pointerClick_ 참조). 애니메이션 없이 즉시 옮긴다. */
+  function scrollBlockTop_(sec) {
+    if (!sec || typeof sec.scrollIntoView !== 'function') return;
+    try { sec.scrollIntoView({ block: 'start' }); } catch (e) { sec.scrollIntoView(); }
+  }
+
   /** 공사별 카드 목록(모바일) — 5열 표가 좁은 화면에서 가로 스크롤로 밀리는 문제.
-   *  표와 같은 데이터·같은 드릴다운 버튼(점검·부적합)을 카드로도 만든다. textContent 전용. */
-  function renderProjCards_(block) {
-    var wrap = document.createElement('div');
-    wrap.className = 'dash-proj-cards';
+   *  표와 같은 데이터·같은 드릴다운 버튼(점검·부적합)을 카드로도 만든다. textContent 전용.
+   *  rows 는 **현재 쪽**이고 offset 은 원본 인덱스 기준점이다(block.keys 는 자르지 않는다). */
+  function fillProjCards_(host, block, rows, offset) {
+    host.textContent = '';
     function lbl(t) {
       var s = document.createElement('span');
       s.className = 'lbl';
       s.textContent = t;
       return s;
     }
-    block.rows.forEach(function (row, ri) {
+    rows.forEach(function (row, i) {
+      var ri = offset + i;
       var card = document.createElement('div');
       card.className = 'dash-projcard';
       var comp = document.createElement('p');
@@ -765,9 +955,9 @@
       card.appendChild(comp);
       card.appendChild(proj);
       card.appendChild(nums);
-      wrap.appendChild(card);
+      host.appendChild(card);
     });
-    return wrap;
+    return host;
   }
 
   /** 블록 하나 렌더. textContent 만 쓴다(시트 유래 문자열의 HTML 해석 원천 차단).
@@ -810,40 +1000,71 @@
       thead.appendChild(hr);
       table.appendChild(thead);
       var tbody = document.createElement('tbody');
-      block.rows.forEach(function (row, ri) {
-        var tr = document.createElement('tr');
-        row.forEach(function (cell, i) {
-          var td = document.createElement('td');
-          var cls = numCols[i] ? 'dash-num' : '';
-          if (i === dangerCol && Number(cell) > 0) cls += (cls ? ' ' : '') + 'dash-danger';
-          if (cls) td.className = cls;
-          /* keys 가 있는 블록(공사별)의 점검·부적합 숫자는 드릴다운 버튼 —
-             부적합 0 은 열어 볼 내용이 없으니 일반 텍스트로 둔다. */
-          var clickable = block.keys &&
-            (block.header[i] === '점검' || (block.header[i] === '부적합' && Number(cell) > 0));
-          if (clickable) {
-            var btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'dash-linknum' + (block.header[i] === '부적합' ? ' dash-danger' : '');
-            btn.textContent = String(cell);
-            (function (kind, key, label, expected) {
-              btn.addEventListener('click', function () { openDetail_(kind, key, label, expected); });
-            })(block.header[i] === '점검' ? 'subs' : 'finds', block.keys[ri],
-               String(row[0]) + ' · ' + String(row[1]), Number(cell));
-            td.appendChild(btn);
-          } else {
-            td.textContent = String(cell);
-          }
-          tr.appendChild(td);
+      /* rows 는 **현재 쪽**, offset 은 원본 인덱스 기준점이다 — block.keys 는 자르지 않으므로
+         드릴다운은 offset + i 로 되짚는다(자른 뒤에도 같은 공사를 가리켜야 한다). */
+      var fillRows = function (rows, offset) {
+        tbody.textContent = '';
+        rows.forEach(function (row, ri0) {
+          var ri = offset + ri0;
+          var tr = document.createElement('tr');
+          row.forEach(function (cell, i) {
+            var td = document.createElement('td');
+            var cls = numCols[i] ? 'dash-num' : '';
+            if (i === dangerCol && Number(cell) > 0) cls += (cls ? ' ' : '') + 'dash-danger';
+            if (cls) td.className = cls;
+            /* keys 가 있는 블록(공사별)의 점검·부적합 숫자는 드릴다운 버튼 —
+               부적합 0 은 열어 볼 내용이 없으니 일반 텍스트로 둔다. */
+            var clickable = block.keys &&
+              (block.header[i] === '점검' || (block.header[i] === '부적합' && Number(cell) > 0));
+            if (clickable) {
+              var btn = document.createElement('button');
+              btn.type = 'button';
+              btn.className = 'dash-linknum' + (block.header[i] === '부적합' ? ' dash-danger' : '');
+              btn.textContent = String(cell);
+              (function (kind, key, label, expected) {
+                btn.addEventListener('click', function () { openDetail_(kind, key, label, expected); });
+              })(block.header[i] === '점검' ? 'subs' : 'finds', block.keys[ri],
+                 String(row[0]) + ' · ' + String(row[1]), Number(cell));
+              td.appendChild(btn);
+            } else {
+              td.textContent = String(cell);
+            }
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
         });
-        tbody.appendChild(tr);
-      });
+      };
       table.appendChild(tbody);
       wrap.appendChild(table);
       sec.appendChild(wrap);
+      var cards = null;
       if (block.keys) {                        // 공사별 — 좁은 화면용 카드도 함께(CSS 가 폭에 따라 하나만 보인다)
         sec.className += ' dash-block-has-cards';
-        sec.appendChild(renderProjCards_(block));
+        cards = document.createElement('div');
+        cards.className = 'dash-proj-cards';
+        sec.appendChild(cards);
+      }
+      /* 쪽 나눔은 **공사별(keys 있는 블록)만**이다 — 협력회사별은 회사 수만큼이라 짧고,
+         정합성 블록은 비어 있는 것이 정상이다. 15건 이하면 줄 자체를 만들지 않는다. */
+      if (block.keys && block.rows.length > PROJ_PAGE_SIZE) {
+        var shell = buildPagerShell_();
+        sec.appendChild(shell.nav);            // **먼저** 붙인다 — 초점은 붙은 노드에만 걸린다
+        var showAll = false;
+        var paint = function (p, focusKind, scroll) {
+          var sl = pageSlice_(block.rows, p, showAll ? block.rows.length : PROJ_PAGE_SIZE);
+          fillRows(sl.rows, sl.offset);
+          fillProjCards_(cards, block, sl.rows, sl.offset);
+          fillPager_(shell, sl, showAll, paint, focusKind);
+          if (scroll) scrollBlockTop_(sec);
+        };
+        bindActivate_(shell, shell.all, function (byPointer) {
+          showAll = !showAll;
+          paint(1, 'all', byPointer);
+        });
+        paint(1, '', false);
+      } else {
+        fillRows(block.rows, 0);
+        if (cards) fillProjCards_(cards, block, block.rows, 0);
       }
     }
     if (block.note) {

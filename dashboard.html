@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-0ff58303">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-0ff58303">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-c3bc1cb2">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-c3bc1cb2">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -313,6 +313,36 @@
   line-height: 1.4; margin: 0 0 8px; }
 .dash-projcard .nums { margin: 0; font-size: 0.92rem; color: var(--text); }
 .dash-projcard .lbl { color: var(--muted); }
+/* 쪽 이동 — 공사별이 15건을 넘으면 붙는다(사용자 지시 2026-08-26). 터치 최소치 44px 를
+   지키고, 좁은 화면에서는 줄을 접는다(숫자가 잘려 나가는 것보다 두 줄이 낫다).
+   현재 쪽은 **aria-current 가 정본**이고 색은 그 사본이다 — 색만으로 말하지 않는다. */
+.dash-pager { margin: 14px 0 0; }
+/* 요약줄은 **자리가 고정**이다(dashboard.js buildPagerShell_) — 라이브 영역을 영역째
+   갈아 끼우면 스크린리더가 침묵한다. 여기서는 글만 바뀐다. */
+.dash-pager-sum { margin: 0 0 8px; text-align: center;
+  color: var(--muted); font-size: 0.85rem; line-height: 1.5; }
+.dash-pager-btns { display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: 6px; }
+.dash-pager-foot { display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.dash-pager-all { font-size: 0.85rem; padding: 0 14px; }
+.dash-pager-csv { color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
+.dash-page { min-width: 44px; min-height: 44px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); color: var(--text);
+  font-family: inherit; font-size: 0.9rem; font-weight: 600;
+  font-variant-numeric: tabular-nums; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s; }
+.dash-page:hover:not(:disabled) { background: var(--bg); border-color: var(--muted); }
+.dash-page:active:not(:disabled) { background: var(--row-hover); }
+.dash-page:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dash-page:disabled { opacity: 0.5; cursor: default; }
+/* 현재 쪽 — 면을 뒤집고 **밑줄까지** 준다. 색만으로 말하면 색각 이상 사용자에게는
+   현재 쪽 단서가 남지 않는다(WCAG 1.4.1). aria-current 가 정본이고 이건 그 사본이다. */
+.dash-page[aria-current="page"] { background: var(--accent); border-color: var(--accent);
+  color: var(--on-accent); text-decoration: underline;
+  text-decoration-thickness: 3px; text-underline-offset: 3px; }
+.dash-page-gap { min-width: 24px; text-align: center; color: var(--muted); font-size: 0.9rem; }
 @media (max-width: 640px) {
   .dash-tiles { grid-template-columns: repeat(2, 1fr); }
   .dash-shell { padding: 8px 12px 40px; }
@@ -342,7 +372,7 @@
   .dash-sheet th:nth-child(2), .dash-sheet td:nth-child(2) { width: 48px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dash-btn, .dash-controls select, .dash-controls input, .dash-block tbody tr { transition: none; }
+  .dash-btn, .dash-page, .dash-controls select, .dash-controls input, .dash-block tbody tr { transition: none; }
 }
 </style>
 </head>
@@ -402,7 +432,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-0ff58303"></script>
-<script src="./dashboard.js?v=0.5.5-0ff58303"></script>
+<script src="./config.js?v=0.5.5-c3bc1cb2"></script>
+<script src="./dashboard.js?v=0.5.5-c3bc1cb2"></script>
 </body>
 </html>
