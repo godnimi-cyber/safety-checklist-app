@@ -586,26 +586,60 @@
   /** '제목 (YYYY-MM-DD ~ YYYY-MM-DD)' 에서 주간 스트립 모델을 만든다 — 순수 계산.
    *  ISO 문자열을 Date 에 직접 주면 UTC 자정이 되어 시간대에 따라 하루가 밀린다 —
    *  로컬 부품(연·월·일 정수)으로만 조립한다. 형식이 다르면 null(스트립 없이 원제목 유지). */
-  function weekStripModel_(title, today) {
+  function weekStripModel_(title, today, week) {
     var m = /^(.*?)\s*\((\d{4})-(\d{2})-(\d{2})\s*~\s*(\d{4})-(\d{2})-(\d{2})\)\s*$/.exec(String(title));
     if (!m) return null;
     var DOW = ['일', '월', '화', '수', '목', '금', '토'];
     var t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    /* 서버가 요일별 건수를 준 경우에만 막대를 그린다. **날짜로 대조하고 붙인다** —
+       순서만 믿고 index 로 붙이면 서버가 다른 주를 보냈을 때 조용히 어긋난 막대를 그린다.
+       구버전 서버(week 없음)면 아래 hasData 가 false 라 옛 달력 그대로 나온다:
+       **빈 차트를 그리지 않는다.** */
+    var byDate = null;
+    if (week && week.length) {
+      byDate = {};
+      for (var wi = 0; wi < week.length; wi++) {
+        var w = week[wi];
+        if (w && typeof w.d === 'string') byDate[w.d] = w;
+      }
+    }
     var days = [];
+    var max = 0;
+    var hasData = false;
     for (var i = 0; i < 7; i++) {
       var d = new Date(Number(m[2]), Number(m[3]) - 1, Number(m[4]) + i);
       var state = d.getTime() === t0 ? 'today' : (d.getTime() < t0 ? 'past' : 'future');
-      days.push({ dow: DOW[d.getDay()], day: d.getDate(), state: state });
+      var key = d.getFullYear() + '-' + pad2_(d.getMonth() + 1) + '-' + pad2_(d.getDate());
+      var hit = byDate ? byDate[key] : null;
+      var n = hit ? Number(hit.n) : null;
+      if (!(typeof n === 'number' && isFinite(n) && n >= 0)) n = null;
+      if (n !== null) { hasData = true; if (n > max) max = n; }
+      days.push({ dow: DOW[d.getDay()], day: d.getDate(), state: state, date: key,
+                  n: n, f: hit && isFinite(Number(hit.f)) ? Number(hit.f) : 0 });
     }
-    return { label: m[1], days: days };
+    return { label: m[1], days: days, hasData: hasData, max: max };
   }
 
-  /** 주간 스트립 렌더(사용자 선택 2026-08-10). role="img" — 칸들은 하나의 그림이다. */
+  function pad2_(n) { return (n < 10 ? '0' : '') + n; }
+
+  /** 스트립 전체를 한 문장으로 읽어 준다 — 화면을 못 보는 사람이 같은 값을 얻어야 한다.
+   *  막대는 role="img" 안의 그림이라 개별 칸을 읽히지 않는다(칸마다 읽으면 소음이다). */
+  function weekAriaLabel_(model, fullTitle) {
+    if (!model.hasData) return String(fullTitle);
+    var parts = model.days.map(function (dy) {
+      return dy.dow + ' ' + dy.day + '일 ' + (dy.n === null ? '자료 없음' : dy.n + '건')
+             + (dy.state === 'today' ? ' 오늘' : '');
+    });
+    return String(fullTitle) + ' 일별 점검 — ' + parts.join(', ');
+  }
+
+  /** 주간 스트립 렌더(사용자 선택 2026-08-10, 2026-08-26 막대 추가).
+   *  role="img" — 칸들은 하나의 그림이다. 서버가 요일별 건수를 줄 때만 막대를 그린다. */
   function renderWeekStrip_(model, fullTitle) {
     var strip = document.createElement('div');
-    strip.className = 'dash-weekstrip';
+    strip.className = 'dash-weekstrip' + (model.hasData ? ' has-bars' : '');
     strip.setAttribute('role', 'img');
-    strip.setAttribute('aria-label', String(fullTitle));
+    strip.setAttribute('aria-label', weekAriaLabel_(model, fullTitle));
     model.days.forEach(function (dy) {
       var cell = document.createElement('div');
       cell.className = 'dash-wday' + (dy.state === 'today' ? ' today' : dy.state === 'past' ? ' past' : '');
@@ -618,6 +652,28 @@
       n.textContent = String(dy.day);
       cell.appendChild(w);
       cell.appendChild(n);
+      if (model.hasData) {
+        /* 트랙은 0건인 날에도 남긴다 — 「점검이 없던 날」이 빈 칸으로 보여야 한다.
+           높이는 **그 주의 최대값** 기준이다(고정 상한을 쓰면 한 주가 통째로 납작해진다). */
+        var track = document.createElement('span');
+        track.className = 'wbar-track';
+        if (dy.n) {
+          var fill = document.createElement('span');
+          fill.className = 'wbar';
+          fill.style.height = Math.round((dy.n / (model.max || 1)) * 100) + '%';
+          track.appendChild(fill);
+        }
+        var cnt = document.createElement('span');
+        cnt.className = 'wbar-n' + (dy.n ? '' : ' zero');
+        /* 0 은 숫자를 쓰지 않는다 — 빈 칸이 이미 0 이고, 7칸 전부에 숫자를 달면 숫자밭이 된다.
+           자리는 남겨 둔다(안 그러면 칸 높이가 들쭉날쭉해진다). */
+        cnt.textContent = dy.n ? String(dy.n) : '';
+        /* 폰에는 hover 가 없다 — 탭으로도 같은 값을 얻게 title 을 붙인다(직접 라벨이 주 수단). */
+        cell.setAttribute('title', dy.dow + ' ' + dy.day + '일 · 점검 ' + (dy.n || 0) + '건'
+                                   + (dy.f ? ' · 부적합 ' + dy.f + '건' : ''));
+        cell.appendChild(track);
+        cell.appendChild(cnt);
+      }
       strip.appendChild(cell);
     });
     return strip;
@@ -629,17 +685,36 @@
     var grid = document.createElement('div');
     grid.className = 'dash-tiles';
     var row = block.rows[0] || [];
+    /* 「지난주 점검」은 4번째 지표가 아니라 **「점검」을 읽기 위한 맥락**이다.
+       같은 무게의 타일로 두면 넷 다 대등한 지표처럼 보인다 — 점검 숫자 밑으로 내린다.
+       서버 요약행(8칸)은 그대로 두고 **여기서만** 자리를 바꾼다(시트 대시보드는 그 8칸에 묶여 있다). */
+    var prev = null;
+    for (var pi = 0; pi + 1 < row.length; pi += 2) {
+      if (String(row[pi]) === '지난주 점검') { prev = Number(row[pi + 1]); break; }
+    }
     for (var i = 0; i + 1 < row.length; i += 2) {
+      var label = String(row[i]);
+      if (label === '지난주 점검') continue;      // 아래 점검 타일이 대신 말한다
       var tile = document.createElement('div');
       tile.className = 'dash-tile';
       var k = document.createElement('span');
       k.className = 'k';
-      k.textContent = String(row[i]);
+      k.textContent = label;
       var v = document.createElement('span');
-      v.className = 'v' + (row[i] === '부적합' && Number(row[i + 1]) > 0 ? ' dash-danger' : '');
+      v.className = 'v' + (label === '부적합' && Number(row[i + 1]) > 0 ? ' dash-danger' : '');
       v.textContent = String(row[i + 1]);
       tile.appendChild(k);
       tile.appendChild(v);
+      if (label === '점검' && prev !== null && isFinite(prev)) {
+        var sub = document.createElement('span');
+        sub.className = 'sub';
+        var diff = Number(row[i + 1]) - prev;
+        /* 부호를 **글로도** 말한다 — 색이나 기호만으로 증감을 나르지 않는다.
+           같으면 '증감 없음' 이라고 적는다(빈칸은 "자료가 없다"로 읽힌다). */
+        sub.textContent = '지난주 ' + prev + '건 · '
+          + (diff > 0 ? '+' + diff + ' 늘었습니다' : diff < 0 ? diff + ' 줄었습니다' : '증감 없음');
+        tile.appendChild(sub);
+      }
       grid.appendChild(tile);
     }
     return grid;
@@ -708,7 +783,7 @@
     sec.appendChild(head);
 
     if (!block.header || !block.header.length) {
-      var wk = weekStripModel_(block.title, new Date());
+      var wk = weekStripModel_(block.title, new Date(), block.week);
       if (wk) {
         h.textContent = wk.label;   // 괄호 날짜 범위는 스트립이 대신한다(aria 에는 전체 제목)
         sec.appendChild(renderWeekStrip_(wk, block.title));
