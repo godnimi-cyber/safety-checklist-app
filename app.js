@@ -234,8 +234,14 @@
        VALIDATION — 제출 내용 자체의 결함. 같은 payload 는 몇 번을 보내도 거절된다 → 자동 재시도 금지
        CONFIG·AUTH — 서버·시트 설정 / 키 불일치. 사용자가 고칠 수 없고 관리자가 고쳐야 풀린다
          → 큐 보관 + 자동 재시도
-       NETWORK·LOCK_TIMEOUT·SERVER·MOCK(그 외 전부) — 일시 오류 → 자동 재시도
+       NETWORK·LOCK_TIMEOUT·PIN_LOCKED·SERVER·MOCK(그 외 전부) — 일시 오류 → 자동 재시도
      AUTH 를 영구로 두면 키 회전 사이에 쌓인 제출이 그대로 고착되므로 재시도 가능으로 분류한다.
+     **PIN_LOCKED 는 영구가 아니다**(2026-08-27 개정, 실기에서 걸렸다). PIN 5회 실패로 걸리는
+     10분짜리 잠금인데 전에는 VALIDATION 으로 왔다 — 그래서 큐 재전송에서 이 코드를 받으면
+     retire 로 이어져, **PIN 이 맞는 제출까지** 그 사람이 다른 화면에서 잠긴 탓에 미전송
+     목록에서 사라질 수 있었다. 10분 뒤 저절로 풀리므로 자동 재시도가 정답이다.
+     다만 **직접 제출 경로는 큐에 넣지 않는다**(onSubmit 이 따로 가로챈다): 잠겼다는 것은
+     방금 그 PIN 이 틀렸을 가능성이 높다는 뜻이라, 사람이 다시 넣게 화면에 붙잡아 둔다.
      **QUOTA 는 최상위 코드가 아니다.** rev.7 이 서버 발송을 되살렸지만(MailApp), 쿼터 소진은
      CONFIG + 세부 문구 'QUOTA' 로 나온다 — 영구 실패가 아니라 관리자가 기다리거나 확인하면
      풀리는 것이라 CONFIG 의 의미에 맞고, 최상위 코드 집합을 늘리면 이 3분류 계약이 함께 흔들린다.
@@ -251,11 +257,44 @@
     return ADMIN_ERROR_CODES.indexOf(String(code || '').toUpperCase()) !== -1;
   }
   function normalizeError(error) {
-    return {
-      code: (error && error.code) || 'SERVER',
-      message: (error && error.message) || '알 수 없는 오류'
-    };
+    var code = String((error && error.code) || 'SERVER');
+    var message = (error && error.message) || '알 수 없는 오류';
+    /* 옛 서버(2026-08-27 이전)는 PIN 잠금을 code='VALIDATION' · message='PIN_LOCKED' 로 보냈다.
+       VALIDATION 은 이 앱에서 **영구 오류**라 큐 재전송에서 그 항목이 retire(삭제)된다 —
+       앱이 먼저 배포되고 서버가 아직 옛 코드인 구간에서 **현장 기록이 사라진다**
+       (적대 검토 REFUTE #4). 여기서 한 번 정규화하면 뒤따르는 모든 판정(영구 여부·큐 문구·
+       직접 제출 분기)이 **배포 순서와 무관**해진다. 서버를 되돌려도 마찬가지다.
+       남은 시간은 옛 서버가 안 보내므로 말하지 않는다 — 모르는 값을 지어내지 않는다. */
+    if (code === 'VALIDATION' && String(message).trim() === 'PIN_LOCKED') {
+      return { code: 'PIN_LOCKED', message: 'PIN 을 여러 번 잘못 입력해 잠겼습니다 — '
+        + '잠시 뒤에 다시 제출할 수 있습니다. 고칠 입력은 없고, 작성한 내용은 그대로 있습니다.' };
+    }
+    return { code: code, message: message };
   }
+  /* **저장돼 있던 실패 사유도 한 번 정규화한다**(부팅 때 1회).
+     normalizeError 는 서버 **응답 봉투**에만 걸린다 — 개정 전 앱이 이미 `reason='VALIDATION'`,
+     `reason_message='PIN_LOCKED'` 로 적어 둔 큐 행은 새 앱을 받아도 그대로 영구 실패로 남는다.
+     그 행은 자동 재전송에서 빠지고 「다시 시도」 버튼도 숨겨져 **삭제 말고는 길이 없다** —
+     이번 개정이 막으려던 기록 소실이 이미 걸린 기기에서 그대로 살아 있는 셈이다
+     (커밋 전 디버깅에서 부팅 실측으로 확인). 규칙을 두 벌로 만들지 않으려고 같은
+     normalizeError 를 쓴다. 바뀐 것이 있을 때만 저장한다 — 다음 부팅부터는 no-op 다. */
+  function normalizeStoredQueueReasons() {
+    var changed = false;
+    state.queue = (state.queue || []).map(function (q) {
+      if (!q || q.state !== 'failed' || !q.reason) return q;
+      var fixed = normalizeError({ code: q.reason, message: q.reason_message });
+      if (fixed.code === q.reason) return q;
+      changed = true;
+      var out = {};
+      Object.keys(q).forEach(function (k) { out[k] = q[k]; });
+      out.reason = fixed.code;
+      out.reason_message = fixed.message;
+      return out;
+    });
+    /* 저장 실패는 기능 저하가 아니다 — 이번 세션에서는 이미 정규화된 값으로 돈다. */
+    if (changed) state.storage.saveQueue(state.queue);
+  }
+
   /* FAILED 는 code(reason)만 남긴다 — 사람이 읽을 message 까지 큐 행에 보존한다. */
   function markQueueFailure(id, error) {
     state.queue = SafetyLogic.queueReducer(state.queue, { type: 'FAILED', id: id, reason: error.code });
@@ -1013,6 +1052,13 @@
              관리자 조치 후 계획 연동을 완성한다), 문구만 다르게 한다: 기록이 이미 저장됐다는
              사실을 모르면 사용자가 같은 점검을 다시 작성해 점검대장에 2행이 남는다(H1과 같은 뿌리). */
           stateEl.textContent = '점검 기록은 저장되었습니다. 계획 연동만 관리자 조치 대기 중입니다 — 다시 작성하지 마세요.';
+        } else if (String(q.reason) === 'PIN_LOCKED') {
+          /* 시각이 지난 뒤 저절로 풀리는 유일한 실패다 — "관리자 확인"도 "제출 결함"도 아니다.
+             사람이 할 일이 없다는 것을 문구가 말해야 다시 작성하는 사고를 막는다.
+             **남은 시간(detail)은 싣지 않는다** — reason_message 는 실패한 그 순간 서버가
+             계산한 값이라 저장되면 박제된다(커밋 전 디버깅 실측: 40분 뒤에도 "약 9분 뒤").
+             멈춘 카운트다운은 "자동으로 전송됩니다" 라는 약속과 정면으로 부딪친다. */
+          stateEl.textContent = 'PIN 잠금 — 잠금이 풀리면 자동으로 전송됩니다. 다시 작성하지 마세요.';
         } else if (isAdminError(q.reason)) {
           stateEl.textContent = '관리자 확인이 필요합니다. 해결되면 자동으로 전송됩니다 (' + detail + ')';
         } else {
@@ -1637,6 +1683,18 @@
        같은 멱등키라 다시 눌러도 두 통이 되지 않는다. */
     if (err.code === 'SERVER') {
       return '서버에서 오류가 났습니다 — 잠시 후 다시 눌러 보고, 계속되면 관리자에게 알리세요.';
+    }
+    /* 잠금은 **문자열이 아니라 코드**로 가른다. 2026-08-27 개정으로 PIN_LOCKED 의 message 가
+       영문 토큰에서 **한글 문장**(남은 시간 포함)으로 바뀌면서, 바로 아래 `/PIN_LOCKED/` 문자열
+       분기가 **조용히 죽었다** — 배너에 일반 폴백만 떠서 "잠금이다" 도 "언제 풀린다" 도
+       사라졌다(커밋 전 디버깅에서 실측). 개정 전보다 나쁜 안내였다.
+       남은 시간을 아는 곳은 서버뿐이라 서버 문장을 그대로 쓴다(dashboard.js odErrorText_ 와 같은
+       예외). 옛 서버는 code 가 VALIDATION 이라 아래 문자열 분기가 계속 받는다 — 그때는 토큰을
+       현장 화면에 띄우지 않도록 고정 문구로 바꾼다. */
+    if (err.code === 'PIN_LOCKED') {
+      return /^[A-Z_]+$/.test(m.trim()) || !m.trim()
+        ? 'PIN을 여러 번 틀렸습니다 — 잠시 후 다시 시도하세요.'
+        : m;
     }
     if (/PIN_LOCKED/.test(m)) return 'PIN을 여러 번 틀렸습니다 — 잠시 후 다시 시도하세요.';
     if (/PIN_MISMATCH/.test(m)) return 'PIN이 일치하지 않습니다.';
@@ -3351,6 +3409,17 @@
       /* 마감 스필 여부는 normalize 전에 읽는다 — normalizeError 는 code·message 만 남긴다. */
       var spilled = !!(result.error && result.error.deadline);
       var err = normalizeError(result.error);
+      /* PIN 잠금 — **고칠 입력이 없다. 기다리면 풀린다.** 영구 오류 분기보다 먼저 잡는다.
+         큐에 넣지 않는 이유: 잠겼다는 것은 방금 넣은 PIN 이 틀렸을 가능성이 높다는 뜻이라
+         그대로 재전송하면 잠금이 풀린 뒤 PIN_MISMATCH 로 죽는다(그때는 진짜 retire 다).
+         화면에 붙잡아 두면 사람이 PIN 만 다시 넣어 보낼 수 있고 작성본도 안전하다.
+         서버가 남은 시간을 문장에 실어 보내므로 여기서 다시 조립하지 않는다 —
+         남은 시간을 아는 곳은 서버 하나뿐이다(캐시 TTL). */
+      if (String(err.code) === 'PIN_LOCKED') {
+        showBanner('error', err.message);
+        window.scrollTo(0, 0);
+        return;
+      }
       if (isPermanentError(err.code)) {
         /* VALIDATION: 제출 내용 자체의 결함이라 같은 payload 는 몇 번을 보내도 거절된다.
            큐에 넣으면 무한 재시도가 되고, clearDraft 하면 유일한 작성본이 사라진다.
@@ -3759,6 +3828,7 @@
     state.queue = state.storage.loadQueue();
     /* lastError 는 '직전 호출'의 결과다 — 다음 호출이 첫 줄에서 null 로 덮어쓰므로 여기서 먼저 읽는다 */
     var queueErr = state.storage.lastError;
+    normalizeStoredQueueReasons();
     /* 옛 단일 슬롯(sc_draft)을 sc_drafts['adhoc']으로 이전 — loadAllDrafts 보다 먼저 호출해야
        이전된 값이 바로 아래 로드에 반영된다(설계 §6-4). */
     var migrated = state.storage.migrateLegacyDraft();

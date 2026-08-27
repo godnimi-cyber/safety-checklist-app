@@ -1307,6 +1307,11 @@
       PLAN_DATE_INVALID: '날짜를 다시 확인하세요'
     };
     var key = String(message || '').split(',')[0].trim();
+    /* PIN_LOCKED 는 서버가 **남은 시간까지 담은 완성된 한글 문장**을 보낸다(2026-08-27 개정).
+       위 표의 고정 문구로 덮으면 그 정보를 버린다. 옛 서버(code=VALIDATION · message='PIN_LOCKED')
+       가 아직 배포돼 있는 동안에는 key 가 'PIN_LOCKED' 라 위 표가 그대로 받는다 — 배포 순서
+       어느 쪽이든 영문 토큰이 화면에 새지 않는다. */
+    if (String(code || '') === 'PIN_LOCKED' && key !== 'PIN_LOCKED') return String(message);
     return m[key] || m[String(code || '')] ||
            String(message || fallback || '처리하지 못했습니다');
   }
