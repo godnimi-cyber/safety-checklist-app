@@ -325,7 +325,8 @@
      상세는 커밋된 조건(committedRange·현재 팀)만으로 서버에 묻는다(§4.1 규칙 그대로).
      modal.gen 은 모달 전용 세대 — 닫히거나 새 요청이 시작되면 늦은 응답을 버린다. */
 
-  var modal = { gen: 0, list: null, listTitle: '', listExpected: undefined, hasHistory: false };
+  var modal = { gen: 0, list: null, listTitle: '', listExpected: undefined, hasHistory: false,
+                trapFocus: false, returnFocus: null, noteTimer: null, pendingRefresh: '' };
 
   /** 상세 조회 페이로드(순수 — 조각 테스트 대상). st 의 key·committedRange·view 만 쓴다.
    *  전송은 GET 쿼리가 아니라 **POST 본문**이다 — 데스크톱·폰 공통으로 긴 쿼리 GET fetch 만
@@ -341,8 +342,30 @@
     return p;
   }
 
+  /** 가짜 DOM(조각 테스트)에는 focus 가 없다 — 있을 때만 부른다. */
+  function focus_(node) {
+    if (node && typeof node.focus === 'function') node.focus();
+  }
+
+  /** 모달 카드 안에서 지금 실제로 탭이 닿는 것들. 경계를 **카드 전체**로 잡는 이유는
+   *  머리의 「닫기」가 본문(dash-modal-body) 밖에 있어서다 — 본문만 가두면 키보드로 못 닫는다. */
+  function modalFocusables_() {
+    var card = document.querySelector('.dash-modal-card');
+    if (!card || !card.querySelectorAll) return [];
+    var all = card.querySelectorAll('button, input, select, textarea, a[href]');
+    var out = [];
+    for (var i = 0; i < all.length; i += 1) {
+      var n = all[i];
+      if (!n.disabled && !n.hidden && n.type !== 'hidden') out.push(n);
+    }
+    return out;
+  }
+
   function openModal_(title) {
     var root = el_('dash-modal');
+    modal.trapFocus = false;                   // 가둠·복귀는 켠 쪽(일괄 모달)만 다시 켠다
+    modal.returnFocus = null;
+    odStopNote_();                             // 앞 창의 자정 예고 갱신이 남아 있으면 멈춘다
     if (root.hidden) {
       /* 닫힘→열림 전이에만: ① 히스토리 1칸 — 뒤로가기가 페이지 이탈 대신 팝업을 닫는다
          ② 본문 스크롤 잠금 — 팝업 스크롤이 끝에 닿아도 뒤 화면이 안 움직인다 */
@@ -358,6 +381,8 @@
 
   function closeModal_() {
     modal.gen += 1;                            // 진행 중 상세 응답 무효화
+    modal.trapFocus = false;
+    odStopNote_();
     modal.list = null;
     modal.listTitle = '';
     modal.listExpected = undefined;
@@ -369,10 +394,22 @@
     el_('dash-modal-body').textContent = '';
     el_('dash-modal-title').textContent = '';
     document.body.style.overflow = '';
+    /* 포커스를 부른 자리로 돌려준다 — 창 안으로 들인 창(일괄 모달)은 닫을 때 되돌리지 않으면
+       body 로 떨어져, 키보드 사용자가 목록 맨 위부터 Tab 을 다시 밟아야 한다(S10).
+       그 사이 다시 그려져 사라진 버튼에는 돌려주지 않는다. */
+    var back = modal.returnFocus;
+    modal.returnFocus = null;
+    if (back && document.body && document.body.contains && document.body.contains(back)) focus_(back);
     if (modal.hasHistory) {                    // 우리가 쌓은 히스토리 1칸을 소비(뒤로가기와 이중 처리 방지)
       modal.hasHistory = false;
       history.back();
     }
+    /* 창이 열려 있어 **미뤄 둔** 새로고침(runBulk_ 참조) — 이제 화면을 갈아치워도 된다.
+       비운 **뒤에** 부른다: fetchDashboard 의 커밋 경로가 다시 closeModal_() 을 부르므로
+       비우지 않으면 되돌이가 된다. */
+    var pend = modal.pendingRefresh;
+    modal.pendingRefresh = '';
+    if (pend) fetchDashboard(pend, true);      // 이 왕복 사이에 또 열 수 있다 — 여전히 배경 정리다
   }
 
   function metaP_(text) {
@@ -1642,16 +1679,479 @@
     return b;
   }
 
+  /* ==========================================================================
+   * 여러 건을 한 번에 (사용자 지시 2026-08-28 · docs/SPEC-bulk-overdue-actions.md)
+   * 비가 와 열두 건이 밀리면 클릭 36 번 + PIN 12 번이었다. 서버에는 손대지 않는다 —
+   * 기존 세 action 을 **한 건씩 차례로** 부른다(일괄 action 은 doPost 의 락을 배치 내내
+   * 쥐어 현장 제출을 막고, 새 action 이라 배포 전까지 AUTH 로 떨어진다 — 2026-08-19 사고).
+   * ========================================================================*/
+
+  var OD_BULK_MAX = 50;
+  /* 지금 고른 건. plan_id 는 시트에서 온 문자열이라 프로토타입 없는 사전을 쓴다
+     ('constructor' 같은 이름이 와도 이미 있는 키로 보이지 않게). */
+  var odSel = Object.create(null);
+  var odUi = { bar: null, count: null, err: null, groups: [] };
+
+  /** 떠 있는 막대가 **실제로 차지하는 높이**를 재어 목록 아래 여백(--od-bulkbar-h)에 예약한다.
+   *  96px 고정으로 두면 글자 확대·더 좁은 폭에서 버튼이 한 줄 더 접힐 때 막대가 마지막 행을
+   *  덮어, 그 건은 영영 못 고르는 건이 된다(Codex 델타 검토 High, 2026-08-28).
+   *  **숨어 있을 때도 잰다** — 첫 선택 순간에 여백이 늘어나면 그게 곧 되살아난 밀림이다.
+   *  막대는 position:fixed 라 잠깐 펴 보아도 흐름은 꿈쩍하지 않는다(같은 태스크 안에서
+   *  되돌리므로 화면에 번쩍이지도 않는다). */
+  function odBarSpace_() {
+    var bar = odUi.bar;
+    var root = document.documentElement;
+    if (!bar || !bar.getBoundingClientRect) return;
+    if (!root || !root.style || !root.style.setProperty) return;
+    var wasHidden = bar.hidden;
+    if (wasHidden) { bar.style.visibility = 'hidden'; bar.hidden = false; }
+    var h = Math.ceil(bar.getBoundingClientRect().height);
+    if (wasHidden) { bar.hidden = true; bar.style.visibility = ''; }
+    if (h > 0) root.style.setProperty('--od-bulkbar-h', h + 'px');
+  }
+
+  function odBulkCapMsg_() {
+    return '한 번에 ' + OD_BULK_MAX + '건까지 처리합니다 — 선택을 줄이세요';
+  }
+
+  /* 한 건에 걸리는 시간(초). 실측 12건 30~50초 = 건당 2.5~4.17초이므로 **관측 최악보다 위**로
+     잡는다. 4 로 잡으면 최악(4.17)을 밑돌아, 남은 시간이 49초일 때 「48초면 된다」며 침묵한
+     채로 자정을 넘긴다(2026-08-28 Codex). 한 건이 25초 타임아웃까지 끄는 경우는 이 값으로도
+     못 덮지만, 그때는 자정보다 먼저 실패가 보인다 — 여기서 지켜야 할 것은 **조용한 초과**다. */
+  var OD_BULK_SEC_PER_ITEM = 5;
+
+  /** 이 반복이 **자정을 넘겨** 끝날 것 같으면 그 말을 돌려준다(아니면 빈 문자열).
+   *  일괄 재등록의 「오늘」은 서버에서도 오늘이라, 도중에 날짜가 바뀌면 남은 건이 전부
+   *  PLAN_DATE_PAST 로 떨어진다. 넘기고 나서 실패 목록으로 알려 주는 것보다,
+   *  **누르기 전에** 말해 주는 편이 싸다(now 는 시험용 — 실전은 지금 시각). */
+  function odMidnightNote_(n, now) {
+    var d = now || new Date();
+    var left = 86400 - (d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds());
+    if (n * OD_BULK_SEC_PER_ITEM < left) return '';
+    return '자정까지 ' + Math.ceil(left / 60) + '분 남았습니다 — ' + n + '건은 그보다 오래 '
+         + '걸릴 수 있습니다. 도중에 날짜가 바뀌면 남은 건은 보내지 않고 멈춥니다.';
+  }
+
+  /** 선택 수를 막대와 「전체 선택」 칸에 되비춘다. 부분 선택은 indeterminate 로 그린다 —
+   *  안 그리면 한 건만 골라도 전체선택이 켜져 보여, 다시 누르면 나머지가 몽땅 켜진다. */
+  function odSyncBar_() {
+    var n = 0;
+    for (var k in odSel) n += 1;
+    odUi.groups.forEach(function (g) {
+      var picked = 0;
+      g.items.forEach(function (o) { if (odSel[o.plan_id]) picked += 1; });
+      g.all.checked = picked > 0 && picked === g.items.length;
+      g.all.indeterminate = picked > 0 && picked < g.items.length;
+    });
+    if (!odUi.bar) return;
+    odUi.bar.hidden = n === 0;
+    odUi.count.textContent = '선택 ' + n + '건';
+    if (n <= OD_BULK_MAX && odUi.err) odUi.err.textContent = '';
+    odBarSpace_();                           // 건수·오류 문구가 바뀌면 막대가 접히는 줄도 바뀐다
+  }
+
+  function odPickBox_(o, group) {
+    var wrap = document.createElement('label');
+    wrap.className = 'dash-od-pick';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!odSel[o.plan_id];
+    /* 같은 모양 칸이 열두 개다 — 이름에 공사명이 없으면 소리로는 어느 건인지 못 고른다 */
+    cb.setAttribute('aria-label', '선택 — ' + o.project_name);
+    cb.addEventListener('change', function () {
+      if (cb.checked) odSel[o.plan_id] = o;
+      else delete odSel[o.plan_id];
+      odSyncBar_();
+    });
+    wrap.appendChild(cb);
+    if (group) group.boxes.push(cb);
+    return wrap;
+  }
+
+  function odSelectAll_(labelText, items) {
+    var wrap = document.createElement('label');
+    wrap.className = 'dash-od-pick dash-od-pickall';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    var group = { all: cb, items: items, boxes: [] };
+    cb.setAttribute('aria-label', labelText);
+    cb.addEventListener('change', function () {
+      items.forEach(function (o) {
+        if (cb.checked) odSel[o.plan_id] = o;
+        else delete odSel[o.plan_id];
+      });
+      group.boxes.forEach(function (b) { b.checked = !!cb.checked; });
+      odSyncBar_();
+    });
+    wrap.appendChild(cb);
+    var t = document.createElement('span');
+    t.className = 'dash-od-picktext';
+    t.textContent = labelText;
+    wrap.appendChild(t);
+    odUi.groups.push(group);
+    return { node: wrap, group: group };
+  }
+
+  function odBulkBtn_(label, extraClass, op, all) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'dash-btn dash-od-btn' + (extraClass ? ' ' + extraClass : '');
+    b.textContent = label;
+    b.setAttribute('aria-label', label + ' — 고른 건 전부');
+    b.addEventListener('click', function () {
+      var picked = all.filter(function (o) { return !!odSel[o.plan_id]; });
+      if (!picked.length) return;
+      /* 상한을 넘으면 **거절한다**. 조용히 잘라 보내면 51번째부터는 처리된 줄 알고
+         목록에서 사라진 것처럼 보인다 — 무엇이 남았는지 아무도 모르게 된다. */
+      if (picked.length > OD_BULK_MAX) {
+        if (odUi.err) odUi.err.textContent = odBulkCapMsg_();
+        return;
+      }
+      openBulkModal_(op, picked);
+    });
+    return b;
+  }
+
+  function odBulkBar_(all) {
+    var bar = document.createElement('div');
+    bar.className = 'dash-od-bulkbar';
+    bar.hidden = true;                       /* 아무것도 안 골랐으면 없는 셈이다 */
+    var count = document.createElement('span');
+    count.className = 'dash-od-bulkcount';
+    count.setAttribute('aria-live', 'polite');
+    count.textContent = '선택 0건';
+    bar.appendChild(count);
+    var acts = document.createElement('div');
+    /* 행의 조치와 같은 클래스를 쓴다 — 좁은 화면 규칙(flex:1 1 0)을 그대로 물려받는다 */
+    acts.className = 'dash-od-acts dash-od-bulkacts';
+    acts.appendChild(odBulkBtn_('재등록', '', 'reschedule', all));
+    acts.appendChild(odBulkBtn_(UNCHECK_LABEL, 'dash-od-danger', 'unchecked', all));
+    acts.appendChild(odBulkBtn_(WORKCANCEL_LABEL, 'dash-od-mute', 'cancel', all));
+    bar.appendChild(acts);
+    var err = odErrBox_();
+    bar.appendChild(err);
+    odUi.bar = bar;
+    odUi.count = count;
+    odUi.err = err;
+    return bar;
+  }
+
+  /** 열려 있던 창의 자정 예고 갱신을 멈춘다(창이 닫히거나 다른 창으로 바뀔 때). */
+  function odStopNote_() {
+    if (modal.noteTimer) { clearInterval(modal.noteTimer); modal.noteTimer = null; }
+  }
+
+  /** op 별 문구·동작 표. **객체 리터럴 변수가 아니라 함수**로 둔다 — 테스트 하네스가
+   *  함수 단위로 소스를 떼어 실행하는데, 변수 추출기는 세미콜론을 넘지 못한다. */
+  function odBulkSpec_(op) {
+    if (op === 'reschedule') {
+      return {
+        action: 'dash_plan_reschedule', date: true,
+        title: '일괄 재등록', go: '재등록', cls: '', running: '재등록 중...',
+        warnCls: 'dash-od-warn',
+        /* 여기서 「원래 예정일로 되돌리기」는 못 한다 — 계획마다 그 날짜가 달라 공통 날짜
+           하나로는 그 예외를 물려받을 수 없다(서버는 임의 과거를 PLAN_DATE_PAST 로 막는다).
+           따라서 「재등록됨」 표식도 붙지 않는다(gas/main.gs markPlanReopened_ 는 과거로
+           되돌릴 때만 찍는다) — 말하지 않으면 "표시가 왜 없냐"가 결함 신고로 돌아온다. */
+        warn: '고른 건을 모두 같은 날짜로 올립니다. 계획마다 다른 원래 예정일로는 되돌릴 수 '
+            + '없어 오늘부터만 고를 수 있고, 이 방식으로 올린 건에는 「재등록됨」 표시가 '
+            + '붙지 않습니다. 원래 예정일로 되돌릴 건은 한 건씩 하세요.',
+        ok: '재등록했습니다', fail: '재등록하지 못했습니다'
+      };
+    }
+    if (op === 'unchecked') {
+      return {
+        action: 'dash_plan_unchecked', date: false,
+        title: '일괄 ' + UNCHECK_LABEL, go: UNCHECK_LABEL, cls: ' dash-od-danger',
+        running: '확정 중...',
+        warnCls: 'dash-od-warn',
+        warn: '공사는 있었는데 점검하지 않았음을 고른 건 전부에 대해 확정합니다. 목록에서 '
+            + '내려가고 점검 기록은 만들지 않습니다 — 실적에는 미스로 셉니다. 공사 자체가 '
+            + '취소된 것이라면 「' + WORKCANCEL_LABEL + '」를 쓰세요. 되돌리려면 계획을 '
+            + '새로 등록해야 합니다.',
+        ok: '미점검으로 확정했습니다 — 목록에서 내렸습니다(점검 기록은 만들지 않았습니다)',
+        fail: '미점검으로 확정하지 못했습니다'
+      };
+    }
+    return {
+      action: 'dash_plan_cancel', date: false,
+      title: '일괄 ' + WORKCANCEL_LABEL, go: WORKCANCEL_LABEL, cls: ' dash-od-mute',
+      running: '취소 중...',
+      warnCls: 'dash-od-warn dash-od-warn-mute',
+      warn: '공사 자체가 취소돼 점검할 것이 없는 경우입니다. 고른 건이 목록에서 내려가고 '
+          + '미점검으로 세지 않습니다 — 점검을 못 한 것이라면 「' + UNCHECK_LABEL + '」을 '
+          + '쓰세요. 되돌리려면 계획을 새로 등록해야 합니다.',
+      ok: '공사취소했습니다 — 목록에서 내렸습니다(미점검으로 세지 않습니다)',
+      fail: '공사를 취소하지 못했습니다'
+    };
+  }
+
+  function postOne_(spec, o, real, pin, date) {
+    var payload = { plan_id: o.plan_id, inspector_real_id: real, pin: pin };
+    if (spec.date) payload.planned_date = date;
+    return requestJson(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: spec.action, k: state.key, payload: payload }),
+      redirect: 'follow'
+    });
+  }
+
+  /** 반복 전체를 멈춰야 하는 실패인가.
+   *  PIN 은 다섯 번 틀리면 그 사람이 10분 잠겨 **현장 제출까지** 막힌다
+   *  (gas/main.gs pinBlocked) — 열두 건짜리 반복은 그 다섯 번을 한 번에 태운다.
+   *  네트워크·키·설정도 남은 건이 전부 같은 이유로 실패할 자리다(NETWORK 는 25초 타임아웃이라
+   *  남은 건수만큼 화면이 몇 분씩 얼어붙는다 — 멱등이니 새로고침 후 다시 고르는 편이 싸다). */
+  function odBulkAbort_(code, message) {
+    /* PIN 불일치는 서버가 code='VALIDATION' · message='PIN_MISMATCH' 로 보낸다
+       (gas/main.gs vfail_). code 만 보면 이 분기가 영영 안 걸려, 틀린 PIN 으로
+       남은 열한 건을 마저 보낸다 — 그러면 그 사람이 잠긴다. */
+    var key = String(message || '').split(',')[0].trim();
+    var c = String(code || '');
+    return key === 'PIN_MISMATCH' || key === 'PIN_LOCKED'
+        || c === 'PIN_MISMATCH' || c === 'PIN_LOCKED'
+        || c === 'AUTH' || c === 'CONFIG' || c === 'NETWORK';
+  }
+
+  function runBulk_(spec, items, real, pin, date, ui) {
+    var myGen = modal.gen;
+    var done = 0;
+    var tried = 0;                           /* **보낸** 건수 — 안 보낸 건과 가르는 기준 */
+    var failed = [];
+    var stop = '';
+    var stopCode = '';
+    var stopAt = null;
+    function step(i) {
+      /* 모달이 닫혔다 — 떠난 화면에 쓰지 않는다. 응답 뒤에도 반드시 여기를 거친다. */
+      if (myGen !== modal.gen) {
+        /* 다만 **목록은 새로 불러온다**. 닫기 전에 이미 서버에서 내려간 건이 있는데 뒤 화면은
+           그대로라, 그 낡은 목록에서 같은 건을 또 골라 다시 보내게 된다(2026-08-28 실브라우저
+           S8 — 열두 행이 그대로 남았다). 여기는 **마지막 요청이 끝난 뒤**라 그 결과까지
+           반영된다. 새로고침이 열려 있는 다른 팝업을 닫는 것은 fetchDashboard 의 기존 규약이다
+           (커밋 = 화면 통째 교체). */
+        var msg = done > 0
+          ? '처리 중 창을 닫았습니다 — ' + done + '건까지 처리했습니다. 목록을 새로 불러왔습니다.'
+          : '처리 중 창을 닫았습니다 — 목록을 새로 불러왔습니다.';
+        /* 다만 그 사이 사용자가 창을 **다시 열었으면** 지금 갈아치우지 않는다. 새로고침의 커밋
+           경로는 closeModal_() 을 부르는데(커밋 = 화면 통째 교체), 그러면 방금 시작한 **새 일괄**이
+           세대 불일치로 죽고 「창을 닫았습니다」라는 거짓말까지 남는다 — 사용자는 닫은 적이
+           없다(2026-08-28 Codex). 닫힐 때 돌린다(closeModal_ 끝). */
+        if (!el_('dash-modal').hidden) { modal.pendingRefresh = msg; return; }
+        /* 여기서는 닫혀 있다. 하지만 조회가 오가는 **사이에** 다시 열 수 있다 — bg 로 표시해
+           커밋 직전에 한 번 더 보게 한다(fetchDashboard). */
+        fetchDashboard(msg, true);
+        return;
+      }
+      if (i >= items.length || stop) {
+        odBulkDone_(spec, items, done, tried, failed, stop, stopCode, stopAt, ui, date);
+        return;
+      }
+      var o = items[i];
+      /* **자정을 넘겼는가.** 열두 건이 30~50초라 23시 59분에 「오늘」로 시작하면 도중에
+         날짜가 지나고, 남은 건은 전부 PLAN_DATE_PAST 로 떨어진다(서버 기준도 오늘이다).
+         지난 날짜를 계속 태워 실패 목록만 채우는 대신 **여기서 멈춘다** — 그러면 남은 건이
+         「보내지 않았습니다」로 세어져, 날짜를 다시 골라 그대로 다시 하면 된다
+         (2026-08-28 Codex 지적 · 그전까지는 운영 문서의 「자정에 누르지 말 것」뿐이었다). */
+      if (spec.date && date && date < todayStr_()) {
+        stop = '자정이 지나 ' + date + ' 이 과거가 됐습니다';
+        stopCode = 'PLAN_DATE_PAST';
+        stopAt = null;                       /* 이 건은 **보내지 않았다** — 「에서 멈췄다」가 아니다 */
+        step(i);
+        return;
+      }
+      ui.prog.textContent = '처리 중 ' + (i + 1) + '/' + items.length + ' — ' + o.project_name;
+      tried += 1;
+      /* **한 건씩 차례로**. 동시에 던지면 서버 락 경합으로 LOCK_TIMEOUT 이 쏟아지고,
+         PIN 실패 시 이미 나간 요청을 되부를 수 없다. */
+      postOne_(spec, o, real, pin, date).then(function (res) {
+        if (res && res.ok) {
+          done += 1;
+        } else {
+          var code = String((res && res.error && res.error.code) || '');
+          var msg = res && res.error && res.error.message;
+          var why = odErrorText_(code, msg, spec.fail);
+          if (odBulkAbort_(code, msg)) { stop = why; stopCode = code; stopAt = o; }
+          else failed.push({ o: o, why: why });   /* 그 건 사정이다 — 나머지는 계속한다 */
+        }
+        step(i + 1);
+      });
+    }
+    step(0);
+  }
+
+  function odBulkDone_(spec, items, done, tried, failed, stop, stopCode, stopAt, ui, date) {
+    if (!stop && !failed.length) {
+      closeModal_();
+      fetchDashboard(done + '건 ' + spec.ok +
+                     (spec.date ? ' — ' + date + ' 예정으로 올렸습니다' : ''));
+      return;
+    }
+    /* 중단·부분 실패면 **모달을 닫지 않는다** — 닫으면 무엇이 됐고 무엇이 남았는지 사라진다 */
+    ui.go.disabled = true;
+    /* 중단이면 **보내지도 않은 건**이 남는다 — 성공·실패만 세면 어디서부터 다시 해야 하는지
+       알 길이 없어 열두 건을 처음부터 다시 고른다. 성공·실패에서 빼는 대신 **보낸 수(tried)**
+       로 센다: 자정 중단은 그 건을 보내기 **전에** 멈추므로, 시도된 한 건을 늘 빼는 셈법은
+       한 건을 통째로 잃어버린다(2026-08-28). */
+    var untried = stop ? items.length - tried : 0;
+    ui.prog.textContent = items.length + '건 중 ' + done + '건까지 처리했습니다.'
+                        + (untried > 0 ? ' ' + untried + '건은 보내지 않았습니다.' : '');
+    if (stopCode === 'AUTH') odAuthFail_(ui.err);
+    /* 어느 건에서 멈췄는지를 말한다 — 이름이 없으면 그 건이 된 건인지 안 된 건인지 구별할 수 없다. */
+    else if (stop) ui.err.textContent = '중단했습니다 — '
+                                      + (stopAt ? stopAt.project_name + ' 에서 ' : '') + stop
+                                      + '. 새로고침 후 남은 건을 다시 선택하세요.';
+    else ui.err.textContent = '일부를 처리하지 못했습니다 — 아래 건은 그대로 남아 있습니다.';
+    if (failed.length) {
+      var ul = document.createElement('ul');
+      ul.className = 'dash-od-faillist';
+      failed.forEach(function (f) {
+        var li = document.createElement('li');
+        li.textContent = f.o.project_name + ' — ' + f.why;
+        ul.appendChild(li);
+      });
+      ui.body.appendChild(ul);
+    }
+    var close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'dash-btn dash-od-go';
+    close.textContent = '닫고 새로고침';
+    close.addEventListener('click', function () {
+      closeModal_();
+      fetchDashboard();
+    });
+    ui.body.appendChild(close);
+  }
+
+  /** 일괄 조치 모달 — 무엇이 바뀌는지 **목록으로 보여 준 뒤** 사람·(날짜)·PIN 을 한 번만 받는다. */
+  function openBulkModal_(op, items) {
+    var opener = document.activeElement;       // 닫을 때 돌려줄 자리(대개 일괄 막대의 그 버튼)
+    var data = state.payload || {};
+    var spec = odBulkSpec_(op);
+    openModal_(spec.title + ' — ' + items.length + '건');
+    var body = el_('dash-modal-body');
+    body.textContent = '';
+
+    var meta = document.createElement('p');
+    meta.className = 'dash-modal-meta';
+    meta.textContent = '아래 ' + items.length + '건에 같은 조치를 차례로 적용합니다 — '
+                     + '한 건씩 보내므로 시간이 걸립니다.';
+    body.appendChild(meta);
+
+    var ul = document.createElement('ul');
+    ul.className = 'dash-od-bulklist';
+    items.forEach(function (o) {
+      var li = document.createElement('li');
+      li.textContent = o.project_name + ' · ' + o.company_name + ' · ' + o.planned_date;
+      ul.appendChild(li);
+    });
+    body.appendChild(ul);
+
+    var warn = document.createElement('p');
+    warn.className = spec.warnCls;
+    warn.textContent = spec.warn;
+    body.appendChild(warn);
+
+    var form = document.createElement('div');
+    form.className = 'dash-od-form';
+
+    /* 담당자가 섞여 있으면 미리 고르지 않는다 — 남의 건까지 그 사람 이름으로 남는다 */
+    var owner = items.length ? items[0].owner_id : '';
+    var same = items.every(function (o) { return o.owner_id === owner; });
+    var sel = odActorSelect_(data, same ? owner : '');
+    form.appendChild(odField_(spec.go + '하는 사람', sel));
+
+    var date = null;
+    var midnight = null;
+    if (spec.date) {
+      date = document.createElement('input');
+      date.type = 'date';
+      date.id = 'dash-od-date';
+      date.setAttribute('aria-describedby', 'dash-od-date-hint');
+      /* 하한은 **오늘**. 단건과 달리 원래 예정일 예외를 열지 않는다 — 그 값이 계획마다
+         달라 공통 날짜 하나로는 물려받을 수 없고, 임의 과거는 서버가 PLAN_DATE_PAST 로 막는다. */
+      date.min = todayStr_();
+      date.value = todayStr_();
+      form.appendChild(odField_('새 예정일(고른 건 공통)', date));
+      var hint = document.createElement('p');
+      hint.id = 'dash-od-date-hint';
+      hint.className = 'dash-od-hint';
+      hint.textContent = '오늘부터 고를 수 있습니다. 원래 예정일로 되돌릴 건은 한 건씩 하세요.';
+      form.appendChild(hint);
+      /* 자정을 넘길 것 같으면 **누르기 전에** 말한다(빈 문구면 :empty 로 사라진다). */
+      midnight = document.createElement('p');
+      midnight.className = 'dash-od-warn';
+      /* 문구는 창이 열린 **뒤에** 생겨난다 — 살아 있는 영역으로 두지 않으면 화면을 읽어 주는
+         쪽에는 영영 닿지 않는다. */
+      midnight.setAttribute('aria-live', 'polite');
+      midnight.textContent = odMidnightNote_(items.length);
+      form.appendChild(midnight);
+      /* 창을 열어 둔 채 시간이 흐른다. 누를 때 다시 쓰기만 하면(아래) 그 문구는 **실행이 시작된
+         뒤에야** 그려져 읽을 틈이 없다 — 예고가 아니라 사후 통보다. 그래서 열려 있는 동안
+         15초마다 다시 쓴다(2026-08-28 Codex). 창이 닫히면 odStopNote_ 가 멈춘다. */
+      modal.noteTimer = setInterval(function () {
+        midnight.textContent = odMidnightNote_(items.length);
+      }, 15000);
+    }
+
+    var pin = odPinInput_();
+    form.appendChild(odField_('PIN', pin));
+
+    var prog = document.createElement('p');
+    prog.className = 'dash-od-prog';
+    prog.setAttribute('aria-live', 'polite');   /* 30~50초 걸린다 — 진행을 소리로도 알린다 */
+    form.appendChild(prog);
+
+    var err = odErrBox_();
+    form.appendChild(err);
+
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'dash-btn dash-od-go' + spec.cls;
+    go.textContent = spec.go + ' ' + items.length + '건';
+    go.addEventListener('click', function () {
+      err.textContent = '';
+      var real = sel.value;
+      if (!real) { err.textContent = '점검자를 고르세요'; return; }
+      if (spec.date) {
+        var dv = String(date.value || '');
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dv)) { err.textContent = '날짜를 고르세요'; return; }
+        /* min 은 달력 UI 만 좁힌다 — 이 버튼은 form 제출이 아니라 브라우저 검증이 돌지 않고,
+           손으로 써넣은 과거 날짜가 그대로 열두 건에 나간다. 그러면 원래 예정일과 우연히 같은
+           한 건만 「재등록됨」 으로 바뀌고 나머지는 PLAN_DATE_PAST 로 실패한다 — 한 번 눌러 뒤섞인다. */
+        if (dv < todayStr_()) { err.textContent = '오늘 이후 날짜를 고르세요'; return; }
+      }
+      if (!String(pin.value || '').length) { err.textContent = 'PIN 을 입력하세요'; return; }
+      if (items.length > OD_BULK_MAX) { err.textContent = odBulkCapMsg_(); return; }
+      /* 창을 열어 두고 한참 있다 누를 수 있다 — 예고는 **누르는 시각** 기준으로 다시 쓴다 */
+      if (midnight) midnight.textContent = odMidnightNote_(items.length);
+      go.disabled = true;
+      go.textContent = spec.running;
+      runBulk_(spec, items, real, pin.value, spec.date ? date.value : '',
+               { body: body, prog: prog, err: err, go: go });
+    });
+    form.appendChild(go);
+    body.appendChild(form);
+
+    /* PIN 과 되돌릴 수 없는 버튼이 든 창이다 — 포커스를 안으로 들이고 Tab 을 가둔다.
+       열어도 포커스는 뒤 화면 버튼에 남아 있었고, Tab 몇 번이면 뒤 목록의 «미점검확정» 위였다
+       (2026-08-28 실브라우저 디버깅 S10). 공용 openModal_ 은 건드리지 않는다 — 이 창에서만 켠다. */
+    modal.trapFocus = true;
+    modal.returnFocus = opener;
+    focus_(sel);
+  }
+
   /** 미점검 한 건 = **한 행**(사용자 지시 2026-08-19): 왼쪽에 내용, 오른쪽에 조치 둘.
    *  회사·예정일·경과·담당자는 한 줄로 접는다 — 카드 넉 줄짜리로 일곱 건이면 화면 세 장이었다.
    *  **공사명은 말줄임하지 않는다**: 이 목록의 주소는 끝자리만 다르다(184-4 / 184-7 / 180).
    *  잘라 버리면 서로 구별이 안 돼 어느 건을 누르는지 알 수 없다. */
-  function overdueRow_(o) {
+  function overdueRow_(o, group) {
     var row = document.createElement('div');
     /* 재등록된 건은 **경보 표시를 하지 않는다** — 밀린 게 아니라 이미 손을 쓴 것이다.
        빨간 왼쪽 선을 그대로 두면 조치한 건과 안 한 건이 같은 무게로 읽힌다. */
     row.className = 'dash-od-row'
       + (o.reopened ? ' dash-od-reopened' : (o.days >= OD_STALE_DAYS ? ' dash-od-stale' : ''));
+    /* 선택칸이 맨 앞 — 행은 이제 [선택][내용][조치] 세 덩이다 */
+    row.appendChild(odPickBox_(o, group));
 
     var text = document.createElement('div');
     text.className = 'dash-od-text';
@@ -1709,6 +2209,10 @@
     /* 이 화면이 나오기 전에 저장된 payload 에는 overdue 가 없다 — 그때는 블록 자체를
        만들지 않는다(빈 목록으로 그리면 "밀린 게 없다"는 **거짓말**이 된다). */
     if (!data || !data.overdue) return null;
+    /* 새로 그릴 때마다 선택을 비운다 — 새로고침으로 이미 닫힌 건이 선택된 채 남으면
+       다음 일괄 조치가 **화면에 없는 행**까지 건드린다. */
+    odSel = Object.create(null);
+    odUi = { bar: null, count: null, err: null, groups: [] };
     var all = overdueFor_(data, state.view);
     /* **재등록한 건을 셈에서 뺀다**(사용자 지적 2026-08-21 "재등록은 됐는데 안 사라져").
        이 카드가 말하는 "예정일이 지나 현장 목록에서 내려간 계획" 이 재등록 뒤에는 사실이
@@ -1731,7 +2235,10 @@
         '미점검확정은 점검하지 않았음을, 공사취소는 공사가 없어졌음을 남기고 목록에서 내립니다.'
       : '지난 예정 중 점검하지 않은 건이 없습니다.';
     sec.appendChild(note);
-    list.forEach(function (o) { sec.appendChild(overdueRow_(o)); });
+    if (all.length) sec.appendChild(odBulkBar_(all));
+    var g1 = list.length ? odSelectAll_('미점검 전체 선택', list) : null;
+    if (g1) sec.appendChild(g1.node);
+    list.forEach(function (o) { sec.appendChild(overdueRow_(o, g1 ? g1.group : null)); });
 
     if (back.length) {
       var h2 = document.createElement('h3');
@@ -1743,8 +2250,11 @@
       n2.textContent = '현장 목록에 다시 올려 둔 계획입니다 — 작성을 기다리는 중입니다. '
         + '끝내 점검하지 못했다면 여기서 미점검확정이나 공사취소로 닫을 수 있습니다.';
       sec.appendChild(n2);
-      back.forEach(function (o) { sec.appendChild(overdueRow_(o)); });
+      var g2 = odSelectAll_('재등록됨 전체 선택', back);
+      sec.appendChild(g2.node);
+      back.forEach(function (o) { sec.appendChild(overdueRow_(o, g2.group)); });
     }
+    odSyncBar_();
     return sec;
   }
 
@@ -1822,8 +2332,11 @@
    *  미점검확정은 되돌릴 수 없는데 확인이 없으면 눌리기는 했는지도 모른다.
    *
    *  **문자열이 아니면 무시한다** — 새로고침·조회 버튼이 이 함수를 리스너로 그대로 쓴다
-   *  (addEventListener('click', fetchDashboard)). 안 걸러 내면 click 이벤트 객체가 배너 문구가 된다. */
-  function fetchDashboard(okMsg) {
+   *  (addEventListener('click', fetchDashboard)). 안 걸러 내면 click 이벤트 객체가 배너 문구가 된다.
+   *
+   *  bg=true 는 **배경 정리**다(닫힌 일괄의 뒷정리 — runBulk_·closeModal_ 만 쓴다). 사람이 누른
+   *  조회가 아니므로, 응답이 오가는 사이에 창이 다시 열렸으면 화면을 갈아치우지 않고 미룬다. */
+  function fetchDashboard(okMsg, bg) {
     var ok = (typeof okMsg === 'string') ? okMsg : '';
     if (!state.key) { showKeyScreen_(''); return; }
     var g = beginQuery_(state);
@@ -1838,6 +2351,16 @@
       if (g !== state.gen) return;
       showBanner_('서버 응답이 느립니다 — 다시 시도 중 (' + nth + '/' + total + ')…');
     }).then(function (res) {
+      /* **배경 정리인데 그 사이 창이 다시 열렸다.** 커밋은 화면 통째 교체(closeModal_)라, 여기서
+         적용하면 방금 시작한 새 일괄이 세대 불일치로 죽고 「창을 닫았습니다」라는 (닫은 적 없는)
+         배너까지 남는다. runBulk_ 의 검사는 **POST 응답 시점**만 봐서 이 조회 왕복(재시도 포함
+         최대 25초)을 덮지 못했다(2026-08-28 Codex 2회차). 적용도 하지 않고 통째로 미룬다 —
+         낡은 목록이 실제로 문제가 되는 시점은 그 창을 닫는 때다(closeModal_ 끝에서 소비). */
+      if (bg && g === state.gen && !el_('dash-modal').hidden) {
+        setBusy_(false);                       // 미루더라도 조회·새로고침 버튼은 풀어 준다
+        modal.pendingRefresh = ok;
+        return;
+      }
       var verdict = applyResult_(state, g, res);
       if (verdict === 'stale') return;         // 더 새 요청이 있다 — 그쪽이 화면을 맡는다
       setBusy_(false);
@@ -1909,6 +2432,32 @@
     });
     document.addEventListener('keydown', function (ev) {
       if (ev.key === 'Escape' && !el_('dash-modal').hidden) closeModal_();
+    });
+    document.addEventListener('keydown', function (ev) {
+      /* Tab 가둠 — modal.trapFocus 를 켠 창(일괄 모달)에서만. 밖으로 나가려는 한 번을
+         반대쪽 끝으로 되돌린다. 포커스가 이미 밖(뒤 화면)이면 첫 컨트롤로 되잡는다. */
+      if (ev.key !== 'Tab' || !modal.trapFocus || el_('dash-modal').hidden) return;
+      var f = modalFocusables_();
+      if (!f.length) return;
+      /* 「안쪽」의 기준은 **지금 순회 목록 f 의 구성원인가**다 — 카드 안에 있느냐가 아니다.
+         제출 중 go.disabled = true 가 되면 그 버튼은 f 에서 빠지지만 카드 안에는 그대로
+         남아, contains 로 보면 «안쪽인데 경계도 아닌» 상태가 되어 그 한 번의 Tab 이 그냥
+         지나가 뒤 화면으로 샌다(Codex 델타 검토 Medium, 2026-08-28). 브라우저가 비활성화
+         순간 포커스를 body 로 떨구면 결과적으로 가려지지만, 그 동작에 기대지 않는다. */
+      var cur = document.activeElement;
+      var at = -1;
+      for (var fi = 0; fi < f.length; fi += 1) { if (f[fi] === cur) { at = fi; break; } }
+      if (ev.shiftKey && at <= 0) { ev.preventDefault(); focus_(f[f.length - 1]); }
+      else if (!ev.shiftKey && (at === -1 || at === f.length - 1)) {
+        ev.preventDefault(); focus_(f[0]);
+      }
+    });
+    var barSpaceTimer = null;
+    window.addEventListener('resize', function () {
+      /* 폭이 바뀌면 막대 버튼이 접히는 줄 수가 달라진다 — 예약 여백을 다시 잰다.
+         드래그 중 매 프레임 재는 것을 막으려고 한 박자 미룬다. */
+      if (barSpaceTimer) clearTimeout(barSpaceTimer);
+      barSpaceTimer = setTimeout(odBarSpace_, 120);
     });
     window.addEventListener('popstate', function () {
       /* 뒤로가기: 팝업이 열려 있으면 그 한 번은 팝업 닫기다 — 히스토리 칸은 이미 소비됐다 */
