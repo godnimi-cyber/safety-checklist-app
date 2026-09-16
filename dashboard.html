@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-dbd39263">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-dbd39263">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-6789bbce">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-6789bbce">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -151,8 +151,11 @@
    15,39,36=--text). .dash-block h2 뒤(아래 .dash-overdue h2, .dash-integrity h2 규칙)로
    옮겼다 — 정합성(.dash-integrity h2)은 이미 그 자리에 있어 실측에서 살아 있었다. */
 /* V6-5 — 「미점검 N」의 N 은 요약 칩(20.8px)과 같은 값의 사본이다. 칩이 정본이므로 여기
-   숫자만 무게를 낮춘다(제목 글자 크기는 그대로 두고 숫자만 일반 굵기·muted). */
-.dash-overdue h2 .dash-h2-n { font-weight: 400; color: var(--muted); }
+   숫자만 무게를 낮춘다(제목 글자 크기는 그대로 두고 숫자는 굵기만 일반으로).
+   F3(실측) — 굵기와 함께 color:muted 까지 내려 h2(danger) 안 숫자만 muted(회색)로 보였다.
+   같은 화면 요약 칩의 '미점검' 숫자는 danger 다 — 같은 지표가 색이 갈렸다. color 선언을
+   없애 부모(.dash-overdue h2, danger)를 상속시키고 시각 무게는 굵기로만 낮춘다. */
+.dash-overdue h2 .dash-h2-n { font-weight: 400; }
 .dash-od-row { display: flex; align-items: center; gap: 12px;
   border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
   margin-top: 8px; background: var(--surface); }
@@ -241,16 +244,6 @@
   background: color-mix(in srgb, var(--danger) 8%, transparent); }
 /* 자정 예고처럼 **있을 때만** 쓰는 문단 — 문구가 비면 테두리만 남은 빈 상자가 된다 */
 .dash-od-warn:empty { display: none; }
-/* 좁은 화면에서는 조치를 아래로 내린다 — 조치 셋이 가로로 230px 쯤 되어, 그만큼 떼고 나면
-   공사명이 대여섯 줄이 된다. 그때는 내용 한 줄 / 조치 한 줄이 낫다. */
-@media (max-width: 560px) {
-  /* gap 을 줄인 것도 D6 행 높이 절감분이다(패딩과 함께) — 방향·정렬은 그대로 */
-  .dash-od-row { flex-direction: column; align-items: stretch; gap: 6px; }
-  /* 행이 세로로 접히면 선택칸이 폭 전체로 늘어난다 — 왼쪽에 붙여 둔다 */
-  .dash-od-pick { align-self: flex-start; }
-  /* 셋이 폭을 고르게 나눠 갖는다 — 좁아도 글자가 잘리지 않게 좌우 여백만 줄인다 */
-  .dash-od-acts .dash-btn { flex: 1 1 0; min-width: 0; padding: 0 4px; font-size: 0.84rem; }
-}
 /* 여러 건을 한 번에 (2026-08-28) — 행 왼쪽 끝의 선택칸과, 제목 아래 나타나는 일괄 막대.
    색은 위와 같은 승인 팔레트 토큰만 쓴다(원값 금지). */
 .dash-od-pick { display: inline-flex; align-items: center; justify-content: center;
@@ -264,6 +257,37 @@
 .dash-od-pickall { justify-content: flex-start; padding: 0 8px; margin-top: 8px;
   font-size: 13px; color: var(--muted); }
 .dash-od-picktext { line-height: 1.5; }
+/* F5(사용자 실기기 지시 2026-09-17) — 세로 3단(선택/내용/조치) 대신 row+wrap 으로
+   [선택][내용] 을 한 줄에, [조치] 를 다음 줄에 둔다. .dash-od-row 자식 3개 구조는 그대로
+   유지(D40 이 children.length===3 강제) — flex-wrap 이 셋째 자식만 다음 줄로 내릴 뿐 DOM은
+   안 바뀐다. 실측(허브 3안 비교): 행 높이 390px 191→170 · 360px 218→190 · 320px 218→190.
+   **이 블록은 .dash-od-pick·.dash-od-pickall 의 무조건 규칙보다 소스상 아래에 둔다** —
+   media 조건은 특이도를 높이지 않으므로, 위(246번대)에 두면 justify-content:center 가
+   같은 특이도·나중 소스 순서로 이겨 flex-start 가 조용히 무효화된다(실측으로 발견:
+   input.left 가 56.5 로, box.left+center 오프셋(44+12)과 정확히 일치했다 — M1 의 같은
+   함정, dash-overdue h2 색 규칙 주석 참조). */
+@media (max-width: 560px) {
+  .dash-od-row { flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 0; }
+  /* F2 — justify-content:center(기본) 가 44px 선택칸 안에서 20px 체크박스를 가운데 놓아
+     공사명·조치 좌측선(44)에서 13px 밀렸다(실측 L57). flex-start 로 같은 선에 맞춘다. */
+  .dash-od-pick { align-self: flex-start; justify-content: flex-start; flex: none; }
+  /* 전체 선택 칸은 .dash-od-row 밖(섹션 직속)이라 같은 8px 패딩으로는 행의 pick(패딩 없음
+     + 행 자체 패딩 10px) 과 좌측선이 2px 어긋난다(실측 input.left 45 vs 48). 10px 로
+     맞춰 나머지 오차(반올림 포함) 이내로 좁힌다. */
+  .dash-od-pickall { padding-left: 10px; }
+  .dash-od-text { flex: 1 1 0; min-width: 0; }
+  /* 조치 줄을 선택칸 폭(44px)만큼 들여 공사명과 같은 좌측선에 맞춘다(실측 88==88). */
+  .dash-od-acts { flex: 1 1 100%; margin-top: 8px; margin-left: 44px; }
+  /* 셋이 폭을 고르게 나눠 갖는다 — 좁아도 글자가 잘리지 않게 좌우 여백만 줄인다 */
+  .dash-od-acts .dash-btn { flex: 1 1 0; min-width: 0; padding: 0 4px; font-size: 0.84rem; }
+}
+/* F5 예외(실측 확인) — 320px 에서는 margin-left:44px 를 유지하면 버튼 폭이 56px 로 줄어
+   '미점검확정' 라벨이 잘린다(54<62). 이 폭에서만 들여쓰기를 되돌려 버튼이 44선 기준
+   전폭(68px)을 쓰게 한다 — 공사명(88)과 버튼(44)의 좌측선이 어긋나지만, 라벨 잘림이
+   정렬 어긋남보다 더 큰 결함이라 이쪽을 택한다. */
+@media (max-width: 340px) {
+  .dash-od-acts { margin-left: 0; }
+}
 /* 일괄 막대 — 아무것도 안 골랐으면 **없는 셈**이어야 한다. display 를 선언했으므로
    [hidden] 동반 가드를 같이 둔다(styles.css 규약: 전역 !important 를 떼도 안 터지게).
    **화면 아래에 띄운다**: 흐름 안에 두고 숨겼다 풀면, 첫 건을 고르는 순간 막대 높이만큼
@@ -551,6 +575,19 @@
   text-decoration-thickness: 3px; text-underline-offset: 3px; }
 .dash-page-gap { min-width: 24px; text-align: center; color: var(--muted); font-size: 0.9rem; }
 @media (max-width: 640px) {
+  /* F1(사용자 실기기 리포트) — flex-wrap 이 칩을 접을 때 구분자(·)가 독립 flex 아이템이라
+     줄 끝에 혼자 남았다(실측 390px: 줄1·2 끝이 구분자). 2열 그리드로 바꾸고 구분자는
+     CSS 로만 숨긴다(DOM 유지 — aria-hidden 이라 SR 영향 없음, 데스크톱 1440px 은 이 쿼리
+     밖이라 한 줄 + 구분자 표시 그대로). 마지막 홀수 칩(5개→2-2-1)은 전폭으로 늘리지 않고
+     그대로 둔다 — 구분자가 DOM 에 남아 nth-child 로 "실제 칩 개수의 홀짝"을 가려낼 수
+     없고(항목 사이 hidden sep 이 끼어 인덱스가 항상 홀수), 그걸 가리려면 JS 가 필요해
+     이 정도 비대칭은 감수한다. */
+  /* 칩 5개(점검·부적합·협력회사·미점검·지난주 대비)면 2열이라도 3행이 된다 — 데스크톱
+     패딩(12px)·행간(8px)을 그대로 두면 3행 합이 104px 로 목표(90px 이하)를 넘는다.
+     좁은 화면에서만 세로 여백을 줄인다(실측: 8px 16px + 4px 12px → 88.4px). */
+  .dash-summary-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px;
+    padding: 8px 16px; }
+  .dash-chip-sep { display: none; }
   .dash-tiles { grid-template-columns: repeat(2, 1fr); }
   /* V2 — 40px 숫자는 2열 좁은 타일(170px 하한)에서 여섯 자리를 넘기면 빠듯하다.
      모바일에서만 한 단 낮춘다(1440px 프로브는 이 미디어쿼리 밖이라 영향 없다). */
@@ -667,7 +704,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-dbd39263"></script>
-<script src="./dashboard.js?v=0.5.5-dbd39263"></script>
+<script src="./config.js?v=0.5.5-6789bbce"></script>
+<script src="./dashboard.js?v=0.5.5-6789bbce"></script>
 </body>
 </html>
