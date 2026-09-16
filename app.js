@@ -2814,8 +2814,42 @@
     $('write-step2-actions').hidden = !isStep2;
     $('write-progress-bar').hidden = !isStep2;
     if (isStep2) buildStep2();
-    else renderWriteStep1();
+    else { renderWriteStep1(); renderPlanLockSummary(); }
     updateTopbar('write');
+  }
+
+  /* T5: locked(계획 기반) 작성에서 점검일·협력회사·공사, 그리고 점검자 소속팀·표시명을
+     요약 블록/힌트 줄로 접는다 — 실제 입력이 필요한 PIN·수검자만 화면에 남긴다.
+     renderWriteStep1() 과 분리한 이유: 그 함수는 18x 단위 테스트가 고정 DOM 목록으로 실행하므로
+     여기서 새 id 를 더 만지면 그 테스트가 깨진다. 「변경」 버튼은 이 요약을 감추고 원래 필드를
+     펼치기만 한다(state 를 만들지 않는다) — 이후 재렌더(예: 검토에서 뒤로가기)에서 다시 접힌다. */
+  function renderPlanLockSummary() {
+    var draft = state.draft;
+    var locked = !!draft.plan_id;
+    $('write-step1-plan-summary').hidden = !locked;
+    $('write-step1-plan-fields').hidden = locked;
+    if (locked) {
+      $('plan-summary-date').textContent = draft.planned_date_label || draft.inspect_date || '';
+      $('plan-summary-company').textContent = companyName(draft.company_id);
+      $('plan-summary-project').textContent = draft.project_name || '';
+    }
+
+    $('write-step1-inspector-summary').hidden = !locked;
+    $('write-step1-inspector-fields').hidden = locked;
+    if (locked) {
+      var team = teamOf(draft.inspector_id);
+      $('inspector-summary-text').textContent = draft.inspector_id
+        ? ('점검자 ' + inspectorDisplay(draft.inspector_id) + ' · ' + team + ' — 계정에서 자동')
+        : '점검자를 선택하세요';
+    }
+  }
+  function onPlanSummaryEdit() {
+    $('write-step1-plan-summary').hidden = true;
+    $('write-step1-plan-fields').hidden = false;
+  }
+  function onInspectorSummaryEdit() {
+    $('write-step1-inspector-summary').hidden = true;
+    $('write-step1-inspector-fields').hidden = false;
   }
 
   function renderWriteStep1() {
@@ -3637,6 +3671,8 @@
     $('btn-plan-manage-confirm').addEventListener('click', onPlanManageConfirm);
 
     $('btn-step1-next').addEventListener('click', onStep1Next);
+    $('btn-plan-summary-edit').addEventListener('click', onPlanSummaryEdit);
+    $('btn-inspector-summary-edit').addEventListener('click', onInspectorSummaryEdit);
     $('f-company').addEventListener('change', onCompanyChange);
     $('f-project').addEventListener('change', onProjectChange);
     $('f-project-tmp').addEventListener('input', onProjectTmpInput);

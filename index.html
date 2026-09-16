@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-b5af0753">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-92f263ca">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <!-- 데이터 API 오리진 2곳 — 첫 요청의 DNS+TLS 를 선행한다(대시보드와 같은 처방).
      GAS 는 script.google.com 에서 302 로 googleusercontent 로 넘어가므로 둘 다 필요하다.
@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-b5af0753">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-92f263ca">
 <title>현장 안전점검</title>
 </head>
 <body>
@@ -221,34 +221,59 @@
       </div>
 
       <div class="screen-body" id="write-step1">
-        <div class="field">
-          <label class="field-label" for="f-date">점검일</label>
-          <input class="input" type="date" id="f-date">
-          <!-- 계획 기반 작성에서 잠긴 점검일·협력회사·공사를 본문 색으로 노출(H3·H6) — disabled
-               select 는 값을 다른 곳에 안 보여주므로 이 텍스트가 유일한 판독 수단이다 -->
-          <p class="field-hint" id="f-plan-context" hidden></p>
+        <!-- T5: 계획 기반 작성(locked)일 때 점검일·협력회사·공사 3개를 요약 블록으로 접는다.
+             app.js renderPlanLockSummary() 가 채운다 — 이 블록과 write-step1-plan-fields 는
+             항상 정확히 하나만 보인다(locked 여부, 그리고 「변경」 클릭 여부에 따라). -->
+        <div class="plan-lock-summary" id="write-step1-plan-summary" hidden>
+          <div class="plan-lock-summary-head">
+            <span class="plan-lock-summary-title">계획에서 가져온 정보</span>
+            <button type="button" class="plan-lock-edit-btn" id="btn-plan-summary-edit">변경</button>
+          </div>
+          <dl class="plan-lock-summary-body">
+            <div class="plan-lock-summary-row"><dt>점검일</dt><dd id="plan-summary-date"></dd></div>
+            <div class="plan-lock-summary-row"><dt>협력회사</dt><dd id="plan-summary-company"></dd></div>
+            <div class="plan-lock-summary-row"><dt>공사</dt><dd id="plan-summary-project"></dd></div>
+          </dl>
         </div>
-        <div class="field">
-          <label class="field-label" for="f-company">협력회사</label>
-          <select class="input" id="f-company"></select>
-        </div>
-        <div class="field">
-          <label class="field-label" for="f-project">공사</label>
-          <select class="input" id="f-project" disabled></select>
-          <div class="tmp-project-wrap" id="f-project-tmp-wrap" hidden>
-            <label class="field-label" for="f-project-tmp">공사명 직접 입력</label>
-            <input class="input" type="text" id="f-project-tmp" placeholder="공사명을 입력하세요" maxlength="80">
-            <p class="field-hint">미등록 공사는 관리자가 추후 정식 공사로 매핑합니다.</p>
+        <div class="field-stack" id="write-step1-plan-fields">
+          <div class="field">
+            <label class="field-label" for="f-date">점검일</label>
+            <input class="input" type="date" id="f-date">
+            <!-- 계획 기반 작성에서 잠긴 점검일·협력회사·공사를 본문 색으로 노출(H3·H6) — disabled
+                 select 는 값을 다른 곳에 안 보여주므로 이 텍스트가 유일한 판독 수단이다 -->
+            <p class="field-hint" id="f-plan-context" hidden></p>
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-company">협력회사</label>
+            <select class="input" id="f-company"></select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-project">공사</label>
+            <select class="input" id="f-project" disabled></select>
+            <div class="tmp-project-wrap" id="f-project-tmp-wrap" hidden>
+              <label class="field-label" for="f-project-tmp">공사명 직접 입력</label>
+              <input class="input" type="text" id="f-project-tmp" placeholder="공사명을 입력하세요" maxlength="80">
+              <p class="field-hint">미등록 공사는 관리자가 추후 정식 공사로 매핑합니다.</p>
+            </div>
           </div>
         </div>
-        <div class="field">
-          <label class="field-label" for="f-team">점검자 · 소속팀</label>
-          <select class="input" id="f-team"></select>
+
+        <!-- T5: 점검자 소속팀·표시명도 같은 방식으로 접는다(locked 전용, renderPlanLockSummary). -->
+        <p class="field-hint inspector-lock-summary" id="write-step1-inspector-summary" hidden>
+          <span id="inspector-summary-text"></span>
+          <button type="button" class="plan-lock-edit-btn" id="btn-inspector-summary-edit">점검자 변경</button>
+        </p>
+        <div class="field-stack" id="write-step1-inspector-fields">
+          <div class="field">
+            <label class="field-label" for="f-team">점검자 · 소속팀</label>
+            <select class="input" id="f-team"></select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="f-inspector">점검자 · 표시명</label>
+            <select class="input" id="f-inspector" disabled></select>
+          </div>
         </div>
-        <div class="field">
-          <label class="field-label" for="f-inspector">점검자 · 표시명</label>
-          <select class="input" id="f-inspector" disabled></select>
-        </div>
+
         <div class="field">
           <label class="field-label" for="f-pin">PIN (4자리)</label>
           <input class="input" type="tel" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" id="f-pin" autocomplete="off">
@@ -264,7 +289,7 @@
       </div>
 
       <footer class="action-bar" id="write-step1-actions">
-        <button type="button" class="btn btn-primary" id="btn-step1-next">다음</button>
+        <button type="button" class="btn btn-primary" id="btn-step1-next">체크리스트 시작</button>
       </footer>
       <footer class="action-bar" id="write-step2-actions" hidden>
         <button type="button" class="btn btn-outline" id="btn-step2-back">이전</button>
@@ -542,9 +567,9 @@
   </div>
 </template>
 
-<script src="./config.js?v=0.5.5-b5af0753"></script>
-<script src="./lib.js?v=0.5.5-b5af0753"></script>
-<script src="./logic.js?v=0.5.5-b5af0753"></script>
-<script src="./app.js?v=0.5.5-b5af0753"></script>
+<script src="./config.js?v=0.5.5-92f263ca"></script>
+<script src="./lib.js?v=0.5.5-92f263ca"></script>
+<script src="./logic.js?v=0.5.5-92f263ca"></script>
+<script src="./app.js?v=0.5.5-92f263ca"></script>
 </body>
 </html>
