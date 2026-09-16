@@ -282,12 +282,133 @@
 
   function el_(id) { return document.getElementById(id); }
 
+  /* 아이콘(V1) — 인라인 SVG, CDN·라이브러리 0개. path 문자열만 여기 한 곳에 둔다.
+   *  색은 항상 stroke="currentColor" — 배치한 자리의 CSS color 를 그대로 받는다(팔레트
+   *  발명 없이 위계를 표현하는 수단). document.createElementNS 가 없는 환경(조각 테스트의
+   *  가짜 DOM)에서는 null 을 돌려준다 — 호출부는 그 경우 아이콘 없이 그대로 렌더된다. */
+  var ICONS_ = {
+    'alert-triangle': [
+      ['path', { d: 'm21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z' }],
+      ['path', { d: 'M12 9v4' }],
+      ['path', { d: 'M12 17h.01' }]
+    ],
+    calendar: [
+      ['path', { d: 'M8 2v4' }],
+      ['path', { d: 'M16 2v4' }],
+      ['rect', { x: '3', y: '4', width: '18', height: '18', rx: '2' }],
+      ['path', { d: 'M3 10h18' }]
+    ],
+    'file-check': [
+      ['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }],
+      ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }],
+      ['path', { d: 'm9 15 2 2 4-4' }]
+    ],
+    'building-2': [
+      ['path', { d: 'M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z' }],
+      ['path', { d: 'M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2' }],
+      ['path', { d: 'M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2' }],
+      ['path', { d: 'M10 6h4' }],
+      ['path', { d: 'M10 10h4' }],
+      ['path', { d: 'M10 14h4' }],
+      ['path', { d: 'M10 18h4' }]
+    ],
+    wrench: [
+      ['path', { d: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94Z' }]
+    ],
+    'shield-alert': [
+      ['path', { d: 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z' }],
+      ['path', { d: 'M12 8v4' }],
+      ['path', { d: 'M12 16h.01' }]
+    ],
+    moon: [
+      ['path', { d: 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z' }]
+    ],
+    'refresh-cw': [
+      ['path', { d: 'M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8' }],
+      ['path', { d: 'M21 3v5h-5' }],
+      ['path', { d: 'M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16' }],
+      ['path', { d: 'M8 16H3v5' }]
+    ],
+    'file-text': [
+      ['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }],
+      ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }],
+      ['path', { d: 'M10 9H8' }],
+      ['path', { d: 'M16 13H8' }],
+      ['path', { d: 'M16 17H8' }]
+    ],
+    'x-circle': [
+      ['circle', { cx: '12', cy: '12', r: '10' }],
+      ['path', { d: 'm15 9-6 6' }],
+      ['path', { d: 'm9 9 6 6' }]
+    ],
+    'clipboard-check': [
+      ['rect', { x: '8', y: '2', width: '8', height: '4', rx: '1' }],
+      ['path', { d: 'M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2' }],
+      ['path', { d: 'm9 14 2 2 4-4' }]
+    ],
+    'alert-circle': [
+      ['circle', { cx: '12', cy: '12', r: '10' }],
+      ['line', { x1: '12', y1: '8', x2: '12', y2: '12' }],
+      ['line', { x1: '12', y1: '16', x2: '12.01', y2: '16' }]
+    ],
+    clock: [
+      ['circle', { cx: '12', cy: '12', r: '10' }],
+      ['polyline', { points: '12 6 12 12 16 14' }]
+    ],
+    'trending-up': [
+      ['polyline', { points: '22 7 13.5 15.5 8.5 10.5 2 17' }],
+      ['polyline', { points: '16 7 22 7 22 13' }]
+    ],
+    'trending-down': [
+      ['polyline', { points: '22 17 13.5 8.5 8.5 13.5 2 7' }],
+      ['polyline', { points: '16 17 22 17 22 11' }]
+    ]
+  };
+
+  /** kind 가 없거나 SVG 네임스페이스 생성이 안 되는 실행환경(조각 테스트)이면 null. */
+  function svgIcon_(kind, size) {
+    var spec = kind && ICONS_[kind];
+    if (!spec || typeof document.createElementNS !== 'function') return null;
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'dash-icon');
+    svg.setAttribute('width', String(size));
+    svg.setAttribute('height', String(size));
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    spec.forEach(function (seg) {
+      var node = document.createElementNS(NS, seg[0]);
+      var attrs = seg[1];
+      Object.keys(attrs).forEach(function (k) { node.setAttribute(k, attrs[k]); });
+      svg.appendChild(node);
+    });
+    return svg;
+  }
+
+  /** 블록 제목 문자열로 아이콘 종류를 정한다 — 서버 문자열이 바뀌어 매칭이 안 되면
+   *  null(호출부가 아이콘 없이 그대로 그린다. 화면이 깨지지 않는다). */
+  function blockIconKind_(title) {
+    var t = String(title || '');
+    if (t.indexOf('이번 주') === 0) return 'calendar';
+    if (t.indexOf('오늘 제출') === 0) return 'file-check';
+    if (t.indexOf('협력회사별') === 0) return 'building-2';
+    if (t.indexOf('공사별') === 0) return 'wrench';
+    if (t.indexOf('확인이 필요한 기록') === 0) return 'shield-alert';
+    return null;
+  }
+
   /* 다크 모드 — 킷 tokens.css 의 [data-theme="dark"] 팔레트를 그대로 쓴다(색 발명 0).
    *  라이트 복귀는 속성 제거 — 킷 셀렉터 계약과 일치시킨다. */
   function applyTheme_(mode) {
     if (mode === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
     else document.documentElement.removeAttribute('data-theme');
-    el_('btn-dash-theme').textContent = mode === 'dark' ? '밝게' : '어둡게';
+    el_('btn-dash-theme-label').textContent = mode === 'dark' ? '밝게' : '어둡게';
   }
 
   function showBanner_(text, isError) {
@@ -1038,6 +1159,11 @@
     if (displayTitle.indexOf('협력회사별') === 0 || displayTitle.indexOf('공사별') === 0) {
       displayTitle = displayTitle.replace(/\s*\([^()]*\)\s*$/, '');
     }
+    /* typeof 가드 — dashboard-web.test.mjs 의 pageCtx() 는 renderBlock_ 소스만 조각으로
+       떼어 vm 에서 돌린다(파일 맨 위 주석). blockIconKind_·svgIcon_ 을 그 목록에 안 넣었으므로
+       평범한 호출이면 ReferenceError 다. typeof 는 선언 없는 식별자에도 안전해 그 환경에서는
+       조용히 아이콘 없이 렌더된다(실제 페이지에서는 같은 IIFE 안이라 항상 함수로 잡힌다). */
+    var iconKind = (typeof blockIconKind_ === 'function') ? blockIconKind_(block.title) : null;
     h.textContent = displayTitle;
     head.appendChild(h);
     sec.appendChild(head);
@@ -1143,6 +1269,10 @@
         if (cards) fillProjCards_(cards, block, block.rows, 0);
       }
     }
+    /* 아이콘은 **맨 마지막에** 붙인다 — 위 위 분기(이번 주)가 h.textContent 를 다시 쓰면
+       그 대입이 자식을 통째로 지운다(set textContent 계약). 순서를 지켜야 아이콘이 안 지워진다. */
+    var icon = (typeof svgIcon_ === 'function') ? svgIcon_(iconKind, 16) : null;
+    if (icon) h.appendChild(icon);
     if (block.note) {
       var note = document.createElement('p');
       note.className = 'note';
@@ -2265,6 +2395,10 @@
     sec.className = 'dash-block dash-overdue';
     var h = document.createElement('h2');
     h.textContent = '미점검 ' + list.length;
+    /* typeof 가드 — odRenderCtx() 조각 테스트가 renderOverdue_ 를 svgIcon_ 없이 돌린다(위
+       renderBlock_ 의 같은 이유). */
+    var odIcon = (typeof svgIcon_ === 'function') ? svgIcon_('alert-triangle', 18) : null;
+    if (odIcon) h.appendChild(odIcon);
     sec.appendChild(h);
 
     var note = document.createElement('p');
@@ -2297,11 +2431,16 @@
     return sec;
   }
 
-  /** 요약 칩 하나 — 라벨·숫자(선택: danger). */
-  function summaryChip_(label, value, danger) {
+  /** 요약 칩 하나 — 아이콘(선택) · 라벨 · 숫자(선택: danger). */
+  function summaryChip_(label, value, danger, iconKind) {
     var chip = document.createElement('span');
     chip.className = 'dash-chip' + (danger ? ' dash-chip-danger' : '');
-    chip.appendChild(document.createTextNode(label + ' '));
+    var icon = svgIcon_(iconKind, 14);
+    if (icon) chip.appendChild(icon);
+    var lab = document.createElement('span');
+    lab.className = 'dash-chip-label';
+    lab.textContent = label;
+    chip.appendChild(lab);
     var b = document.createElement('b');
     b.textContent = String(value);
     chip.appendChild(b);
@@ -2325,16 +2464,18 @@
     if (!cd) { host.hidden = true; return; }
     host.hidden = false;
     var chips = [
-      summaryChip_('점검', cd.inspections, false),
-      summaryChip_('부적합', cd.findings, cd.findings > 0),
-      summaryChip_('협력회사', cd.companies, false),
-      summaryChip_('미점검', cd.overdue, cd.overdue > 0)
+      summaryChip_('점검', cd.inspections, false, 'clipboard-check'),
+      summaryChip_('부적합', cd.findings, cd.findings > 0, 'alert-circle'),
+      summaryChip_('협력회사', cd.companies, false, 'building-2'),
+      summaryChip_('미점검', cd.overdue, cd.overdue > 0, 'clock')
     ];
     /* 대상 명사 없이 '+4' 만 있으면 무엇의 증감인지 화면에서 알 수 없다 — 점검 건수임을
-       적는다. renderStatTiles_ 의 '증감 없음' 문구 규약과 같은 결로 맞춘다. */
+       적는다. renderStatTiles_ 의 '증감 없음' 문구 규약과 같은 결로 맞춘다.
+       아이콘도 증감 방향을 따른다 — 0(증감 없음)은 추세가 아니므로 아이콘을 붙이지 않는다. */
     if (cd.diff !== null) {
       chips.push(summaryChip_('지난주 대비 점검',
-        cd.diff > 0 ? '+' + cd.diff : cd.diff < 0 ? String(cd.diff) : '증감 없음', false));
+        cd.diff > 0 ? '+' + cd.diff : cd.diff < 0 ? String(cd.diff) : '증감 없음', false,
+        cd.diff > 0 ? 'trending-up' : cd.diff < 0 ? 'trending-down' : null));
     }
     chips.forEach(function (chip, i) {
       if (i > 0) host.appendChild(chipSep_());
@@ -2373,8 +2514,11 @@
       var sec = renderBlock_(b);
       if (b.title.indexOf('협력회사별') === 0) appendCsvButton_(sec, b, '협력회사별');
       else if (b.title.indexOf('공사별') === 0) appendCsvButton_(sec, b, '공사별');
-      /* 데스크톱 2열(D2) — 이번 주·오늘 제출된 점검만 반폭. 나머지는 CSS 기본값(전폭). */
-      else if (b.title.indexOf('이번 주') === 0 || b.title.indexOf('오늘 제출') === 0) {
+      /* 데스크톱 2열(D2) — 이번 주·오늘 제출된 점검만 반폭. 나머지는 CSS 기본값(전폭).
+         이번 주만 dash-block-week 를 추가로 받는다 — 위계 2단(요약) 스타일용(V4). */
+      else if (b.title.indexOf('이번 주') === 0) {
+        sec.className += ' dash-block-half dash-block-week';
+      } else if (b.title.indexOf('오늘 제출') === 0) {
         sec.className += ' dash-block-half';
       }
       root.appendChild(sec);
