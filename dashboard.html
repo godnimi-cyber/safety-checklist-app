@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-acb95246">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-acb95246">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-ad01d03a">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-ad01d03a">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -47,6 +47,16 @@
   #dash-blocks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 20px; }
   #dash-blocks > * { grid-column: 1 / -1; }
   #dash-blocks > .dash-block-half { grid-column: auto; }
+  /* 반폭(D2)이 되면 nowrap 표(7열)가 래퍼보다 넓어져 가로로 잘려 나간다(D2 회귀,
+     1440px 실측: 오늘 제출 client 586 / scroll 723). 반폭일 때만 줄바꿈을 허용해
+     넘침을 없앤다 — **클래스 둘을 겹쳐 걸어야 한다.** `.dash-block-half th` 하나만으로는
+     `.dash-block th` 의 nowrap 과 구체도가 같아, 스타일시트 뒤쪽에 있는 nowrap 이 소스
+     순서로 이겨 버린다(실측 — 구체도만 보고 넘어갔다가 스크롤이 그대로 남는 것으로 발견).
+     `.dash-wraptext` 가 두 클래스를 겹쳐 구체도를 올리는 것과 같은 이유. overflow-wrap 도
+     같이 준다: 공백 없는 한글 사업장명은 word-break 만으로 항상 갈라지진 않는다(실측).
+     1100px 미만(1열 복귀)에는 이 규칙이 없다: 그때는 전폭이라 넘침이 없었다. */
+  .dash-block.dash-block-half th, .dash-block.dash-block-half td {
+    white-space: normal; overflow-wrap: break-word; }
 }
 /* 음영은 제목 바 전용(사용자 지시) — 본문 카드는 보더로만 구획한다 */
 /* sticky 고정 해제(사용자 지시 2026-08-10) — 모바일에서 헤더가 화면 위를 상시 점유했다 */
@@ -258,7 +268,9 @@
 #dash-key-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .dash-controls .note { color: var(--muted); font-size: 0.85rem; align-self: center; }
 /* 요약 칩 줄(D1) — 필터 아래·첫 데이터 블록 위. 데이터가 없으면 만들지 않는다(JS). */
-.dash-summary-chips { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px;
+/* 칩 사이 구분자(·, JS)가 시각 경계를 지므로 칩 자체의 간격은 좁혀 둔다 — 18px 을
+   그대로 두면 구분자 양옆에 18px 씩 붙어 '협력회사 6  ·  미점검 2' 처럼 과하게 벌어진다. */
+.dash-summary-chips { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 8px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
   padding: 10px 20px; margin: 0 0 20px; font-size: 0.92rem; color: var(--text); }
 .dash-summary-chips[hidden] { display: none; }
@@ -545,7 +557,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-acb95246"></script>
-<script src="./dashboard.js?v=0.5.5-acb95246"></script>
+<script src="./config.js?v=0.5.5-ad01d03a"></script>
+<script src="./dashboard.js?v=0.5.5-ad01d03a"></script>
 </body>
 </html>

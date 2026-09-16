@@ -2308,6 +2308,15 @@
     return chip;
   }
 
+  /** 칩 사이 구분자 — 시각적으로만 가른다(스크린리더는 칩 텍스트만 잇따라 읽는다). */
+  function chipSep_() {
+    var sep = document.createElement('span');
+    sep.className = 'dash-chip-sep';
+    sep.setAttribute('aria-hidden', 'true');
+    sep.textContent = '·';
+    return sep;
+  }
+
   /** 요약 칩 줄(D1) 다시 그리기 — 자료가 없으면 줄 자체를 숨긴다(0 을 지어내지 않는다). */
   function renderSummaryChips_(data, viewName) {
     var host = el_('dash-summary');
@@ -2315,13 +2324,22 @@
     host.textContent = '';
     if (!cd) { host.hidden = true; return; }
     host.hidden = false;
-    host.appendChild(summaryChip_('점검', cd.inspections, false));
-    host.appendChild(summaryChip_('부적합', cd.findings, cd.findings > 0));
-    host.appendChild(summaryChip_('협력회사', cd.companies, false));
-    host.appendChild(summaryChip_('미점검', cd.overdue, cd.overdue > 0));
+    var chips = [
+      summaryChip_('점검', cd.inspections, false),
+      summaryChip_('부적합', cd.findings, cd.findings > 0),
+      summaryChip_('협력회사', cd.companies, false),
+      summaryChip_('미점검', cd.overdue, cd.overdue > 0)
+    ];
+    /* 대상 명사 없이 '+4' 만 있으면 무엇의 증감인지 화면에서 알 수 없다 — 점검 건수임을
+       적는다. renderStatTiles_ 의 '증감 없음' 문구 규약과 같은 결로 맞춘다. */
     if (cd.diff !== null) {
-      host.appendChild(summaryChip_('지난주 대비', cd.diff > 0 ? '+' + cd.diff : String(cd.diff), false));
+      chips.push(summaryChip_('지난주 대비 점검',
+        cd.diff > 0 ? '+' + cd.diff : cd.diff < 0 ? String(cd.diff) : '증감 없음', false));
     }
+    chips.forEach(function (chip, i) {
+      if (i > 0) host.appendChild(chipSep_());
+      host.appendChild(chip);
+    });
   }
 
   /** 현재 payload·view 로 본문 전체를 다시 그린다. */
