@@ -133,6 +133,35 @@
     var d = new Date(toKst(new Date()).getTime() + days * 86400000);
     return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
   }
+  /* T1: 날짜 그룹 헤더의 요일 — 'yyyy-MM-dd'는 이미 KST 업무일이므로, 그 문자열을 UTC 자정으로
+     읽어 getUTCDay() 를 쓴다(요일은 시간대와 무관한 날짜 속성이라 기기 시간대가 안 섞인다). */
+  var DOW_LABELS = ['일', '월', '화', '수', '목', '금', '토'];
+  function dowLabel(dateStr) {
+    return DOW_LABELS[new Date(dateStr + 'T00:00:00Z').getUTCDay()];
+  }
+  /* 날짜 그룹 헤더 문구 — "09-16 (화) · 내일" 형식(사용자 지시). 지남 표기는 그 날짜의 행 중
+     재등록이 아닌 것이 하나라도 있을 때만 붙인다(재등록 단독 그룹은 '놓친 것'이 아니다). */
+  function planDateGroupLabel(dateStr, today, tomorrow, anyNonReopened) {
+    var mmdd = dateStr.slice(5);
+    var suffix = '';
+    if (dateStr === today) suffix = ' · 오늘';
+    else if (dateStr === tomorrow) suffix = ' · 내일';
+    else if (dateStr < today && anyNonReopened) suffix = ' · 지남';
+    return mmdd + ' (' + dowLabel(dateStr) + ')' + suffix;
+  }
+  function buildPlanDateGroupHeader(dateStr, count, today, tomorrow, anyNonReopened) {
+    var el = document.createElement('div');
+    el.className = 'plan-date-group';
+    var label = document.createElement('span');
+    label.className = 'plan-date-group-label';
+    label.textContent = planDateGroupLabel(dateStr, today, tomorrow, anyNonReopened);
+    var cnt = document.createElement('span');
+    cnt.className = 'plan-date-group-count';
+    cnt.textContent = count + '건';
+    el.appendChild(label);
+    el.appendChild(cnt);
+    return el;
+  }
   function formatDateTime(iso) {
     var d = new Date(iso);
     if (isNaN(d)) return iso;
@@ -1027,6 +1056,21 @@
       hint.hidden = true;
     }
     renderQueueList();
+    renderHomeSummary();
+  }
+  /* T2: 요약줄 — 새 조회 없이 이미 이 함수 위에서 그린 값을 그대로 다시 읽어 쓴다.
+     「작성 중」은 「예정」의 부분집합이라(사용자 지시) 따로 더하지 않는다 — 계획별 임시저장 +
+     adhoc(계획 없는) 임시저장을 합친 건수를 보여줄 뿐, 예정 건수에 얹지 않는다. */
+  function renderHomeSummary() {
+    $('home-summary-plans-value').textContent = String((state.plans || []).length);
+    $('home-summary-draft-value').textContent = String(Object.keys(state.drafts || {}).length);
+    $('home-summary-queue-value').textContent = String(state.queue.length);
+    $('home-summary-sent-value').textContent = String((state.sent || []).length);
+  }
+  /* 요약줄 칸을 누르면 해당 섹션으로 스크롤한다 — 새 화면·새 탭 없음. */
+  function scrollToHomeSection(id) {
+    var el = $(id);
+    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   function renderQueueList() {
     var wrap = $('home-queue-list');
@@ -1242,8 +1286,28 @@
       : (state.planTeamFilter === ALL_TEAMS || state.planTeamFilter == null
           ? '예정된 점검이 없습니다.'
           : '이 팀의 예정 점검이 없습니다 — 다른 팀 것 ' + all.length + '건은 「전체」에서 볼 수 있습니다.');
+    /* T1: 같은 날짜가 연속되면 행마다 날짜를 반복하지 않고 그룹 헤더 1개로 묶는다(사용자 지시).
+       같은 planGroup 안에서만 날짜순 정렬돼 있어(위 sort), 같은 날짜 값은 항상 연속이다 —
+       그래서 "그 날짜의 총 건수"만으로 연속 구간 판정이 된다(순번 추적 불필요). */
+    var dateCounts = {};
+    var groupNonReopened = {};
+    plans.forEach(function (p) {
+      dateCounts[p.planned_date] = (dateCounts[p.planned_date] || 0) + 1;
+      if (!p.reopened) groupNonReopened[p.planned_date] = true;
+    });
+    /* tomorrow 는 그룹 헤더가 실제로 생길 때만 계산한다(지연 계산) — 그룹이 없는 흔한 경우
+       (계획이 흩어져 있거나 하나뿐일 때)에 불필요한 계산을 피한다. */
+    var tomorrow = null;
+    var lastHeaderDate = null;
     plans.forEach(function (p) {
       var node = $('tpl-plan-row').content.firstElementChild.cloneNode(true);
+      var grouped = dateCounts[p.planned_date] > 1;
+      if (grouped && p.planned_date !== lastHeaderDate) {
+        if (tomorrow === null) tomorrow = shiftDateStr(1);
+        wrap.appendChild(buildPlanDateGroupHeader(
+          p.planned_date, dateCounts[p.planned_date], today, tomorrow, !!groupNonReopened[p.planned_date]));
+        lastHeaderDate = p.planned_date;
+      }
       var overdue = p.planned_date < today;
       var dateEl = node.querySelector('.plan-date');
       /* 재등록된 건은 '지남' 을 붙이지 않는다 — 관리자가 다시 하라고 되살린 것이라
@@ -1251,10 +1315,15 @@
       var reopened = !!p.reopened;
       dateEl.textContent = p.planned_date + ((overdue && !reopened) ? ' · 지남' : '');
       dateEl.classList.toggle('plan-overdue', overdue && !reopened);
+      /* T1: 그룹 헤더가 날짜를 대신 보여주므로, 그 행에서는 날짜를 감춘다(위 textContent 는
+         그대로 채워 둔다 — 보조기술이 필요하면 여전히 읽을 수 있게). */
+      dateEl.hidden = grouped;
       /* 지난 예정일인데 목록에 떠 있는 이유를 말해 준다(사용자 지시 2026-08-22) —
          표시가 없으면 현장은 왜 어제 날짜가 보이는지 알 수 없다. */
       var reEl = node.querySelector('.plan-reopened');
       if (reEl) reEl.hidden = !reopened;
+      var lineEl = node.querySelector('.plan-line1');
+      if (lineEl) lineEl.classList.toggle('no-date', grouped);
       node.querySelector('.plan-project').textContent = p.project_name;
       node.querySelector('.plan-company').textContent = p.company_name;
       /* 팀은 **「전체」 보기일 때만** 보인다(사용자 지시 2026-08-21). 여러 팀 계획이 섞이면
@@ -1291,7 +1360,7 @@
         noteEl.hidden = false;
         noteEl.textContent = "이 계획의 점검 양식이 개정되었습니다 — '새 점검 시작'으로 작성하거나 관리자에게 문의하세요.";
       } else {
-        startBtn.textContent = hasDraft ? '이어서 작성' : '작성 시작';
+        startBtn.textContent = hasDraft ? '이어쓰기' : '작성';
         startBtn.disabled = false;
         noteEl.hidden = true;
         startBtn.addEventListener('click', function () { startFromPlan(p); });
@@ -3587,6 +3656,12 @@
     });
     $('btn-print').addEventListener('click', function () { printSheet(printDataFromDraft()); });
     $('home-plans-team').addEventListener('change', onPlansFilterChange);
+    /* T2: 요약줄 4칸 — 새 화면 없이 해당 섹션으로 스크롤만 한다. 「작성 중」은 「예정」에 포함된
+       내역이라(합계 아님) 같은 목록(home-plans)으로 보낸다. */
+    $('home-summary-plans').addEventListener('click', function () { scrollToHomeSection('home-plans'); });
+    $('home-summary-draft').addEventListener('click', function () { scrollToHomeSection('home-plans'); });
+    $('home-summary-queue').addEventListener('click', function () { scrollToHomeSection('home-queue-list'); });
+    $('home-summary-sent').addEventListener('click', function () { scrollToHomeSection('home-sent-list'); });
     $('btn-diag-toggle').addEventListener('click', toggleDiagnostics);
     $('btn-install').addEventListener('click', doInstall);
     window.addEventListener('beforeinstallprompt', onInstallPrompt);

@@ -502,6 +502,30 @@ h1, h2, h3 { font-family: var(--font-heading, var(--font-sans)); }   /* 킷 헤�
 .sent-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
 .sent-actions .btn { flex: 1 1 110px; }
 
+/* ---------- 홈 요약줄(T2) — 예정·작성 중·미전송·오늘 보냄, 입구일 뿐이다 ---------- */
+/* 63px 이하(판정 목표) — 값 18px + 라벨 11px + gap 2 + 상하 패딩(--space-1)*2 + 테두리 2. */
+.home-summary { display: flex; gap: var(--space-2); }
+.home-summary-cell {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--space-1) 2px;
+  background: var(--color-surface);
+  border: 1px solid var(--tint-neutral-strong);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  cursor: pointer;
+}
+.home-summary-value { font-size: 18px; font-weight: 700; color: var(--color-text); line-height: 1.15; }
+.home-summary-label { font-size: 11px; color: var(--color-neutral-text); white-space: nowrap; }
+/* 「작성 중」은 「예정」의 부분집합이다(합계 아님) — 점선 테두리로 포함 관계를 암시하고,
+   title(마크업)로 명시한다. */
+#home-summary-draft { border-style: dashed; }
+
 /* ---------- 예정된 점검(사전등록 계획) ---------- */
 /* 홈의 목록과 관리 화면의 목록은 같은 행 컴포넌트다 — 선택자를 둘 다에 건다.
    한쪽만 걸면 관리 화면 행이 스타일 없이 떨어져 같은 것이 달라 보인다. */
@@ -560,6 +584,53 @@ h1, h2, h3 { font-family: var(--font-heading, var(--font-sans)); }   /* 킷 헤�
 /* 375px 폭에서 버튼 2개(예정일 변경 · 취소)가 겹치지 않도록 wrap 허용, 48px 규격은 .btn 그대로 */
 #home-plans .plan-actions, #screen-manage .plan-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 #home-plans .plan-actions .btn, #screen-manage .plan-actions .btn { flex: 1 1 120px; }
+
+/* T1: 홈 행만 — 버튼이 협력사 줄 오른쪽 끝에 붙는다(#screen-manage 는 그대로 아래 전폭).
+   공사명(.plan-project)은 이 줄 밖에 있어 폭을 그대로 유지한다. */
+#home-plans .plan-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+/* 희생 순서 ③ — 협력사명이 가장 먼저 줄어든다(공사명·버튼은 줄이지 않는다, 실측 근거). */
+#home-plans .plan-meta-row .plan-company {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 버튼은 더 이상 전폭이 아니다 — 글자 폭대로, 높이(48px)는 .btn 규격 그대로 유지한다
+   (장갑 착용 이유로 축소 보류 — 사용자 지시). */
+#home-plans .plan-meta-row .plan-actions {
+  flex: none;
+  display: flex;
+  gap: var(--space-2);
+}
+#home-plans .plan-meta-row .plan-actions .btn {
+  flex: none;
+  width: auto;
+  padding: 0 var(--space-3);
+  white-space: nowrap;
+}
+/* T1: 날짜가 그룹 헤더로 옮겨간 행은 이 줄의 날짜를 감춘다(renderPlanList) — 남은 것(재등록·팀
+   칩)을 오른쪽 끝에 붙인다. 완전히 비면(재등록도 팀 칩도 없음) renderPlanList 가 줄 자체를 감춘다. */
+#home-plans .plan-line1.no-date { justify-content: flex-end; }
+
+/* T1: 날짜 그룹 헤더 — 같은 날짜 행이 연속될 때 한 번만 뜬다(renderPlanList 가 만든다).
+   행이 아니라서 별도 padding·연한 배경으로 "행이 아니라 이정표"임을 표시한다. */
+.plan-date-group {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 2px var(--space-1);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-neutral-text);
+}
+.plan-date-group-count { font-weight: 400; }
 
 #screen-manage .plan-manage-panel, #home-sent-panel-scope .plan-manage-panel, #void-panel, #email-panel {
   display: flex;

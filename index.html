@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-a4acaace">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-b5af0753">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <!-- 데이터 API 오리진 2곳 — 첫 요청의 DNS+TLS 를 선행한다(대시보드와 같은 처방).
      GAS 는 script.google.com 에서 302 로 googleusercontent 로 넘어가므로 둘 다 필요하다.
@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-a4acaace">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-b5af0753">
 <title>현장 안전점검</title>
 </head>
 <body>
@@ -39,6 +39,28 @@
     <!-- ① 홈 -->
     <section class="screen" id="screen-home" data-screen="home">
       <div class="screen-body">
+        <!-- T2: 요약줄 — 입구일 뿐, 값은 아래 카드들이 이미 갖고 있는 것을 그대로 읽는다
+             (새 서버 조회 없음). 「작성 중」은 「예정」의 부분집합이라 합계를 만들지 않는다 —
+             그 관계를 title 로 말한다. 각 칸을 누르면 해당 섹션으로 스크롤한다. -->
+        <div class="home-summary">
+          <button type="button" class="home-summary-cell" id="home-summary-plans">
+            <span class="home-summary-value" id="home-summary-plans-value">0</span>
+            <span class="home-summary-label">예정</span>
+          </button>
+          <button type="button" class="home-summary-cell" id="home-summary-draft"
+                  title="예정에 포함된 내역입니다 — 별도 건수가 아닙니다">
+            <span class="home-summary-value" id="home-summary-draft-value">0</span>
+            <span class="home-summary-label">작성 중</span>
+          </button>
+          <button type="button" class="home-summary-cell" id="home-summary-queue">
+            <span class="home-summary-value" id="home-summary-queue-value">0</span>
+            <span class="home-summary-label">미전송</span>
+          </button>
+          <button type="button" class="home-summary-cell" id="home-summary-sent">
+            <span class="home-summary-value" id="home-summary-sent-value">0</span>
+            <span class="home-summary-label">오늘 보냄</span>
+          </button>
+        </div>
         <p class="sync-line" id="home-sync-line">마스터 동기화 안 됨</p>
         <!-- 저장소 비가용 상시 경고(닫을 수 없다 — 상태가 풀릴 때까지 위험이 계속되므로) -->
         <div id="home-storage-banner" class="banner" role="alert" hidden></div>
@@ -444,7 +466,9 @@
   <div class="plan-row">
     <div class="plan-row-info">
       <!-- 첫 줄은 날짜(왼쪽) + 팀 칩(오른쪽). 팀 칩이 오른쪽 끝에 고정되면 목록을 훑을 때
-           세로로 한 줄이 생겨 "어느 팀 것인지"가 한눈에 잡힌다(사용자 지시 2026-08-21). -->
+           세로로 한 줄이 생겨 "어느 팀 것인지"가 한눈에 잡힌다(사용자 지시 2026-08-21).
+           T1: 같은 날짜가 연속되면 위에 날짜 그룹 헤더가 대신 뜨고, 이 줄의 날짜는
+           renderPlanList 가 감춘다(그래도 「재등록」·팀 칩은 행마다 다르므로 이 줄에 남는다). -->
       <span class="plan-line1">
         <span class="plan-date"></span>
         <!-- 지난 예정일인데 목록에 있는 이유를 말해 준다(renderPlanList 가 토글) -->
@@ -453,13 +477,17 @@
       </span>
 
       <span class="plan-project"></span>
-      <span class="plan-company"></span>
+      <!-- T1: 버튼을 공사명 옆이 아니라 협력사 줄 오른쪽 끝으로 옮긴다 — 공사명 폭을
+           그대로 지키기 위해서다(옆에 두면 327→285px 로 깎여 줄바꿈이 악화된다, 실측). -->
+      <div class="plan-meta-row">
+        <span class="plan-company"></span>
+        <div class="plan-actions">
+          <button type="button" class="btn btn-primary plan-btn-start">작성</button>
+          <!-- 임시저장이 있을 때만 보인다(renderPlanList 가 토글) -->
+          <button type="button" class="btn btn-outline plan-btn-discard" hidden>작성 취소</button>
+        </div>
+      </div>
       <span class="plan-note" hidden></span>
-    </div>
-    <div class="plan-actions">
-      <button type="button" class="btn btn-primary plan-btn-start">작성 시작</button>
-      <!-- 임시저장이 있을 때만 보인다(renderPlanList 가 토글) -->
-      <button type="button" class="btn btn-outline plan-btn-discard" hidden>작성 취소</button>
     </div>
   </div>
 </template>
@@ -514,9 +542,9 @@
   </div>
 </template>
 
-<script src="./config.js?v=0.5.5-a4acaace"></script>
-<script src="./lib.js?v=0.5.5-a4acaace"></script>
-<script src="./logic.js?v=0.5.5-a4acaace"></script>
-<script src="./app.js?v=0.5.5-a4acaace"></script>
+<script src="./config.js?v=0.5.5-b5af0753"></script>
+<script src="./lib.js?v=0.5.5-b5af0753"></script>
+<script src="./logic.js?v=0.5.5-b5af0753"></script>
+<script src="./app.js?v=0.5.5-b5af0753"></script>
 </body>
 </html>
