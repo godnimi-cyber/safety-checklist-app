@@ -100,7 +100,11 @@
     var row = wk.rows[0], vals = {};
     for (var j = 0; j + 1 < row.length; j += 2) vals[String(row[j])] = Number(row[j + 1]);
     if (!('점검' in vals) || !('부적합' in vals) || !('협력회사' in vals)) return null;
-    var overdueN = overdueFor_(data, viewName).filter(function (o) { return !o.reopened; }).length;
+    /* overdue 필드가 없는 payload(구버전 저장본)에서는 0 을 지어내지 않는다 —
+       null 은 "모른다", 빈 배열 필터 결과 0 은 "실제로 없다"(B1, DS 적대 리뷰). */
+    var overdueN = (data && data.overdue)
+      ? overdueFor_(data, viewName).filter(function (o) { return !o.reopened; }).length
+      : null;
     var prev = vals['지난주 점검'];
     var diff = isFinite(prev) ? vals['점검'] - prev : null;
     return { inspections: vals['점검'], findings: vals['부적합'], companies: vals['협력회사'],
@@ -576,12 +580,16 @@
     }, render);
   }
 
-  /** 모달용 표 — 본문 표와 같은 스타일 계열(.dash-block table)을 재사용한다. */
+  /** 모달용 표 — 본문 표와 같은 스타일 계열(.dash-block table)을 재사용한다.
+   *  B2 — .dash-tablewrap/.dash-tablescroll 2단 구조를 renderBlock_ 과 맞춘다
+   *  (스크롤·max-height 는 .dash-tablescroll 쪽 CSS 에만 있다). */
   function modalTable_(header, rows, trOf) {
     var block = document.createElement('div');
     block.className = 'dash-block dash-modal-tables';
     var wrap = document.createElement('div');
     wrap.className = 'dash-tablewrap';
+    var scroll = document.createElement('div');
+    scroll.className = 'dash-tablescroll';
     var table = document.createElement('table');
     var thead = document.createElement('thead');
     var hr = document.createElement('tr');
@@ -595,7 +603,8 @@
     var tbody = document.createElement('tbody');
     rows.forEach(function (row, ri) { tbody.appendChild(trOf(row, ri)); });
     table.appendChild(tbody);
-    wrap.appendChild(table);
+    scroll.appendChild(table);
+    wrap.appendChild(scroll);
     block.appendChild(wrap);
     return block;
   }
@@ -1146,8 +1155,12 @@
       if (block.rows.length) {
         block.rows[0].forEach(function (c, i) { if (typeof c === 'number') numCols[i] = true; });
       }
+      /* B2(V8) — wrap 은 스크롤하지 않는 정지 상자(힌트 기준점), scroll 이 실제 스크롤
+         컨테이너다(dashboard.html .dash-tablewrap/.dash-tablescroll 주석 참조). */
       var wrap = document.createElement('div');
       wrap.className = 'dash-tablewrap';
+      var scroll = document.createElement('div');
+      scroll.className = 'dash-tablescroll';
       var table = document.createElement('table');
       var thead = document.createElement('thead');
       var hr = document.createElement('tr');
@@ -1195,12 +1208,16 @@
         });
       };
       table.appendChild(tbody);
-      wrap.appendChild(table);
-      /* 가로 스크롤 힌트(D6) — 장식일 뿐이라 보조기술 흐름에서 뺀다. 넘치지 않는 표에서는
-         그냥 옅은 투명 사각형이라 해가 없다(폭을 강제로 넓히지 않는다). */
+      scroll.appendChild(table);
+      wrap.appendChild(scroll);
+      /* 가로 스크롤 힌트(D6/B2) — 장식일 뿐이라 보조기술 흐름에서 뺀다. 기본은 숨김이다:
+         렌더 직후엔 레이아웃이 아직 확정되지 않아 넘침 여부를 여기서 알 수 없다
+         (scrollWidth 가 0/미확정일 수 있다) — renderView_ 뒤 scheduleScrollHints_ 가
+         실측해서 넘치는 표에만 켠다. */
       var hint = document.createElement('div');
       hint.className = 'dash-scrollhint';
       hint.setAttribute('aria-hidden', 'true');
+      hint.hidden = true;
       wrap.appendChild(hint);
       sec.appendChild(wrap);
       var cards = null;
@@ -2443,12 +2460,20 @@
     host.textContent = '';
     if (!cd) { host.hidden = true; return; }
     host.hidden = false;
+    /* M3 — 이 세 칩은 조회 기간(from~to)이 아니라 **이번 주 고정**이다(서버 buildBlocks_
+       블록1, weekBounds_). 라벨에 그 사실을 적지 않으면 바로 위 '조회 기간 …' 라벨과
+       섞여 오독된다(사용자 지시 반영). */
     var chips = [
-      summaryChip_('점검', cd.inspections, false),
-      summaryChip_('부적합', cd.findings, cd.findings > 0),
-      summaryChip_('협력회사', cd.companies, false),
-      summaryChip_('미점검', cd.overdue, cd.overdue > 0)
+      summaryChip_('이번 주 점검', cd.inspections, false),
+      summaryChip_('이번 주 부적합', cd.findings, cd.findings > 0),
+      summaryChip_('이번 주 협력회사', cd.companies, false)
     ];
+    /* B1 — overdue 가 없는 저장본(cd.overdue === null)에서는 칩 자체를 만들지 않는다.
+       '미점검 0' 을 지어내면 실제로 밀린 일이 있어도 없다고 오독시킨다. 미점검은
+       기간 개념이 아니라 '지금 남은 빚'이라 '이번 주' 접두를 붙이지 않는다. */
+    if (cd.overdue !== null) {
+      chips.push(summaryChip_('미점검', cd.overdue, cd.overdue > 0));
+    }
     /* 대상 명사 없이 '+4' 만 있으면 무엇의 증감인지 화면에서 알 수 없다 — 점검 건수임을
        적는다. renderStatTiles_ 의 '증감 없음' 문구 규약과 같은 결로 맞춘다. */
     if (cd.diff !== null) {
@@ -2459,6 +2484,27 @@
       if (i > 0) host.appendChild(chipSep_());
       host.appendChild(chip);
     });
+  }
+
+  /** 넘치는 표에만 가로 스크롤 힌트를 보인다(B2) — .dash-tablescroll 이 스크롤 컨테이너,
+   *  형제 .dash-scrollhint 가 그 부모(.dash-tablewrap) 안에 있다(렌더 구조는 renderBlock_).
+   *  document.querySelectorAll 이 없는 조각 테스트 환경에서는 조용히 아무 것도 하지 않는다. */
+  function updateScrollHints_() {
+    if (typeof document.querySelectorAll !== 'function') return;
+    var scrolls = document.querySelectorAll('.dash-tablescroll');
+    for (var i = 0; i < scrolls.length; i++) {
+      var s = scrolls[i];
+      var hint = s.parentNode && s.parentNode.querySelector ?
+        s.parentNode.querySelector('.dash-scrollhint') : null;
+      if (hint) hint.hidden = s.scrollWidth <= s.clientWidth;
+    }
+  }
+
+  /** 렌더 직후엔 레이아웃이 아직 확정되지 않아 scrollWidth 를 바로 재면 값이 0/부정확할 수
+   *  있다(실측 확인된 함정) — 한 프레임 미룬 뒤 잰다. */
+  function scheduleScrollHints_() {
+    if (typeof requestAnimationFrame !== 'function') { updateScrollHints_(); return; }
+    requestAnimationFrame(updateScrollHints_);
   }
 
   /** 현재 payload·view 로 본문 전체를 다시 그린다. */
@@ -2506,6 +2552,7 @@
       ig.className += ' dash-integrity';        // 경고 액센트(왼쪽 보더·제목색) — 배경은 그대로
       root.appendChild(ig);
     }
+    scheduleScrollHints_();                      // B2 — 방금 붙인 표들의 넘침을 실측해 힌트를 켠다
   }
 
   /** 팀 select 를 payload 로 다시 채운다(선택 유지). */
@@ -2676,6 +2723,7 @@
          드래그 중 매 프레임 재는 것을 막으려고 한 박자 미룬다. */
       if (barSpaceTimer) clearTimeout(barSpaceTimer);
       barSpaceTimer = setTimeout(odBarSpace_, 120);
+      scheduleScrollHints_();   // B2 — 폭이 바뀌면 넘침 여부도 바뀐다
     });
     window.addEventListener('popstate', function () {
       /* 뒤로가기: 팝업이 열려 있으면 그 한 번은 팝업 닫기다 — 히스토리 칸은 이미 소비됐다 */

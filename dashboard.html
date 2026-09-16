@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-6a30ddbd">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-6a30ddbd">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-dbd39263">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-dbd39263">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -39,8 +39,14 @@
    표들만 안쪽으로 밀린다 — 이 페이지에서는 무효화한다(폭 정렬의 전제). */
 .dash-shell main { padding: 0; }
 /* 데스크톱 폭 활용(D2) — 「이번 주」·「오늘 제출된 점검」만 나란히, 나머지는 전폭.
-   1100px 미만에서는 다시 1열(좁은 화면에서 반토막 난 표는 오히려 더 안 읽힌다). */
-@media (min-width: 1100px) {
+   문턱 미만에서는 다시 1열(좁은 화면에서 반토막 난 표는 오히려 더 안 읽힌다). */
+/* 2열 전환 문턱은 **1180px**이다(1100px 아님). DS 리뷰가 산술로 지적하고 허브가 실측으로
+   확인한 결함: 1100px 뷰포트에서 반폭 트랙 513px → 표 영역 client 454px 인데 '오늘 제출'
+   7열 표의 필요폭이 472px 라 **18px 넘쳤다**(가로 스크롤 재발). 1180px 로 올리면 트랙이
+   560px 대(client ≈518px)가 되어 472px 를 담는다 — 실측: 1180/1260/1440 넘침 0,
+   1179px 는 1열 복귀로 전폭이라 넘침 0. 경계를 낮추려면 그 폭에서 client 대비 표
+   필요폭을 먼저 재라. */
+@media (min-width: 1180px) {
   /* minmax(0,1fr) — 그냥 1fr 이면 전폭(1/-1) 표 블록의 nowrap 표(공사별 등) max-content 가
      두 트랙에 불균등하게 반영돼 반폭 열이 492px/768px 로 갈라졌다(실측). 0 하한을 명시하면
      내용 폭과 무관하게 정확히 반씩 나눈다. */
@@ -54,7 +60,7 @@
      순서로 이겨 버린다(실측 — 구체도만 보고 넘어갔다가 스크롤이 그대로 남는 것으로 발견).
      `.dash-wraptext` 가 두 클래스를 겹쳐 구체도를 올리는 것과 같은 이유. overflow-wrap 도
      같이 준다: 공백 없는 한글 사업장명은 word-break 만으로 항상 갈라지진 않는다(실측).
-     1100px 미만(1열 복귀)에는 이 규칙이 없다: 그때는 전폭이라 넘침이 없었다.
+     문턱 미만(1열 복귀)에는 이 규칙이 없다: 그때는 전폭이라 넘침이 없었다.
      V7-R3 — overflow-wrap:break-word 를 th 에도 줬더니 '점검자'·'부적합' 같은 3글자
      머리글까지 어절 중간에서 쪼개졌다(실측, 반폭 630px). 머리글은 어절을 지키고,
      본문 셀은 갈라질 수 있어야 한다 — 둘의 요구가 반대라 규칙을 나눈다.
@@ -140,7 +146,10 @@
 
 /* 미점검 — 밀린 일. **한 행 = 계획 하나**(사용자 지시 2026-08-19): 왼쪽 내용, 오른쪽 조치 둘.
    색은 승인 팔레트 토큰만 쓴다(원값 금지). */
-.dash-overdue h2 { color: var(--danger); }
+/* M1(V8) — 이 색 규칙은 예전에 여기 있었으나 소스 순서상 뒤의 .dash-block h2 { color:
+   var(--text) } 에 밀려 **적용되지 않고 있었다**(같은 특이도, 나중 규칙이 이긴다 — 실측
+   15,39,36=--text). .dash-block h2 뒤(아래 .dash-overdue h2, .dash-integrity h2 규칙)로
+   옮겼다 — 정합성(.dash-integrity h2)은 이미 그 자리에 있어 실측에서 살아 있었다. */
 /* V6-5 — 「미점검 N」의 N 은 요약 칩(20.8px)과 같은 값의 사본이다. 칩이 정본이므로 여기
    숫자만 무게를 낮춘다(제목 글자 크기는 그대로 두고 숫자만 일반 굵기·muted). */
 .dash-overdue h2 .dash-h2-n { font-weight: 400; color: var(--muted); }
@@ -181,7 +190,11 @@
    갈라 브랜드 색과 완전히 분리한다. 왼쪽 보더도 stale 과 같은 이유로 없앤다. */
 .dash-od-days-reopened { border-color: var(--warn); color: var(--warn);
   background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
-.dash-od-reopened { background: color-mix(in srgb, var(--warn) 5%, var(--surface)); }
+/* M2(V8) — stale(danger 5%)과 같은 5% 였을 때 라이트·다크 모두 최대 채널차가 2뿐이라
+   두 상태의 행 배경이 사실상 구분되지 않았다(WCAG 1.4.1 위반은 아니다 — 배지 글자가
+   남아 있다). warn 을 10%로 올려 비대칭을 준다(계산 확인: 라이트 최대채널차 ≈14~17,
+   다크 ≈10 — 둘 다 목표 8 이상). */
+.dash-od-reopened { background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
 /* 한 카드 안의 두 번째 묶음 — 위 목록과 붙어 보이지 않게 경계를 준다. */
 .dash-od-subhead { margin: 22px 0 6px; padding-top: 14px; border-top: 1px solid var(--border);
   font-size: 16px; font-weight: 700; color: var(--text);
@@ -201,16 +214,23 @@
    overdueRow_ 에서 클래스만 얹는다. */
 /* 되돌릴 수 없는 조치는 테두리·글자로 구분한다 — 채우지 않는다(빨간 면이 두 줄 걸러 나오면
    목록 전체가 경보로 보여 정작 오래 밀린 건이 안 띈다). */
+/* B3(V8) — hover/active 배경을 transparent 혼합에서 **--surface 기준 혼합**(불투명)으로
+   바꾼다. transparent 혼합은 반투명이라 이 버튼 밑에 깔린 것(주로 .dash-od-stale 의 danger
+   5% 행 tint)위에 다시 얹혀 이중 적용됐다 — 실측 active 대비가 라이트 4.32:1(기준 4.5
+   미달)까지 떨어진 원인. --surface 기준 혼합은 완전 불투명이라 밑에 무엇이 있어도 결과
+   색이 고정된다(계산 확인: 라이트 active 14% ≈ 4.97:1, dark 14% ≈ 5.72:1 — 여유 확보). */
 .dash-od-danger { border-color: var(--danger); color: var(--danger); }
-.dash-od-danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent);
+.dash-od-danger:hover { background: color-mix(in srgb, var(--danger) 10%, var(--surface));
   border-color: var(--danger); }
-.dash-od-danger:active { background: color-mix(in srgb, var(--danger) 18%, transparent); }
+.dash-od-danger:active { background: color-mix(in srgb, var(--danger) 14%, var(--surface)); }
 /* 공사취소 — 되돌릴 수 없지만 **경보는 아니다**(우리가 놓친 것이 아니라 상황이 없어진 것).
-   빨강을 두 개 두면 목록 전체가 경보로 보여 정작 미점검확정이 안 띈다. */
+   빨강을 두 개 두면 목록 전체가 경보로 보여 정작 미점검확정이 안 띈다.
+   danger 버튼과 같은 이중 적용 구조라 같이 --surface 기준으로 바꾼다(비율은 그대로 —
+   이미 통과였고 계산상 오히려 여유가 늘었다). */
 .dash-od-mute { border-color: var(--muted); color: var(--muted); }
-.dash-od-mute:hover { background: color-mix(in srgb, var(--muted) 10%, transparent);
+.dash-od-mute:hover { background: color-mix(in srgb, var(--muted) 10%, var(--surface));
   border-color: var(--muted); }
-.dash-od-mute:active { background: color-mix(in srgb, var(--muted) 18%, transparent); }
+.dash-od-mute:active { background: color-mix(in srgb, var(--muted) 18%, var(--surface)); }
 /* 날짜 칸 아래 안내 — 칸과 붙여 읽히도록 위 여백을 좁힌다 */
 .dash-od-hint { margin: -6px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
 .dash-od-warn-mute { border-color: var(--muted);
@@ -396,15 +416,27 @@
 /* 2단(요약: 이번 주) — 본문보다 한 단 크게, 아이콘은 accent(그 블록의 강조색과 통일). */
 .dash-block-week h2 { font-size: 1.0625rem; }
 .dash-block-week h2 .dash-icon { color: var(--accent); }
-/* 1단(처리 필요: 미점검·확인이 필요한 기록) — 가장 크게, 아이콘은 이미 danger 글자색을
-   currentColor 로 물려받는다(아래 .dash-overdue h2/.dash-integrity h2 색 규칙과 함께 적용). */
-.dash-overdue h2, .dash-integrity h2 { font-size: 1.125rem; }
+/* 1단(처리 필요: 미점검·확인이 필요한 기록) — 가장 크게.
+   M1 정정(실측, V8) — 이전 주석은 "아이콘이 currentColor 로 danger 를 물려받는다"고
+   적었으나 성립하지 않았다: 위 .dash-block h2 .dash-icon 이 svg 에 **명시** color(muted)를
+   주므로 상속을 이긴다(실측 아이콘 색 64,97,91=muted). 아래 두 번째 규칙으로 명시 지정한다. */
+.dash-overdue h2, .dash-integrity h2 { font-size: 1.125rem; color: var(--danger); }
+.dash-overdue h2 .dash-icon, .dash-integrity h2 .dash-icon { color: inherit; }
 .dash-block .note { color: var(--muted); font-size: 0.9rem; margin: 10px 0 0; }
 /* 표 헤더 고정(D3) — 행이 많은 표에서 스크롤 중에도 열 이름이 남는다.
-   position:relative 는 아래 .dash-scrollhint(D6)의 기준점 — 부모에 overflow:hidden/clip 이
-   없어야 sticky 가 산다(이 저장소에서 .category 로 이미 한 번 겪은 함정). */
-.dash-tablewrap { position: relative; overflow: auto; max-height: 560px;
-  border: 1px solid var(--border); border-radius: 10px; }
+   B2(V8) 구조 변경 — 예전엔 .dash-tablewrap 자신이 스크롤 컨테이너였다. 절대배치
+   (.dash-scrollhint)의 기준은 **스크롤 컨테이너의 padding box** 라 그 박스가 스크롤과
+   함께 움직여, 힌트가 스크롤을 따라 흘렀다(실측: scrollLeft 0/100/417 에서
+   hint.left 317/217/-100 — 끝까지 밀면 힌트가 왼쪽 밖으로 나갔다).
+   지금은 스크롤을 한 단 안쪽(.dash-tablescroll)으로 내리고, .dash-tablewrap 은 스크롤하지
+   않는 정지 상자(테두리·라운드·힌트 기준점)로만 남는다 — 힌트가 이 상자 기준 절대배치라
+   더는 흐르지 않는다. thead th 의 position:sticky 는 여전히 .dash-tablescroll 이 표의
+   스크롤 조상이므로 살아 있다(부모에 overflow:hidden/clip 이 끼면 죽는다 — 이 저장소
+   .category 전례. 여기선 .dash-tablewrap 이 overflow 를 안 갖는다). */
+.dash-tablewrap { position: relative; border: 1px solid var(--border); border-radius: 10px; }
+/* 안쪽 라운드를 바깥과 맞춰 표 모서리가 바깥 테두리를 넘어 삐져나오지 않게 한다
+   (overflow:auto 인 요소도 자신의 border-radius 로 내용을 클리핑한다). */
+.dash-tablescroll { overflow: auto; max-height: 560px; border-radius: 10px; }
 .dash-block table { border-collapse: collapse; width: 100%; background: var(--surface); }
 .dash-block th, .dash-block td { padding: 11px 16px; text-align: left; font-size: 0.9rem;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); color: var(--text); white-space: nowrap; }
@@ -412,9 +444,11 @@
    지킨다 — 헤더만 한 톤 낮춰 "머리"임을 여백으로도 드러낸다. */
 .dash-block th { background: var(--bg); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.03em;
   color: var(--muted); position: sticky; top: 0; z-index: 2; padding-top: 13px; padding-bottom: 13px; }
-/* 가로 스크롤 힌트(D6) — 넘치는 표의 오른쪽 끝에 옅은 그라디언트. abs 배치라 스크롤과
-   함께 흐르지 않고 뷰포트 우측에 그대로 붙어 있는다(부모 relative 필요). 장식 요소라
-   포커스·탭 흐름에서 뺀다(aria-hidden, JS). */
+/* 가로 스크롤 힌트(D6/B2) — 넘치는 표의 오른쪽 끝에 옅은 그라디언트. 기준점이
+   .dash-tablewrap(스크롤하지 않는 정지 상자, 위 B2 주석)이라 스크롤과 함께 흐르지
+   않는다. 장식 요소라 포커스·탭 흐름에서 뺀다(aria-hidden, JS).
+   hidden 은 기본값 — dashboard.js updateScrollHints_ 가 렌더 뒤 실측해서 넘치는 표에만
+   켠다(넘치지 않는 표에 힌트가 보이던 회귀, 실측: 표 4개 전부 보유 중 3개는 넘침 0). */
 .dash-scrollhint { position: absolute; top: 0; right: 0; bottom: 0; width: 24px;
   pointer-events: none; background: linear-gradient(to left, var(--surface), transparent); }
 .dash-block tbody tr { transition: background 0.15s; }
@@ -423,7 +457,8 @@
 .dash-num { text-align: right; font-variant-numeric: tabular-nums; }
 .dash-danger { color: var(--danger); font-weight: 700; }
 .dash-integrity { border-left: 4px solid var(--danger); }
-.dash-integrity h2 { color: var(--danger); }
+/* h2 글자·아이콘 색은 위 .dash-overdue h2, .dash-integrity h2 규칙(M1)로 옮겼다 — 여기 두면
+   다시 소스 순서가 갈린다. */
 /* V5 — elevation 은 1단(처리 필요) 카드에만 준다. 나머지는 보더로만 구획한 채 그대로 둔다
    (전부에 그림자를 주면 위계가 아니라 장식이 된다). 흑백 알파만 쓴다(원값 금지 계약). */
 .dash-overdue, .dash-integrity {
@@ -632,7 +667,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-6a30ddbd"></script>
-<script src="./dashboard.js?v=0.5.5-6a30ddbd"></script>
+<script src="./config.js?v=0.5.5-dbd39263"></script>
+<script src="./dashboard.js?v=0.5.5-dbd39263"></script>
 </body>
 </html>
