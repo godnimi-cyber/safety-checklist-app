@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-1c13c27b">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-a4acaace">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <!-- 데이터 API 오리진 2곳 — 첫 요청의 DNS+TLS 를 선행한다(대시보드와 같은 처방).
      GAS 는 script.google.com 에서 302 로 googleusercontent 로 넘어가므로 둘 다 필요하다.
@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-1c13c27b">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-a4acaace">
 <title>현장 안전점검</title>
 </head>
 <body>
@@ -394,7 +394,10 @@
 <!-- ---------- 템플릿 요소 ---------- -->
 <template id="tpl-item-card">
   <article class="item-card">
-    <p class="item-text"></p>
+    <div class="item-head">
+      <span class="item-idx"></span>
+      <p class="item-text"></p>
+    </div>
     <!-- open: 판정 근거를 **접어 두지 않는다**(사용자 지시 2026-08-19 UX 개선).
          NN/g 아코디언 지침 — "핵심 정보는 접힌 패널 안에 두지 말라". 안전점검에서 판정 기준은
          부수 정보가 아니라 판정 그 자체의 근거다. 접어 두면 안 보고 찍는(pencil whipping)
@@ -511,9 +514,9 @@
   </div>
 </template>
 
-<script src="./config.js?v=0.5.5-1c13c27b"></script>
-<script src="./lib.js?v=0.5.5-1c13c27b"></script>
-<script src="./logic.js?v=0.5.5-1c13c27b"></script>
-<script src="./app.js?v=0.5.5-1c13c27b"></script>
+<script src="./config.js?v=0.5.5-a4acaace"></script>
+<script src="./lib.js?v=0.5.5-a4acaace"></script>
+<script src="./logic.js?v=0.5.5-a4acaace"></script>
+<script src="./app.js?v=0.5.5-a4acaace"></script>
 </body>
 </html>

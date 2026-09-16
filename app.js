@@ -2987,27 +2987,37 @@
       return;
     }
     var sorted = items.slice().sort(function (a, b) { return a.seq - b.seq; });
+    /* T3: 부적합을 구두로 지목하기 위한 일련번호("11번이 문제입니다") — type=item 에만 매긴다
+       (type=note 안내 박스는 세지 않는다). buildItemCard 가 it.__seqIdx 를 읽어 그린다. */
+    var seqCounter = 0;
+    sorted.forEach(function (it) { if (it.type === 'item') it.__seqIdx = ++seqCounter; });
     var groups = [], indexOf = {};
     sorted.forEach(function (it) {
-      var cat = it.category || '기타';
-      if (!(cat in indexOf)) { indexOf[cat] = groups.length; groups.push({ name: cat, items: [] }); }
-      groups[indexOf[cat]].items.push(it);
+      var cat = it.category || '';
+      var key = cat || ' none';
+      if (!(key in indexOf)) { indexOf[key] = groups.length; groups.push({ category: cat, items: [] }); }
+      groups[indexOf[key]].items.push(it);
     });
     groups.forEach(function (group) {
-      var details = document.createElement('details');
+      /* T4: category 가 빈 항목(T1·T2 양식은 전 항목이 category='')은 머리글을 만들지 않는다
+         — 실데이터 존재분(17건). <details>/<summary> 없이 평범한 컨테이너로만 감싼다. */
+      var hasHeader = !!group.category;
+      var details = document.createElement(hasHeader ? 'details' : 'div');
       details.className = 'category';
-      details.open = true;
-      var summary = document.createElement('summary');
-      summary.className = 'category-summary';
-      var titleSpan = document.createElement('span');
-      titleSpan.className = 'category-title';
-      titleSpan.textContent = group.name;
-      var chip = document.createElement('span');
-      chip.className = 'cat-chip';
-      summary.appendChild(titleSpan);
-      summary.appendChild(chip);
-      summary.appendChild(chevronNode());
-      details.appendChild(summary);
+      if (hasHeader) {
+        details.open = true;
+        var summary = document.createElement('summary');
+        summary.className = 'category-summary';
+        var titleSpan = document.createElement('span');
+        titleSpan.className = 'category-title';
+        titleSpan.textContent = group.category;
+        var chip = document.createElement('span');
+        chip.className = 'cat-chip';
+        summary.appendChild(titleSpan);
+        summary.appendChild(chip);
+        summary.appendChild(chevronNode());
+        details.appendChild(summary);
+      }
       var body = document.createElement('div');
       body.className = 'category-body';
       /* 기본안전수칙(group)이 있는 분류만 세부 항목을 접는다 — 70개가 한 번에 펼쳐지면
@@ -3048,8 +3058,14 @@
       }
       details.appendChild(body);
       root.appendChild(details);
-      updateCategoryChip(details);
+      if (hasHeader) updateCategoryChip(details);
     });
+    /* T4: sticky 분류 머리글이 진행바 바로 아래 붙도록, 진행바의 실측 높이를 CSS 변수로 넘긴다
+       (고정값을 박아 두면 폰트·화면폭에 따라 머리글이 진행바에 가려지거나 뜬다). */
+    var barEl = $('write-progress-bar');
+    if (barEl) {
+      document.documentElement.style.setProperty('--progress-bar-h', barEl.getBoundingClientRect().height + 'px');
+    }
     updateProgressBar();
   }
   function buildNoteBox(it) {
@@ -3061,6 +3077,11 @@
     var node = $('tpl-item-card').content.firstElementChild.cloneNode(true);
     node.dataset.itemId = it.item_id;
     node.querySelector('.item-text').textContent = it.text;
+    /* 부적합을 구두로 지목하기 위한 일련번호 — buildStep2 가 sorted 순회 중 type=item 에만
+       미리 매겨 it.__seqIdx 에 심어 둔다(별도 클로저 변수 대신 인자 it 자체에 실어, 22e 처럼
+       buildItemCard 를 격리 실행하는 테스트에서도 참조 오류 없이 안전하게 no-op 된다). */
+    var idxEl = node.querySelector('.item-idx');
+    if (idxEl && it.__seqIdx) idxEl.textContent = it.__seqIdx + '.';
     var criteriaEl = node.querySelector('.item-criteria');
     if (it.criteria) criteriaEl.querySelector('.criteria-body').textContent = it.criteria;
     else criteriaEl.remove();
