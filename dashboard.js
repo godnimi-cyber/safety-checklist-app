@@ -86,6 +86,27 @@
     return t ? t.blocks : data.all.blocks;
   }
 
+  /** 요약 칩 줄(D1)의 재료 — '이번 주' 블록(header 가 빈 블록)의 요약행 8칸 +
+   *  미점검(재등록 제외) 건수. 데이터가 없으면 **0 을 지어내지 않고 null** —
+   *  호출부가 줄 자체를 만들지 않는다. */
+  function summaryChipData_(data, viewName) {
+    var blocks = blocksFor_(data, viewName);
+    if (!blocks) return null;
+    var wk = null;
+    for (var i = 0; i < blocks.length; i++) {
+      if (!blocks[i].header || !blocks[i].header.length) { wk = blocks[i]; break; }
+    }
+    if (!wk || !wk.rows || !wk.rows.length) return null;
+    var row = wk.rows[0], vals = {};
+    for (var j = 0; j + 1 < row.length; j += 2) vals[String(row[j])] = Number(row[j + 1]);
+    if (!('점검' in vals) || !('부적합' in vals) || !('협력회사' in vals)) return null;
+    var overdueN = overdueFor_(data, viewName).filter(function (o) { return !o.reopened; }).length;
+    var prev = vals['지난주 점검'];
+    var diff = isFinite(prev) ? vals['점검'] - prev : null;
+    return { inspections: vals['점검'], findings: vals['부적합'], companies: vals['협력회사'],
+             overdue: overdueN, diff: diff };
+  }
+
   /** 팀 select 옵션 목록 — value 는 'all' 또는 't<i>'(팀명을 DOM value 로 안 쓴다:
    *  빈 문자열 팀명이 '전체' 와 섞이는 것을 막는다). */
   /** 팀 선택지 — **건수를 붙이지 않는다**(사용자 지시 2026-08-19).
@@ -304,6 +325,9 @@
     el_('dash-blocks').textContent = '';
     el_('dash-generated').textContent = '';
     el_('dash-team').textContent = '';
+    el_('dash-summary').hidden = true;          // D1 — 키 없는 화면에 지난 요약이 남으면 안 된다
+    el_('dash-summary').textContent = '';
+    el_('dash-range-label').textContent = '';
   }
 
   /** 키 지우기·AUTH 의 DOM 쪽 절반 — resetKey_(상태) 와 항상 함께 부른다.
@@ -1005,7 +1029,16 @@
     var head = document.createElement('div');   // 제목 + CSV 버튼 자리(appendCsvButton_ 이 붙인다)
     head.className = 'dash-block-head';
     var h = document.createElement('h2');
-    h.textContent = block.title;
+    /* 협력회사별·공사별 제목의 괄호 기간은 **화면 표시에서만** 걷어낸다(D5) — 필터 줄의
+       #dash-range-label 이 같은 기간을 한 번만 보여 준다. block.title 원본은 CSV 파일명·
+       renderView_ 의 분기(indexOf)가 그대로 쓰므로 여기 지역 변수에서만 자른다.
+       (별도 함수로 빼지 않는다 — dashboard-web.test.mjs 가 renderBlock_ 소스만 떼어
+       vm 으로 실행하는 조각들이 있어, 외부 함수 의존이 생기면 그 테스트들이 깨진다.) */
+    var displayTitle = String(block.title || '');
+    if (displayTitle.indexOf('협력회사별') === 0 || displayTitle.indexOf('공사별') === 0) {
+      displayTitle = displayTitle.replace(/\s*\([^()]*\)\s*$/, '');
+    }
+    h.textContent = displayTitle;
     head.appendChild(h);
     sec.appendChild(head);
 
@@ -1073,6 +1106,12 @@
       };
       table.appendChild(tbody);
       wrap.appendChild(table);
+      /* 가로 스크롤 힌트(D6) — 장식일 뿐이라 보조기술 흐름에서 뺀다. 넘치지 않는 표에서는
+         그냥 옅은 투명 사각형이라 해가 없다(폭을 강제로 넓히지 않는다). */
+      var hint = document.createElement('div');
+      hint.className = 'dash-scrollhint';
+      hint.setAttribute('aria-hidden', 'true');
+      wrap.appendChild(hint);
       sec.appendChild(wrap);
       var cards = null;
       if (block.keys) {                        // 공사별 — 좁은 화면용 카드도 함께(CSS 가 폭에 따라 하나만 보인다)
@@ -2258,15 +2297,47 @@
     return sec;
   }
 
+  /** 요약 칩 하나 — 라벨·숫자(선택: danger). */
+  function summaryChip_(label, value, danger) {
+    var chip = document.createElement('span');
+    chip.className = 'dash-chip' + (danger ? ' dash-chip-danger' : '');
+    chip.appendChild(document.createTextNode(label + ' '));
+    var b = document.createElement('b');
+    b.textContent = String(value);
+    chip.appendChild(b);
+    return chip;
+  }
+
+  /** 요약 칩 줄(D1) 다시 그리기 — 자료가 없으면 줄 자체를 숨긴다(0 을 지어내지 않는다). */
+  function renderSummaryChips_(data, viewName) {
+    var host = el_('dash-summary');
+    var cd = summaryChipData_(data, viewName);
+    host.textContent = '';
+    if (!cd) { host.hidden = true; return; }
+    host.hidden = false;
+    host.appendChild(summaryChip_('점검', cd.inspections, false));
+    host.appendChild(summaryChip_('부적합', cd.findings, cd.findings > 0));
+    host.appendChild(summaryChip_('협력회사', cd.companies, false));
+    host.appendChild(summaryChip_('미점검', cd.overdue, cd.overdue > 0));
+    if (cd.diff !== null) {
+      host.appendChild(summaryChip_('지난주 대비', cd.diff > 0 ? '+' + cd.diff : String(cd.diff), false));
+    }
+  }
+
   /** 현재 payload·view 로 본문 전체를 다시 그린다. */
   function renderView_() {
     var data = state.payload;
     var root = el_('dash-blocks');
+    var chipHost = el_('dash-summary');
+    var rangeLabel = el_('dash-range-label');
     root.textContent = '';
-    if (!data) return;
+    if (!data) { chipHost.hidden = true; chipHost.textContent = ''; rangeLabel.textContent = ''; return; }
     el_('dash-generated').textContent = '기준 ' + data.generatedAt;
     var blocks = blocksFor_(data, state.view);
     if (blocks === null) {                     // 범위 오류 커밋(§4.1) — 사유만, 전환·CSV 비활성
+      chipHost.hidden = true;
+      chipHost.textContent = '';
+      rangeLabel.textContent = '';
       var p = document.createElement('p');
       p.className = 'dash-banner dash-banner-error';
       p.textContent = data.range.error;
@@ -2275,12 +2346,19 @@
       return;
     }
     el_('dash-team').disabled = false;
+    /* 협력회사별·공사별 제목에서 걷어낸 괄호 기간(D5)을 여기 한 번만 적는다. */
+    rangeLabel.textContent = (data.range && data.range.label) ? '조회 기간 ' + data.range.label : '';
+    renderSummaryChips_(data, state.view);
     var od = renderOverdue_(data);             // 밀린 일이 먼저다 — 맨 위에 둔다
     if (od) root.appendChild(od);
     blocks.forEach(function (b) {
       var sec = renderBlock_(b);
       if (b.title.indexOf('협력회사별') === 0) appendCsvButton_(sec, b, '협력회사별');
       else if (b.title.indexOf('공사별') === 0) appendCsvButton_(sec, b, '공사별');
+      /* 데스크톱 2열(D2) — 이번 주·오늘 제출된 점검만 반폭. 나머지는 CSS 기본값(전폭). */
+      else if (b.title.indexOf('이번 주') === 0 || b.title.indexOf('오늘 제출') === 0) {
+        sec.className += ' dash-block-half';
+      }
       root.appendChild(sec);
     });
     if (data.integrity && data.integrity.block) {
