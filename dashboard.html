@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-32d3bf33">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-32d3bf33">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-6a30ddbd">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-6a30ddbd">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -54,9 +54,19 @@
      순서로 이겨 버린다(실측 — 구체도만 보고 넘어갔다가 스크롤이 그대로 남는 것으로 발견).
      `.dash-wraptext` 가 두 클래스를 겹쳐 구체도를 올리는 것과 같은 이유. overflow-wrap 도
      같이 준다: 공백 없는 한글 사업장명은 word-break 만으로 항상 갈라지진 않는다(실측).
-     1100px 미만(1열 복귀)에는 이 규칙이 없다: 그때는 전폭이라 넘침이 없었다. */
+     1100px 미만(1열 복귀)에는 이 규칙이 없다: 그때는 전폭이라 넘침이 없었다.
+     V7-R3 — overflow-wrap:break-word 를 th 에도 줬더니 '점검자'·'부적합' 같은 3글자
+     머리글까지 어절 중간에서 쪼개졌다(실측, 반폭 630px). 머리글은 어절을 지키고,
+     본문 셀은 갈라질 수 있어야 한다 — 둘의 요구가 반대라 규칙을 나눈다.
+     **keep-all 을 td 에까지 주면 안 된다**: 공백 없는 긴 한글 공사명이 한 덩어리로
+     남아 표가 다시 내용 폭만큼 넓어지고, R1 이 없앴던 가로 스크롤이 되살아난다
+     (실측 — th·td 공통 keep-all 일 때 client 571 vs scroll 589 로 재발).
+     th = keep-all(어절 보존, 머리글은 짧아 폭 압박이 없다) /
+     td = break-word(긴 고유명사를 강제로 접어 폭을 래퍼 안에 가둔다). */
   .dash-block.dash-block-half th, .dash-block.dash-block-half td {
-    white-space: normal; overflow-wrap: break-word; }
+    white-space: normal; }
+  .dash-block.dash-block-half th { word-break: keep-all; }
+  .dash-block.dash-block-half td { overflow-wrap: break-word; }
 }
 /* 음영은 제목 바 전용(사용자 지시) — 본문 카드는 보더로만 구획한다 */
 /* sticky 고정 해제(사용자 지시 2026-08-10) — 모바일에서 헤더가 화면 위를 상시 점유했다 */
@@ -175,7 +185,11 @@
 /* 한 카드 안의 두 번째 묶음 — 위 목록과 붙어 보이지 않게 경계를 준다. */
 .dash-od-subhead { margin: 22px 0 6px; padding-top: 14px; border-top: 1px solid var(--border);
   font-size: 16px; font-weight: 700; color: var(--text);
-  font-family: var(--font-heading); }
+  font-family: var(--font-heading);
+  display: flex; align-items: center; gap: 8px; }
+/* V7-R2 — 형제 섹션(미점검 h2)의 아이콘과 같은 규칙: 그 상태의 글자색을 그대로 물려받는다.
+   재등록됨 배지·보더가 --warn 이므로 아이콘도 --warn 으로 맞춘다(새 색 발명 금지). */
+.dash-od-subhead .dash-icon { color: var(--warn); }
 /* 조치는 **가로로** 나란히 둔다(사용자 지시 2026-08-19) — 세로로 쌓으면 행 하나가 세 배로
    높아져 "한 줄로 만들라"던 목적이 사라진다. 폭이 모자라면 아래 미디어쿼리가 행 자체를
    접는다(내용 위 / 조치 아래). */
@@ -618,7 +632,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-32d3bf33"></script>
-<script src="./dashboard.js?v=0.5.5-32d3bf33"></script>
+<script src="./config.js?v=0.5.5-6a30ddbd"></script>
+<script src="./dashboard.js?v=0.5.5-6a30ddbd"></script>
 </body>
 </html>

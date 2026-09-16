@@ -282,8 +282,8 @@
 
   function el_(id) { return document.getElementById(id); }
 
-  /* 아이콘(V1, V6 감량 후 섹션 제목 전용 6종만 남긴다 — 칩·상단바는 14~16px 에서 서로
-   *  구분되지 않는 장식이었다, 실측) — 인라인 SVG, CDN·라이브러리 0개. path 문자열만
+  /* 아이콘(V1, V6 감량 후 섹션 제목 전용으로만 남긴다(V7 기준 7종) — 칩·상단바는 14~16px
+   *  에서 서로 구분되지 않는 장식이었다, 실측) — 인라인 SVG, CDN·라이브러리 0개. path 문자열만
    *  여기 한 곳에 둔다. 색은 항상 stroke="currentColor" — 배치한 자리의 CSS color 를
    *  그대로 받는다(팔레트 발명 없이 위계를 표현하는 수단). document.createElementNS 가
    *  없는 환경(조각 테스트의 가짜 DOM)에서는 null 을 돌려준다 — 호출부는 그 경우 아이콘
@@ -321,6 +321,11 @@
       ['path', { d: 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z' }],
       ['path', { d: 'M12 8v4' }],
       ['path', { d: 'M12 16h.01' }]
+    ],
+    /* V7-R2 — 「재등록됨」 소제목 전용. '대기/되돌림' 의미. */
+    'rotate-ccw': [
+      ['polyline', { points: '1 4 1 10 7 10' }],
+      ['path', { d: 'M3.51 15a9 9 0 1 0 2.13-9.36L1 10' }]
     ]
   };
 
@@ -2323,8 +2328,12 @@
        옮길 수 있다), 확정·취소는 현장이 끝내 안 했을 때 닫는 창구다 — 재등록했다고
        버튼을 없애면 그 건은 영영 못 닫는다. */
     /* V6-4 — 재등록(가장 흔하고 되돌릴 수 있는 조치)만 solid 로 채워 위계를 준다. 새 색을
-       만들지 않고 다른 화면의 solid 버튼과 같은 dash-btn-primary 를 재사용한다. */
-    acts.appendChild(odActionBtn_('재등록', 'dash-btn-primary', o, function () { openReschedule_(o); }));
+       만들지 않고 다른 화면의 solid 버튼과 같은 dash-btn-primary 를 재사용한다.
+       V7-R1 — 단, 이미 재등록된 행(o.reopened)에서는 재등록이 남은 일이 아니라 이미 한
+       일이다. solid 를 그대로 두면 "또 재등록하라"는 의미가 되어 모순이다. 버튼 자체는
+       남긴다(재등록 경로는 유지) — 강조만 뺀다. */
+    acts.appendChild(odActionBtn_('재등록', o.reopened ? null : 'dash-btn-primary', o,
+                                  function () { openReschedule_(o); }));
     acts.appendChild(odActionBtn_(UNCHECK_LABEL, 'dash-od-danger', o,
                                   function () { openUnchecked_(o); }));
     /* 세 번째 조치는 **경보색이 아니다** — 공사취소는 우리가 놓친 것이 아니라 상황이 없어진
@@ -2385,6 +2394,10 @@
       var h2 = document.createElement('h3');
       h2.className = 'dash-od-subhead';
       h2.textContent = '재등록됨 ' + back.length;
+      /* V7-R2 — 형제 섹션(위 h2 '미점검')에는 아이콘이 있는데 여기만 없어 규칙이 모호했다
+         (실측). 의미는 '대기/되돌림' — rotate-ccw. */
+      var backIcon = (typeof svgIcon_ === 'function') ? svgIcon_('rotate-ccw', 16) : null;
+      if (backIcon) h2.appendChild(backIcon);
       sec.appendChild(h2);
       var n2 = document.createElement('p');
       n2.className = 'dash-modal-meta';
