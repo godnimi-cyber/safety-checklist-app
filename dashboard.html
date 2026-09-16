@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-67565fc1">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-67565fc1">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-32d3bf33">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-32d3bf33">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -92,12 +92,11 @@
   border-radius: 10px; background: var(--surface); color: var(--text);
   cursor: pointer; font-size: 0.95rem; font-weight: 600;
   transition: background 0.15s, border-color 0.15s; }
-/* 아이콘(V1) — stroke=currentColor 라 놓인 자리의 color 를 그대로 받는다(팔레트 발명 0).
-   order:-1 은 renderBlock_/renderOverdue_ 가 h.textContent 재대입 뒤에 아이콘을 마지막
-   자식으로 붙여야 하는 사정(주석 참조) 때문에 필요하다 — DOM 순서와 무관하게 항상
-   글자 앞에 오게 한다. */
+/* 아이콘(V1, V6 감량 후 섹션 제목 전용) — stroke=currentColor 라 놓인 자리의 color 를
+   그대로 받는다(팔레트 발명 0). order:-1 은 renderBlock_/renderOverdue_ 가 h.textContent
+   재대입 뒤에 아이콘을 마지막 자식으로 붙여야 하는 사정(주석 참조) 때문에 필요하다 —
+   DOM 순서와 무관하게 항상 글자 앞에 오게 한다. */
 .dash-icon { flex: none; order: -1; }
-.dash-btn-icon { display: inline-flex; align-items: center; gap: 6px; }
 .dash-btn:hover { background: var(--bg); border-color: var(--muted); }
 .dash-btn:active { background: var(--row-hover); }
 .dash-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -132,13 +131,17 @@
 /* 미점검 — 밀린 일. **한 행 = 계획 하나**(사용자 지시 2026-08-19): 왼쪽 내용, 오른쪽 조치 둘.
    색은 승인 팔레트 토큰만 쓴다(원값 금지). */
 .dash-overdue h2 { color: var(--danger); }
+/* V6-5 — 「미점검 N」의 N 은 요약 칩(20.8px)과 같은 값의 사본이다. 칩이 정본이므로 여기
+   숫자만 무게를 낮춘다(제목 글자 크기는 그대로 두고 숫자만 일반 굵기·muted). */
+.dash-overdue h2 .dash-h2-n { font-weight: 400; color: var(--muted); }
 .dash-od-row { display: flex; align-items: center; gap: 12px;
   border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
   margin-top: 8px; background: var(--surface); }
 /* V3 — 상태색을 면(배경)으로도 확장한다(지금까지는 테두리·글자뿐이었다). 5%/10% 는
-   대비 재검증을 마친 값이다(보고서의 계산값 참조) — 임의로 더 진하게 올리지 않는다. */
-.dash-od-stale { border-left: 4px solid var(--danger);
-  background: color-mix(in srgb, var(--danger) 5%, var(--surface)); }
+   대비 재검증을 마친 값이다(보고서의 계산값 참조) — 임의로 더 진하게 올리지 않는다.
+   V6 — 왼쪽 4px 보더를 없앤다: 배경 tint + 우측 배지만으로 같은 사실을 이미 두 번 말한다
+   (보더까지 있으면 네 번, 여기에 danger 버튼·아이콘까지 겹쳐 여섯 겹이었다 — 실측). */
+.dash-od-stale { background: color-mix(in srgb, var(--danger) 5%, var(--surface)); }
 /* min-width:0 이 없으면 flex 자식이 내용 폭 아래로 안 줄어 버튼이 화면 밖으로 밀린다. */
 .dash-od-text { flex: 1 1 auto; min-width: 0; }
 /* 공사명은 **자르지 않는다** — 이 목록의 주소는 끝자리만 다르다(dashboard.js overdueRow_ 주석). */
@@ -162,11 +165,13 @@
 .dash-od-stale .dash-od-meta { color: var(--danger); }
 /* 「재등록됨」 — 경보가 아니라 **이미 손을 쓴 상태**다. 밀린 건과 같은 자리에 있지만 색
    계열을 갈라 한눈에 나뉘게 한다. 색만으로 말하지 않는다(WCAG 1.4.1) — 배지 글자가
-   '재등록됨' 이라 색을 못 보는 사람에게도 같은 정보가 간다. */
-.dash-od-days-reopened { border-color: var(--accent); color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
-.dash-od-reopened { border-left: 4px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
+   '재등록됨' 이라 색을 못 보는 사람에게도 같은 정보가 간다.
+   V6 — --accent(브랜드 그린)는 헤더·조회 버튼과 같은 색이라 '재등록됨'(작성 대기)을
+   완료·성공으로 오독시켰다(실측: 배지 글자색이 --accent 와 완전히 같았다). --warn 으로
+   갈라 브랜드 색과 완전히 분리한다. 왼쪽 보더도 stale 과 같은 이유로 없앤다. */
+.dash-od-days-reopened { border-color: var(--warn); color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, var(--surface)); }
+.dash-od-reopened { background: color-mix(in srgb, var(--warn) 5%, var(--surface)); }
 /* 한 카드 안의 두 번째 묶음 — 위 목록과 붙어 보이지 않게 경계를 준다. */
 .dash-od-subhead { margin: 22px 0 6px; padding-top: 14px; border-top: 1px solid var(--border);
   font-size: 16px; font-weight: 700; color: var(--text);
@@ -177,6 +182,9 @@
 .dash-od-acts { display: flex; flex-direction: row; gap: 6px; flex: 0 0 auto; }
 /* 높이 44px 는 터치 타깃 하한이라 더 줄이지 않는다. 글자는 줄바꿈하지 않는다. */
 .dash-od-btn { min-height: 44px; padding: 0 12px; font-size: 0.88rem; white-space: nowrap; }
+/* V6-4 — 재등록(가장 흔하고 되돌릴 수 있는 조치)만 solid 로 채워 위계를 준다. 새 색을
+   만들지 않고 기존 .dash-btn-primary(조회·열기 등이 쓰는 solid 계열)를 그대로 재사용한다 —
+   overdueRow_ 에서 클래스만 얹는다. */
 /* 되돌릴 수 없는 조치는 테두리·글자로 구분한다 — 채우지 않는다(빨간 면이 두 줄 걸러 나오면
    목록 전체가 경보로 보여 정작 오래 밀린 건이 안 띈다). */
 .dash-od-danger { border-color: var(--danger); color: var(--danger); }
@@ -292,11 +300,11 @@
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
   padding: 12px 20px; margin: 0 0 20px; font-size: 0.92rem; color: var(--text); }
 .dash-summary-chips[hidden] { display: none; }
+/* V6 — 14px 아이콘 5개는 서로 구분되지 않는 장식이었다(실측). 칩은 숫자·라벨만 남긴다. */
 .dash-chip { display: inline-flex; align-items: center; gap: 6px; }
-.dash-chip .dash-icon { color: var(--muted); }
 .dash-chip-label { font-size: 0.72rem; font-weight: 500; color: var(--muted); letter-spacing: 0.02em; }
 .dash-chip b { font-size: 1.3rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-.dash-chip-danger .dash-icon, .dash-chip-danger .dash-chip-label, .dash-chip-danger b { color: var(--danger); }
+.dash-chip-danger .dash-chip-label, .dash-chip-danger b { color: var(--danger); }
 .dash-chip-sep { color: var(--muted); }
 #dash-key-screen { max-width: 400px; margin: 64px auto; display: flex; flex-direction: column;
   gap: 14px; background: var(--surface); border: 1px solid var(--border);
@@ -550,23 +558,19 @@
     <h1>안전점검 대시보드</h1>
     <span id="dash-generated"></span>
     <span class="spacer"></span>
-    <button type="button" class="dash-btn dash-btn-icon" id="btn-dash-theme">
-      <svg class="dash-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+    <button type="button" class="dash-btn" id="btn-dash-theme">
       <span id="btn-dash-theme-label">어둡게</span>
     </button>
-    <button type="button" class="dash-btn dash-btn-icon" id="btn-dash-refresh" hidden>
-      <svg class="dash-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+    <button type="button" class="dash-btn" id="btn-dash-refresh" hidden>
       <span>새로고침</span>
     </button>
-    <button type="button" class="dash-btn dash-btn-icon" id="btn-dash-monthly" hidden>
-      <svg class="dash-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+    <button type="button" class="dash-btn" id="btn-dash-monthly" hidden>
       <span>월간 리포트</span>
     </button>
     <!-- 「키 지우기」는 되돌릴 수 없는 조치다. 일상 조치(새로고침·월간 리포트) 바로 옆에 같은
          무게로 두지 않는다 — NN/g 「Dangerous UX: Consequential Options Close to Benign
          Options」. 간격을 벌리고(피츠 법칙으로 일부러 멀게) 색·테두리로도 구분한다. -->
-    <button type="button" class="dash-btn dash-btn-danger dash-btn-icon" id="btn-dash-clearkey" hidden>
-      <svg class="dash-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
+    <button type="button" class="dash-btn dash-btn-danger" id="btn-dash-clearkey" hidden>
       <span>키 지우기</span>
     </button>
   </header>
@@ -614,7 +618,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-67565fc1"></script>
-<script src="./dashboard.js?v=0.5.5-67565fc1"></script>
+<script src="./config.js?v=0.5.5-32d3bf33"></script>
+<script src="./dashboard.js?v=0.5.5-32d3bf33"></script>
 </body>
 </html>

@@ -282,10 +282,12 @@
 
   function el_(id) { return document.getElementById(id); }
 
-  /* 아이콘(V1) — 인라인 SVG, CDN·라이브러리 0개. path 문자열만 여기 한 곳에 둔다.
-   *  색은 항상 stroke="currentColor" — 배치한 자리의 CSS color 를 그대로 받는다(팔레트
-   *  발명 없이 위계를 표현하는 수단). document.createElementNS 가 없는 환경(조각 테스트의
-   *  가짜 DOM)에서는 null 을 돌려준다 — 호출부는 그 경우 아이콘 없이 그대로 렌더된다. */
+  /* 아이콘(V1, V6 감량 후 섹션 제목 전용 6종만 남긴다 — 칩·상단바는 14~16px 에서 서로
+   *  구분되지 않는 장식이었다, 실측) — 인라인 SVG, CDN·라이브러리 0개. path 문자열만
+   *  여기 한 곳에 둔다. 색은 항상 stroke="currentColor" — 배치한 자리의 CSS color 를
+   *  그대로 받는다(팔레트 발명 없이 위계를 표현하는 수단). document.createElementNS 가
+   *  없는 환경(조각 테스트의 가짜 DOM)에서는 null 을 돌려준다 — 호출부는 그 경우 아이콘
+   *  없이 그대로 렌더된다. */
   var ICONS_ = {
     'alert-triangle': [
       ['path', { d: 'm21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z' }],
@@ -319,49 +321,6 @@
       ['path', { d: 'M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z' }],
       ['path', { d: 'M12 8v4' }],
       ['path', { d: 'M12 16h.01' }]
-    ],
-    moon: [
-      ['path', { d: 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z' }]
-    ],
-    'refresh-cw': [
-      ['path', { d: 'M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8' }],
-      ['path', { d: 'M21 3v5h-5' }],
-      ['path', { d: 'M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16' }],
-      ['path', { d: 'M8 16H3v5' }]
-    ],
-    'file-text': [
-      ['path', { d: 'M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z' }],
-      ['path', { d: 'M14 2v4a2 2 0 0 0 2 2h4' }],
-      ['path', { d: 'M10 9H8' }],
-      ['path', { d: 'M16 13H8' }],
-      ['path', { d: 'M16 17H8' }]
-    ],
-    'x-circle': [
-      ['circle', { cx: '12', cy: '12', r: '10' }],
-      ['path', { d: 'm15 9-6 6' }],
-      ['path', { d: 'm9 9 6 6' }]
-    ],
-    'clipboard-check': [
-      ['rect', { x: '8', y: '2', width: '8', height: '4', rx: '1' }],
-      ['path', { d: 'M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2' }],
-      ['path', { d: 'm9 14 2 2 4-4' }]
-    ],
-    'alert-circle': [
-      ['circle', { cx: '12', cy: '12', r: '10' }],
-      ['line', { x1: '12', y1: '8', x2: '12', y2: '12' }],
-      ['line', { x1: '12', y1: '16', x2: '12.01', y2: '16' }]
-    ],
-    clock: [
-      ['circle', { cx: '12', cy: '12', r: '10' }],
-      ['polyline', { points: '12 6 12 12 16 14' }]
-    ],
-    'trending-up': [
-      ['polyline', { points: '22 7 13.5 15.5 8.5 10.5 2 17' }],
-      ['polyline', { points: '16 7 22 7 22 13' }]
-    ],
-    'trending-down': [
-      ['polyline', { points: '22 17 13.5 8.5 8.5 13.5 2 7' }],
-      ['polyline', { points: '16 17 22 17 22 11' }]
     ]
   };
 
@@ -2363,7 +2322,9 @@
     /* 세 조치를 **그대로 남긴다**. 재등록은 날짜를 다시 잡는 길이고(되살린 뒤 다른 날로
        옮길 수 있다), 확정·취소는 현장이 끝내 안 했을 때 닫는 창구다 — 재등록했다고
        버튼을 없애면 그 건은 영영 못 닫는다. */
-    acts.appendChild(odActionBtn_('재등록', '', o, function () { openReschedule_(o); }));
+    /* V6-4 — 재등록(가장 흔하고 되돌릴 수 있는 조치)만 solid 로 채워 위계를 준다. 새 색을
+       만들지 않고 다른 화면의 solid 버튼과 같은 dash-btn-primary 를 재사용한다. */
+    acts.appendChild(odActionBtn_('재등록', 'dash-btn-primary', o, function () { openReschedule_(o); }));
     acts.appendChild(odActionBtn_(UNCHECK_LABEL, 'dash-od-danger', o,
                                   function () { openUnchecked_(o); }));
     /* 세 번째 조치는 **경보색이 아니다** — 공사취소는 우리가 놓친 것이 아니라 상황이 없어진
@@ -2394,7 +2355,14 @@
     var sec = document.createElement('section');
     sec.className = 'dash-block dash-overdue';
     var h = document.createElement('h2');
-    h.textContent = '미점검 ' + list.length;
+    /* V6-5 — 이 숫자는 요약 칩(정본, 20.8px)의 사본이다. 제목 글자 크기는 그대로 두고
+       숫자만 dash-h2-n(일반 굵기·muted)으로 무게를 낮춘다 — 두 곳의 값이 같아도 어느
+       쪽이 정본인지 시각 무게로 갈린다. */
+    h.textContent = '미점검 ';
+    var odCount = document.createElement('span');
+    odCount.className = 'dash-h2-n';
+    odCount.textContent = String(list.length);
+    h.appendChild(odCount);
     /* typeof 가드 — odRenderCtx() 조각 테스트가 renderOverdue_ 를 svgIcon_ 없이 돌린다(위
        renderBlock_ 의 같은 이유). */
     var odIcon = (typeof svgIcon_ === 'function') ? svgIcon_('alert-triangle', 18) : null;
@@ -2431,12 +2399,11 @@
     return sec;
   }
 
-  /** 요약 칩 하나 — 아이콘(선택) · 라벨 · 숫자(선택: danger). */
-  function summaryChip_(label, value, danger, iconKind) {
+  /** 요약 칩 하나 — 라벨 · 숫자(선택: danger). V6 — 아이콘은 14px 에서 서로 구분되지
+   *  않는 장식이었다(실측) — 뺐다. */
+  function summaryChip_(label, value, danger) {
     var chip = document.createElement('span');
     chip.className = 'dash-chip' + (danger ? ' dash-chip-danger' : '');
-    var icon = svgIcon_(iconKind, 14);
-    if (icon) chip.appendChild(icon);
     var lab = document.createElement('span');
     lab.className = 'dash-chip-label';
     lab.textContent = label;
@@ -2464,18 +2431,16 @@
     if (!cd) { host.hidden = true; return; }
     host.hidden = false;
     var chips = [
-      summaryChip_('점검', cd.inspections, false, 'clipboard-check'),
-      summaryChip_('부적합', cd.findings, cd.findings > 0, 'alert-circle'),
-      summaryChip_('협력회사', cd.companies, false, 'building-2'),
-      summaryChip_('미점검', cd.overdue, cd.overdue > 0, 'clock')
+      summaryChip_('점검', cd.inspections, false),
+      summaryChip_('부적합', cd.findings, cd.findings > 0),
+      summaryChip_('협력회사', cd.companies, false),
+      summaryChip_('미점검', cd.overdue, cd.overdue > 0)
     ];
     /* 대상 명사 없이 '+4' 만 있으면 무엇의 증감인지 화면에서 알 수 없다 — 점검 건수임을
-       적는다. renderStatTiles_ 의 '증감 없음' 문구 규약과 같은 결로 맞춘다.
-       아이콘도 증감 방향을 따른다 — 0(증감 없음)은 추세가 아니므로 아이콘을 붙이지 않는다. */
+       적는다. renderStatTiles_ 의 '증감 없음' 문구 규약과 같은 결로 맞춘다. */
     if (cd.diff !== null) {
       chips.push(summaryChip_('지난주 대비 점검',
-        cd.diff > 0 ? '+' + cd.diff : cd.diff < 0 ? String(cd.diff) : '증감 없음', false,
-        cd.diff > 0 ? 'trending-up' : cd.diff < 0 ? 'trending-down' : null));
+        cd.diff > 0 ? '+' + cd.diff : cd.diff < 0 ? String(cd.diff) : '증감 없음', false));
     }
     chips.forEach(function (chip, i) {
       if (i > 0) host.appendChild(chipSep_());
