@@ -2834,22 +2834,16 @@
       $('plan-summary-project').textContent = draft.project_name || '';
     }
 
-    $('write-step1-inspector-summary').hidden = !locked;
-    $('write-step1-inspector-fields').hidden = locked;
-    if (locked) {
-      var team = teamOf(draft.inspector_id);
-      $('inspector-summary-text').textContent = draft.inspector_id
-        ? ('점검자 ' + inspectorDisplay(draft.inspector_id) + ' · ' + team + ' — 계정에서 자동')
-        : '점검자를 선택하세요';
-    }
+    /* 점검자는 **접지 않는다**(사용자 지시 2026-09-16 — 배포 후 현장 확인).
+       계정에서 자동으로 온다는 전제로 요약 줄로 접었더니, 점검자가 정해지지 않은
+       상태에서 「점검자를 선택하세요」만 뜨고 고를 select 가 화면에 없었다.
+       점검자는 계획이 정해 주는 값이 아니라 **그날 그 사람이 고르는 값**이다 —
+       잠긴 값(점검일·협력회사·공사)과 성격이 다르므로 같이 접으면 안 된다. */
+    $('write-step1-inspector-fields').hidden = false;
   }
   function onPlanSummaryEdit() {
     $('write-step1-plan-summary').hidden = true;
     $('write-step1-plan-fields').hidden = false;
-  }
-  function onInspectorSummaryEdit() {
-    $('write-step1-inspector-summary').hidden = true;
-    $('write-step1-inspector-fields').hidden = false;
   }
 
   function renderWriteStep1() {
@@ -3672,7 +3666,6 @@
 
     $('btn-step1-next').addEventListener('click', onStep1Next);
     $('btn-plan-summary-edit').addEventListener('click', onPlanSummaryEdit);
-    $('btn-inspector-summary-edit').addEventListener('click', onInspectorSummaryEdit);
     $('f-company').addEventListener('change', onCompanyChange);
     $('f-project').addEventListener('change', onProjectChange);
     $('f-project-tmp').addEventListener('input', onProjectTmpInput);

@@ -714,15 +714,6 @@ h1, h2, h3 { font-family: var(--font-heading, var(--font-sans)); }   /* 킷 헤�
 
 /* T5 — 점검자 소속팀·표시명 힌트 줄(locked 전용). .field-hint 의 옅은 --color-neutral 대신
    본문색을 쓴다(#f-plan-context 와 같은 이유, 656행 참고 — 유일한 판독 수단). */
-.inspector-lock-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  margin: 0;
-  color: var(--color-text);
-  font-weight: 600;
-}
 
 /* ---------- 작성: 진행률 바(상단 고정) ---------- */
 .progress-bar {

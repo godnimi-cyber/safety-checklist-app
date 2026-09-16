@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-92f263ca">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-1216aec2">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <!-- 데이터 API 오리진 2곳 — 첫 요청의 DNS+TLS 를 선행한다(대시보드와 같은 처방).
      GAS 는 script.google.com 에서 302 로 googleusercontent 로 넘어가므로 둘 다 필요하다.
@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-92f263ca">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-1216aec2">
 <title>현장 안전점검</title>
 </head>
 <body>
@@ -258,11 +258,9 @@
           </div>
         </div>
 
-        <!-- T5: 점검자 소속팀·표시명도 같은 방식으로 접는다(locked 전용, renderPlanLockSummary). -->
-        <p class="field-hint inspector-lock-summary" id="write-step1-inspector-summary" hidden>
-          <span id="inspector-summary-text"></span>
-          <button type="button" class="plan-lock-edit-btn" id="btn-inspector-summary-edit">점검자 변경</button>
-        </p>
+        <!-- 점검자는 접지 않는다(사용자 지시 2026-09-16 — 배포 후 현장 확인).
+             점검일·협력회사·공사는 계획이 정해 주는 값이라 요약으로 접지만, 점검자는
+             그날 그 사람이 직접 고르는 값이다. 접으면 고를 수단이 화면에서 사라진다. -->
         <div class="field-stack" id="write-step1-inspector-fields">
           <div class="field">
             <label class="field-label" for="f-team">점검자 · 소속팀</label>
@@ -567,9 +565,9 @@
   </div>
 </template>
 
-<script src="./config.js?v=0.5.5-92f263ca"></script>
-<script src="./lib.js?v=0.5.5-92f263ca"></script>
-<script src="./logic.js?v=0.5.5-92f263ca"></script>
-<script src="./app.js?v=0.5.5-92f263ca"></script>
+<script src="./config.js?v=0.5.5-1216aec2"></script>
+<script src="./lib.js?v=0.5.5-1216aec2"></script>
+<script src="./logic.js?v=0.5.5-1216aec2"></script>
+<script src="./app.js?v=0.5.5-1216aec2"></script>
 </body>
 </html>
