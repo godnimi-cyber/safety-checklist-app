@@ -820,13 +820,18 @@
           fill.style.height = Math.round((dy.n / (model.max || 1)) * 100) + '%';
           track.appendChild(fill);
         }
+        /* X3(2026-09-17) — n===null(자료 없음)과 n===0(실제로 0건)을 **다르게** 보인다.
+           둘 다 '' 로 지우면 미래 날짜(자료가 아직 없음)와 "오늘 0건"이 같은 빈 칸으로
+           읽혀 0 을 지어낸 것과 같은 결과가 된다(B1 계약 위반). 자리는 그대로 남긴다
+           (안 그러면 칸 높이가 들쭉날쭉해진다) — 무거운 숫자 대신 muted 로 조용히. */
         var cnt = document.createElement('span');
-        cnt.className = 'wbar-n' + (dy.n ? '' : ' zero');
-        /* 0 은 숫자를 쓰지 않는다 — 빈 칸이 이미 0 이고, 7칸 전부에 숫자를 달면 숫자밭이 된다.
-           자리는 남겨 둔다(안 그러면 칸 높이가 들쭉날쭉해진다). */
-        cnt.textContent = dy.n ? String(dy.n) : '';
-        /* 폰에는 hover 가 없다 — 탭으로도 같은 값을 얻게 title 을 붙인다(직접 라벨이 주 수단). */
-        cell.setAttribute('title', dy.dow + ' ' + dy.day + '일 · 점검 ' + (dy.n || 0) + '건'
+        var missing = dy.n === null;
+        cnt.className = 'wbar-n' + (missing ? ' wbar-n-missing' : dy.n === 0 ? ' wbar-n-zero' : '');
+        cnt.textContent = missing ? '-' : String(dy.n);
+        /* 폰에는 hover 가 없다 — 탭으로도 같은 값을 얻게 title 을 붙인다(직접 라벨이 주 수단).
+           dy.n || 0 로 합치면 '자료 없음'도 '점검 0건'으로 지어내 보인다 — 위와 같은 이유로 가른다. */
+        cell.setAttribute('title', dy.dow + ' ' + dy.day + '일 · '
+                                   + (missing ? '점검 자료 없음' : '점검 ' + dy.n + '건')
                                    + (dy.f ? ' · 부적합 ' + dy.f + '건' : ''));
         cell.appendChild(track);
         cell.appendChild(cnt);
@@ -868,11 +873,15 @@
       tile.appendChild(v);
       if (label === '점검' && prev !== null && isFinite(prev)) {
         var sub = document.createElement('span');
-        sub.className = 'sub';
         var diff = Number(row[i + 1]) - prev;
-        /* 부호를 **글로도** 말한다 — 색이나 기호만으로 증감을 나르지 않는다.
-           같으면 '증감 없음' 이라고 적는다(빈칸은 "자료가 없다"로 읽힌다). */
-        sub.textContent = '지난주 ' + prev + '건 · '
+        /* X5(2026-09-17) — 점검 건수는 **많을수록 좋은** 지표라 감소를 주의색으로,
+           증가를 긍정색으로 신호한다. danger(부적합 전용 빨강)는 쓰지 않는다 — 점검이
+           줄었다고 부적합과 같은 무게로 경고하면 과장이다(절제한 고급화가 기준).
+           부호를 **글로도** 말한다 — 색이나 기호만으로 증감을 나르지 않는다(접근성).
+           같으면 '증감 없음' 이라고 적는다(빈칸은 "자료가 없다"로 읽힌다), 색·기호도 그대로 둔다. */
+        sub.className = 'sub' + (diff > 0 ? ' sub-up' : diff < 0 ? ' sub-down' : '');
+        var arrow = diff > 0 ? '▲ ' : diff < 0 ? '▼ ' : '';
+        sub.textContent = '지난주 ' + prev + '건 · ' + arrow
           + (diff > 0 ? '+' + diff + ' 늘었습니다' : diff < 0 ? diff + ' 줄었습니다' : '증감 없음');
         tile.appendChild(sub);
       }
@@ -1118,7 +1127,7 @@
 
   /** 블록 하나 렌더. textContent 만 쓴다(시트 유래 문자열의 HTML 해석 원천 차단).
    *  부적합 값은 header 의 '부적합' 열, 헤더 없는 블록(이번 주)은 타일로. */
-  function renderBlock_(block, serverToday) {
+  function renderBlock_(block, serverToday, weekCards) {
     var sec = document.createElement('section');
     sec.className = 'dash-block';
     var head = document.createElement('div');   // 제목 + CSV 버튼 자리(appendCsvButton_ 이 붙인다)
@@ -1145,11 +1154,29 @@
     if (!block.header || !block.header.length) {
       /* K2(2026-09-17) — 점검·부적합·협력회사 숫자는 상단 KPI 카드(renderKpiCards_)로
          옮겼다. 여기 남기면 같은 숫자가 두 번(칩+타일) 보이던 문제가 카드+타일로 그대로
-         재현된다 — 이 블록은 이제 **요일별 추이(막대)만** 말한다. */
+         재현된다 — 이 블록은 이제 **요일별 추이(막대)만** 말한다.
+         X1(2026-09-17) — weekCards(점검·미점검 타일, buildWeekTilesGrid_)가 있으면 막대
+         오른쪽에 2열로 나란히 둔다(사용자 지시). 제목은 kpiCaption_ 로 바꾼다 — 기존 wk.label
+         은 괄호 기간을 버려("이번 주"만 남음), 그 기간을 대신 보여 주던 상단 카드의 캡션이
+         이제 이 h2 하나로 합쳐졌으니 기간 정보가 화면에서 사라지지 않으려면 여기서 넣어야
+         한다(kpiCaption_ 은 같은 정규식이라 wk 가 성공했으면 항상 성공한다). weekCards 가
+         없을 때(카드 없음/기존 호출부)는 막대만 그리던 옛 모양 그대로다. */
       var wk = weekStripModel_(block.title, new Date(), block.week);
       if (wk) {
-        h.textContent = wk.label;   // 괄호 날짜 범위는 스트립이 대신한다(aria 에는 전체 제목)
-        sec.appendChild(renderWeekStrip_(wk, block.title));
+        h.textContent = (typeof kpiCaption_ === 'function') ? kpiCaption_(block.title) : wk.label;
+        var strip = renderWeekStrip_(wk, block.title);
+        if (weekCards) {
+          var layout = document.createElement('div');
+          layout.className = 'dash-week-layout';
+          var stripCol = document.createElement('div');
+          stripCol.className = 'dash-week-stripcol';
+          stripCol.appendChild(strip);
+          layout.appendChild(stripCol);
+          layout.appendChild(weekCards);
+          sec.appendChild(layout);
+        } else {
+          sec.appendChild(strip);
+        }
       }
     } else {
       var dangerCol = block.header.indexOf('부적합');
@@ -2535,48 +2562,43 @@
     return m[1] + ' (' + Number(m[3]) + '/' + Number(m[4]) + ' ~ ' + Number(m[6]) + '/' + Number(m[7]) + ')';
   }
 
-  /** 상단 KPI 카드 줄(K1~K6, R1~R5 2026-09-17) 다시 그리기 — 두 묶음, **기간 줄이 위**다
-   *  (사용자가 시작일·종료일을 직접 골라 조회하므로 그 결과가 주인공, R2). 자료가 없는
-   *  묶음은 그 줄만 숨기고, 둘 다 없으면 #dash-summary 전체를 숨긴다(0 을 지어내지 않는다,
-   *  D1/B1 계약 유지).
-   *  - 기간 줄: rangeKpiData_ 합산 — 점검·부적합·협력회사·공사.
-   *  - 이번 주 줄: renderStatTiles_ 재사용 + filterTiles_ 로 **점검만** 남긴다(부적합·협력회사는
-   *    기간 줄과 라벨이 겹쳐 뺀다 — 점검만 두 줄에 남기는 이유는 캡션이 달라 중복이 아니고,
-   *    지난주 대비 sub 는 이번 주 줄에서만 의미가 있어서다) + 미점검(누적). */
+  /** 상단 KPI 카드 줄(K1~K6, R1~R5 2026-09-17) — **조회 기간 줄만** #dash-summary 에 그린다.
+   *  자료가 없으면 host 전체를 숨긴다(0 을 지어내지 않는다, D1/B1 계약 유지).
+   *  '이번 주' 묶음은 X1(2026-09-17)부터 여기서 그리지 않는다 — 사용자 지시("이번주 카드를
+   *  이미지 오른쪽에 배치")로 「이번 주」 블록 안 요일 막대 옆으로 옮겼다(buildWeekTilesGrid_ +
+   *  renderView_ 호출부). 그 블록이 막대를 못 그리는 예외(legacy 제목 형식)에서만 renderView_ 가
+   *  이 host 로 도로 떨어뜨린다(X2 — 카드를 잃지 않는다). */
   function renderKpiCards_(data, viewName) {
     var host = el_('dash-summary');
     var rd = rangeKpiData_(data, viewName);
-    var cd = summaryChipData_(data, viewName);
     host.textContent = '';
-    if (!rd && !cd) { host.hidden = true; return; }
+    if (!rd) { host.hidden = true; return; }
     host.hidden = false;
 
-    if (rd) {
-      var rcap = document.createElement('p');
-      rcap.className = 'dash-kpis-caption';
-      rcap.textContent = (data.range && data.range.label) ? '조회 기간 ' + data.range.label : '조회 기간';
-      host.appendChild(rcap);
+    var rcap = document.createElement('p');
+    rcap.className = 'dash-kpis-caption';
+    rcap.textContent = (data.range && data.range.label) ? '조회 기간 ' + data.range.label : '조회 기간';
+    host.appendChild(rcap);
 
-      var rgrid = document.createElement('div');
-      rgrid.className = 'dash-tiles dash-kpis';
-      rgrid.appendChild(kpiTile_('점검', rd.inspections));
-      rgrid.appendChild(kpiTile_('부적합', rd.findings, rd.findings > 0));
-      rgrid.appendChild(kpiTile_('협력회사', rd.companies));
-      rgrid.appendChild(kpiTile_('공사', rd.projects));
-      host.appendChild(rgrid);
-    }
+    var rgrid = document.createElement('div');
+    rgrid.className = 'dash-tiles dash-kpis';
+    rgrid.appendChild(kpiTile_('점검', rd.inspections));
+    rgrid.appendChild(kpiTile_('부적합', rd.findings, rd.findings > 0));
+    rgrid.appendChild(kpiTile_('협력회사', rd.companies));
+    rgrid.appendChild(kpiTile_('공사', rd.projects));
+    host.appendChild(rgrid);
+  }
 
-    if (cd) {
-      var wcap = document.createElement('p');
-      wcap.className = 'dash-kpis-caption';
-      wcap.textContent = kpiCaption_(cd.block.title);
-      host.appendChild(wcap);
-
-      var wgrid = filterTiles_(renderStatTiles_(cd.block), ['점검']);
-      wgrid.className += ' dash-kpis';
-      if (cd.overdue !== null) wgrid.appendChild(overdueKpiTile_(cd.overdue));
-      host.appendChild(wgrid);
-    }
+  /** '이번 주' KPI 타일(점검 + 미점검 누적) — renderStatTiles_ 재사용 + filterTiles_ 로
+   *  **점검만** 남긴다(부적합·협력회사는 조회 기간 줄과 라벨이 겹쳐 뺀다 — 점검만 남기는
+   *  이유는 캡션이 달라 중복이 아니고, 지난주 대비 sub 는 이 줄에서만 의미가 있어서다).
+   *  cd 가 null 이면(자료 없음) null — 호출부가 자리를 만들지 않는다(D1/B1). */
+  function buildWeekTilesGrid_(cd) {
+    if (!cd) return null;
+    var wgrid = filterTiles_(renderStatTiles_(cd.block), ['점검']);
+    wgrid.className += ' dash-kpis';
+    if (cd.overdue !== null) wgrid.appendChild(overdueKpiTile_(cd.overdue));
+    return wgrid;
   }
 
   /** 넘치는 표에만 가로 스크롤 힌트를 보인다(B2) — .dash-tablescroll 이 스크롤 컨테이너,
@@ -2632,16 +2654,36 @@
       ? '조회 기간 ' + data.range.label : '';
     var od = renderOverdue_(data);             // 밀린 일이 먼저다 — 맨 위에 둔다
     if (od) root.appendChild(od);
+    var cd = summaryChipData_(data, state.view);   // X1 — '이번 주' 블록 안에 넣을 카드 재료
     blocks.forEach(function (b) {
-      var sec = renderBlock_(b, data.server_today);
+      var isWeek = b.title.indexOf('이번 주') === 0;
+      var weekGrid = isWeek ? buildWeekTilesGrid_(cd) : null;
+      var sec = renderBlock_(b, data.server_today, weekGrid);
       if (b.title.indexOf('협력회사별') === 0) appendCsvButton_(sec, b, '협력회사별');
       else if (b.title.indexOf('공사별') === 0) appendCsvButton_(sec, b, '공사별');
       /* W1(2026-09-17) — 반폭(D2)을 걷어내고 전폭 1열로 통일한다(사용자 지시: 오늘 제출을
          전폭으로. 오늘 제출만 바꾸면 이번 주가 홀로 반폭으로 남아 우측이 비어 더 어색해진다 —
          허브 실측·vision 판독 확인, 두 블록 모두 전폭 채택). 이번 주는 dash-block-week 만
-         유지 — 위계 2단(요약) 스타일용(V4), 반폭과 무관하다. */
-      else if (b.title.indexOf('이번 주') === 0) {
+         유지 — 위계 2단(요약) 스타일용(V4), 반폭과 무관하다.
+         X1(2026-09-17) — weekGrid 가 실제로 블록 안(.dash-week-layout)에 꽂혔으면 2열 스타일
+         (dash-block-week-split)을 켠다. **꽂히지 못한 경우**(block.title 이 날짜 정규식과
+         안 맞는 legacy 형식이라 renderBlock_ 이 막대를 못 그린 예외, X2)에는 카드를 잃지
+         않도록 옛 자리(#dash-summary)로 되돌린다 — sec 안에 자리가 없다고 카드 자체를
+         버리면 그 정보가 화면에서 사라진다(D1/B1 계약과 같은 이유). */
+      else if (isWeek) {
         sec.className += ' dash-block-week';
+        var placed = weekGrid && sec.querySelector && sec.querySelector('.dash-week-layout');
+        if (weekGrid && !placed) {
+          var host = el_('dash-summary');
+          host.hidden = false;
+          var wcap = document.createElement('p');
+          wcap.className = 'dash-kpis-caption';
+          wcap.textContent = kpiCaption_(cd.block.title);
+          host.appendChild(wcap);
+          host.appendChild(weekGrid);
+        } else if (placed) {
+          sec.className += ' dash-block-week-split';
+        }
       }
       root.appendChild(sec);
     });

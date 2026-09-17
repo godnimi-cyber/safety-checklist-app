@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-2e25baab">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-2e25baab">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-83ebfb8c">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-83ebfb8c">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -375,9 +375,18 @@
 .wbar { width: 100%; min-height: 3px; border-radius: 4px 4px 2px 2px; background: var(--accent); }
 .wbar-n { font-size: 0.72rem; font-weight: 700; font-variant-numeric: tabular-nums;
   color: var(--text); min-height: 1em; line-height: 1; }
-/* 0 은 숫자를 안 쓰지만 **자리는 남긴다** — 안 그러면 칸 높이가 들쭉날쭉해진다 */
-.wbar-n.zero { visibility: hidden; }
-.dash-wday.today .wbar-track { background: color-mix(in srgb, var(--on-accent) 28%, transparent); }
+/* X3(2026-09-17) — n===0(실제 0건)과 n===null(자료 없음)을 muted 숫자('0'/'-')로 **보이게**
+   바꿨다(예전엔 둘 다 visibility:hidden 이라 미래 날짜와 오늘 0건이 똑같이 빈 칸이었다 —
+   0 을 지어낸 것과 같은 결과, B1). 굵기·색만 낮춰 그 날의 숫자(예: 목17)와 위계를 가른다. */
+/* .dash-wday.today .wbar-n(아래, 3클래스 선택자)이 이 규칙과 특이도가 같아 소스 순서상
+   이긴다 — 오늘 칸의 0/자료없음 숫자는 그 칸의 다른 숫자처럼 on-accent 를 그대로 쓴다
+   (오늘 칸 안에서까지 희미하게 가르는 것은 과한 구분이다). muted 는 오늘이 아닌 칸에만 적용된다. */
+.wbar-n-zero, .wbar-n-missing { font-weight: 500; color: var(--muted); }
+/* X4(2026-09-17) — 오늘 칸(배경이 accent)의 트랙을 28%→12% 로 낮춰 더 어둡게 한다.
+   채움(--on-accent, 불투명)과의 대비가 실측 3.15:1(WCAG UI 최소 3:1 턱걸이)에서
+   4.25:1(라이트)·7.9:1(다크)로 오른다 — sRGB 합성 계산, 12% 는 기본 트랙(위 373행)과
+   같은 값이라 새 토큰 없이 재사용한다. */
+.dash-wday.today .wbar-track { background: color-mix(in srgb, var(--on-accent) 12%, transparent); }
 .dash-wday.today .wbar { background: var(--on-accent); }
 .dash-wday.today .wbar-n { color: var(--on-accent); }
 .dash-wday .dow { font-size: 0.68rem; color: var(--muted); }
@@ -401,6 +410,13 @@
 /* 「지난주 대비」 맥락 줄 — 숫자 아래 작은 보조 글. 증감은 글로도 말한다(색만 쓰지 않는다). */
 .dash-tile .sub { display: block; font-size: 0.74rem; color: var(--muted); margin-top: 5px;
   line-height: 1.4; }
+/* X5(2026-09-17) — 점검 건수는 많을수록 좋은 지표라 감소를 주의색(--warn), 증가를
+   긍정색(--ok)으로 신호한다. 결합 선택자로 특이도를 올려 위 .dash-tile .sub 와의 소스
+   순서 문제를 원천 차단(K4 와 같은 패턴). danger(부적합 전용)는 쓰지 않는다 — 절제한
+   고급화가 기준이라 점검 감소를 부적합과 같은 무게로 보이면 과장이다. 화살표(▲▼)를
+   sub.textContent 쪽에서 같이 붙인다 — 색만으로 의미를 나르지 않는다(접근성). */
+.dash-tile .sub.sub-up { color: var(--ok); }
+.dash-tile .sub.sub-down { color: var(--warn); }
 /* K4 — 미점검·부적합이 0 보다 큰 카드는 border-top·배경 tint·라벨/숫자 색을 위험색으로.
    결합 선택자(.dash-tile.dash-tile-danger)로 특이도를 올려 위 .dash-tile 규칙과의 소스
    순서 문제를 원천 차단한다(이 파일 상단 CSS 함정 주석 참조). 배경은 surface 기준
@@ -425,6 +441,19 @@
 /* 2단(요약: 이번 주) — 본문보다 한 단 크게, 아이콘은 accent(그 블록의 강조색과 통일). */
 .dash-block-week h2 { font-size: 1.0625rem; }
 .dash-block-week h2 .dash-icon { color: var(--accent); }
+/* X1(2026-09-17) — 사용자 지시("이번주 카드를 이미지 오른쪽에 배치")로 「이번 주」 블록
+   안에서 요일 막대(왼쪽) + 점검·미점검 카드(오른쪽)를 2열로 둔다. 막대가 좁아지지
+   않도록 막대쪽을 더 넓게(1.35fr : 1fr) — 허브 실측(1440px, 블록 내부폭 1240px, gap 20):
+   막대 700px · 카드 열 518px(카드 253px×2). minmax(0, …)·minmax(240px, …) 하한을 명시하는
+   이유는 그냥 1fr 만 쓰면 max-content 가 불균등 반영되는 함정이 있어서다(D2 교훈).
+   align-items: stretch 로 좌우 바닥선을 맞춘다(실측 높이차 ≤4px 목표). 카드 없이 막대만
+   있을 때(renderBlock_ 이 weekCards 를 못 받은 경우)는 이 클래스 자체가 안 붙어 막대가
+   그대로 전폭이다(X2). */
+.dash-week-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(240px, 1fr);
+  gap: 20px; align-items: stretch; }
+.dash-week-stripcol { display: flex; flex-direction: column; justify-content: center; }
+.dash-week-stripcol .dash-weekstrip { margin: 4px 0 0; }
+.dash-week-layout .dash-kpis { align-content: start; }
 /* 1단(처리 필요: 미점검·확인이 필요한 기록) — 가장 크게.
    M1 정정(실측, V8) — 이전 주석은 "아이콘이 currentColor 로 danger 를 물려받는다"고
    적었으나 성립하지 않았다: 위 .dash-block h2 .dash-icon 이 svg 에 **명시** color(muted)를
@@ -571,6 +600,9 @@
 .dash-page-gap { min-width: 24px; text-align: center; color: var(--muted); font-size: 0.9rem; }
 @media (max-width: 640px) {
   .dash-tiles { grid-template-columns: repeat(2, 1fr); }
+  /* X1(2026-09-17) — 좁은 화면에서는 막대·카드를 나란히 둘 폭이 없다. 세로로 쌓는다
+     (2열 강제 금지) — 위 .dash-tiles 규칙이 카드 쪽은 그대로 2열(2×1)로 배치한다. */
+  .dash-week-layout { grid-template-columns: 1fr; }
   /* K5 — 카드가 홀수(3장: overdue===null 이라 미점검 카드가 없는 저장본)면 2열 그리드의
      마지막 카드가 새 줄에 혼자 남아 옆 칸이 빈 구멍으로 보인다(옛 칩 5개→2-2-1 배치에서
      실측된 문제, 위 F1 주석). 카드에서는 마지막 카드에 전폭을 줘 구멍을 없앤다. */
@@ -690,7 +722,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-2e25baab"></script>
-<script src="./dashboard.js?v=0.5.5-2e25baab"></script>
+<script src="./config.js?v=0.5.5-83ebfb8c"></script>
+<script src="./dashboard.js?v=0.5.5-83ebfb8c"></script>
 </body>
 </html>
