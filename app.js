@@ -61,6 +61,9 @@
     masters: null,
     mastersSyncedAt: null,
     masterBanner: null,
+    /* 마스터 세대(2단계, G3) — bootstrap·plans 응답 어느 쪽에서 받든 여기에 보관한다.
+       null 은 "아직 받은 적 없음"이고, 구서버(필드 없음)와 구별해야 한다. */
+    mastersGen: null,
     /* drafts: 계획별 임시저장 맵({ <plan_id|'adhoc'>: draft }) — sc_drafts 를 그대로 메모리에 올려 둔다.
        draft/draftKey: 현재 작성 화면이 붙잡고 있는 1건. draft 는 drafts[draftKey] 와 같은 객체
        참조라 입력이 바뀌면 drafts 도 자동으로 따라온다(별도 동기화 불필요, persistDraft 만 저장한다). */
@@ -769,6 +772,9 @@
       }
       var d = res.data;
       telAck_(d.tel_ack);   /* 서버가 확인해 준 배치만 지운다 */
+      /* 마스터 세대(2단계, G3-4) — bootstrap 응답이 최종 값을 정한다. 필드가 없으면(구서버)
+         건드리지 않는다 — undefined 로 덮으면 다음 plans 비교가 "필드 없음"과 구별을 잃는다. */
+      if (typeof d.masters_gen === 'string' && d.masters_gen !== '') state.mastersGen = d.masters_gen;
       if (d.masters) {
         refreshMasters({ ok: true, data: d.masters });
       } else if (mastersUsable_(state.masters)) {
@@ -2502,6 +2508,15 @@
          시계가 틀어진 만큼 거짓말이 된다. 서버 값이 있으면 그것도 같이 들고 있는다. */
       state.plansSnapshotAt = d.snapshot_at || null;
       state.serverToday = d.server_today || null;
+      /* 마스터 세대(2단계, G3) — 화면을 켜 둔 채라 복귀 이벤트 없이 폴링만 도는 경우를
+         잡는다. 필드가 없으면(구서버) 오늘 동작을 그대로 둔다 — undefined 를 "바뀜"으로
+         읽으면 매 폴링마다 bootstrap 이 뜬다. 보관값이 아직 없으면(첫 관측) 기준만 세우고
+         bootstrap 은 내지 않는다 — 다르다고 판단할 근거가 없다. */
+      if (typeof d.masters_gen === 'string' && d.masters_gen !== '') {
+        var mastersGenChanged = !!(state.mastersGen && state.mastersGen !== d.masters_gen);
+        if (mastersGenChanged) bootstrapOnce();   /* bootFlight 단일비행이 중복을 막는다 */
+        if (!mastersGenChanged) state.mastersGen = d.masters_gen;
+      }
       state.plansSyncedAt = new Date().toISOString();
       plansLastOkAt = Date.now();
       plansTrailLeft = 2;                  /* 깨끗이 반영됐다 — 예산을 되돌린다 */
