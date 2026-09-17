@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-56005c64">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-56005c64">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-5fec690b">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-5fec690b">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -46,6 +46,10 @@
    560px 대(client ≈518px)가 되어 472px 를 담는다 — 실측: 1180/1260/1440 넘침 0,
    1179px 는 1열 복귀로 전폭이라 넘침 0. 경계를 낮추려면 그 폭에서 client 대비 표
    필요폭을 먼저 재라. */
+/* U2(2026-09-17) — 「오늘 제출된 점검」 배지(점검일이 오늘과 다른 행만, 공사명 옆).
+   기본은 꺼 둔다(전폭·구서버 — 점검일 열이 그대로 보이는 곳에서는 배지가 중복이다).
+   위 @media 안의 .dash-today-live 규칙만 켠다 — 특이도가 더 높아 이 규칙보다 항상 이긴다. */
+.dash-today-badge { display: none; font-size: 0.78em; font-weight: 400; color: var(--muted); }
 @media (min-width: 1180px) {
   /* minmax(0,1fr) — 그냥 1fr 이면 전폭(1/-1) 표 블록의 nowrap 표(공사별 등) max-content 가
      두 트랙에 불균등하게 반영돼 반폭 열이 492px/768px 로 갈라졌다(실측). 0 하한을 명시하면
@@ -65,15 +69,30 @@
      순서를 바꾸면 폭이 엉뚱한 열로 간다. 반폭(.dash-block-half)에 표를 가진 블록은 지금
      이 하나뿐이다(이번 주는 header:[] 인 타일 블록이라 표가 없다, renderBlock_ 확인).
      공사(5번째) 열은 width 를 주지 않아 fixed 레이아웃이 남는 폭 전부를 몰아준다. */
+  /* U1(2026-09-17) — T1 폭은 실측 필요폭보다 좁아 시각·점검일·협력회사·팀에서 말줄임이
+     정상 데이터에도 발동했다(허브 1440px 실측). 필요폭 기준으로 다시 잡는다: 시각 59→62,
+     팀 70→72, 협력회사 107→110(안D). 점검일은 U2 가 알 때(.dash-today-live) 열째 숨기므로
+     104px 는 **모르는 구서버 폴백**(열이 그대로 보일 때)에만 쓰인다. 부적합은 56→52 로
+     줄여 늘어난 폭을 상쇄한다. */
   .dash-block.dash-block-half table { table-layout: fixed; }
   .dash-block.dash-block-half th, .dash-block.dash-block-half td {
     padding-left: 10px; padding-right: 10px; vertical-align: top; }
-  .dash-block.dash-block-half th:nth-child(1), .dash-block.dash-block-half td:nth-child(1) { width: 52px; }
+  .dash-block.dash-block-half th:nth-child(1), .dash-block.dash-block-half td:nth-child(1) { width: 62px; }
   .dash-block.dash-block-half th:nth-child(2), .dash-block.dash-block-half td:nth-child(2) { width: 62px; }
-  .dash-block.dash-block-half th:nth-child(3), .dash-block.dash-block-half td:nth-child(3) { width: 64px; }
-  .dash-block.dash-block-half th:nth-child(4), .dash-block.dash-block-half td:nth-child(4) { width: 86px; }
-  .dash-block.dash-block-half th:nth-child(6), .dash-block.dash-block-half td:nth-child(6) { width: 86px; }
-  .dash-block.dash-block-half th:nth-child(7), .dash-block.dash-block-half td:nth-child(7) { width: 56px; }
+  .dash-block.dash-block-half th:nth-child(3), .dash-block.dash-block-half td:nth-child(3) { width: 72px; }
+  .dash-block.dash-block-half th:nth-child(4), .dash-block.dash-block-half td:nth-child(4) { width: 110px; }
+  .dash-block.dash-block-half th:nth-child(6), .dash-block.dash-block-half td:nth-child(6) { width: 104px; }
+  .dash-block.dash-block-half th:nth-child(7), .dash-block.dash-block-half td:nth-child(7) { width: 52px; }
+  /* U2 — server_today 를 알 때만(renderBlock_ 이 header 형태로 「오늘 제출된 점검」을
+     식별해 <table class="dash-today-live"> 를 붙인다) 점검일 열을 통째로 숨긴다. 모르면
+     (구서버 폴백) 이 규칙 자체가 안 걸려 위 104px 폭 그대로 열이 보인다 — "숨기지 말고
+     현행 유지" 원칙. 이 표만 있는 half 스코프라 nth-child(6) 지정으로 충분하다(위 T1 주석). */
+  .dash-block.dash-block-half table.dash-today-live th:nth-child(6),
+  .dash-block.dash-block-half table.dash-today-live td:nth-child(6) { display: none; }
+  /* U2 — 점검일이 숨겨진 구간(half 스코프 + server_today 앎)에서만 공사명 옆 배지를 보인다.
+     기본(전폭·구서버)은 아래 .dash-today-badge 규칙으로 꺼 둔다 — 열이 그대로 보이는
+     구간에서 같은 날짜 정보가 두 번 나오는 것을 막는다(요구사항 "배지 중복 금지"). */
+  .dash-block.dash-block-half table.dash-today-live .dash-today-badge { display: inline; }
   /* T2 — 나머지 열은 기본 nowrap(.dash-block th/td, 위 468행)을 유지한다. 공사(5번째) 열만
      줄바꿈을 허용해 남는 폭 안에서 2~3줄로 접는다. V7-R3 교훈 유지: 머리글(th)은 어절을
      지키고(keep-all), 본문(td)만 글자 단위로 접는다(break-word) — 반대로 주면 짧은 머리글
@@ -717,7 +736,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-56005c64"></script>
-<script src="./dashboard.js?v=0.5.5-56005c64"></script>
+<script src="./config.js?v=0.5.5-5fec690b"></script>
+<script src="./dashboard.js?v=0.5.5-5fec690b"></script>
 </body>
 </html>

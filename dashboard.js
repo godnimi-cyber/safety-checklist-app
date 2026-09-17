@@ -1118,7 +1118,7 @@
 
   /** 블록 하나 렌더. textContent 만 쓴다(시트 유래 문자열의 HTML 해석 원천 차단).
    *  부적합 값은 header 의 '부적합' 열, 헤더 없는 블록(이번 주)은 타일로. */
-  function renderBlock_(block) {
+  function renderBlock_(block, serverToday) {
     var sec = document.createElement('section');
     sec.className = 'dash-block';
     var head = document.createElement('div');   // 제목 + CSV 버튼 자리(appendCsvButton_ 이 붙인다)
@@ -1158,6 +1158,20 @@
       if (block.rows.length) {
         block.rows[0].forEach(function (c, i) { if (typeof c === 'number') numCols[i] = true; });
       }
+      /* U2(2026-09-17) — 「오늘 제출된 점검」은 **제목이 아니라 header 형태**로 식별한다
+         (제목엔 건수가 섞여 바뀐다. 「공사별」표의 '마지막 점검일' 열은 header 가 달라 여기
+         안 걸린다). serverToday(서버 server_today)를 모르면(구서버 폴백) todayKnown 이
+         false 로 남아 아래 분기가 전부 건너뛰어진다 — 점검일 열·값은 손대지 않고 그대로 둔다. */
+      var TODAY_HEADER_SHAPE = ['시각', '점검자', '팀', '협력회사', '공사', '점검일', '부적합'];
+      var isTodayShape = block.header.length === TODAY_HEADER_SHAPE.length;
+      if (isTodayShape) {
+        for (var thi = 0; thi < TODAY_HEADER_SHAPE.length; thi++) {
+          if (block.header[thi] !== TODAY_HEADER_SHAPE[thi]) { isTodayShape = false; break; }
+        }
+      }
+      var todayKnown = isTodayShape && !!serverToday;
+      var dateCol = todayKnown ? block.header.indexOf('점검일') : -1;
+      var projCol = todayKnown ? block.header.indexOf('공사') : -1;
       /* B2(V8) — wrap 은 스크롤하지 않는 정지 상자(힌트 기준점), scroll 이 실제 스크롤
          컨테이너다(dashboard.html .dash-tablewrap/.dash-tablescroll 주석 참조). */
       var wrap = document.createElement('div');
@@ -1165,6 +1179,7 @@
       var scroll = document.createElement('div');
       scroll.className = 'dash-tablescroll';
       var table = document.createElement('table');
+      if (todayKnown) table.className = 'dash-today-live';   // U2 — CSS 가 점검일 열·배지를 이 클래스로 가른다
       var thead = document.createElement('thead');
       var hr = document.createElement('tr');
       block.header.forEach(function (t, i) {
@@ -1192,7 +1207,11 @@
                부적합 0 은 열어 볼 내용이 없으니 일반 텍스트로 둔다. */
             var clickable = block.keys &&
               (block.header[i] === '점검' || (block.header[i] === '부적합' && Number(cell) > 0));
-            if (clickable) {
+            if (todayKnown && i === dateCol) {
+              /* U2 — 오늘과 같으면 비운다(반폭에서는 열 자체가 CSS 로 사라지지만, 전폭에서도
+                 매 행 반복되는 '오늘'은 소음이다). 다르면 값은 그대로 두고 공사 셀에 배지를 단다. */
+              td.textContent = (String(cell) === String(serverToday)) ? '' : String(cell);
+            } else if (clickable) {
               var btn = document.createElement('button');
               btn.type = 'button';
               btn.className = 'dash-linknum' + (block.header[i] === '부적합' ? ' dash-danger' : '');
@@ -1202,6 +1221,13 @@
               })(block.header[i] === '점검' ? 'subs' : 'finds', block.keys[ri],
                  String(row[0]) + ' · ' + String(row[1]), Number(cell));
               td.appendChild(btn);
+            } else if (todayKnown && i === projCol && String(row[dateCol]) !== String(serverToday)) {
+              td.appendChild(document.createTextNode(String(cell)));
+              var badge = document.createElement('span');
+              badge.className = 'dash-today-badge';
+              var dm = /^\d{4}-(\d{2}-\d{2})$/.exec(String(row[dateCol] || ''));
+              badge.textContent = ' · 점검일 ' + (dm ? dm[1] : String(row[dateCol] || ''));
+              td.appendChild(badge);
             } else {
               td.textContent = String(cell);
             }
@@ -2611,7 +2637,7 @@
     var od = renderOverdue_(data);             // 밀린 일이 먼저다 — 맨 위에 둔다
     if (od) root.appendChild(od);
     blocks.forEach(function (b) {
-      var sec = renderBlock_(b);
+      var sec = renderBlock_(b, data.server_today);
       if (b.title.indexOf('협력회사별') === 0) appendCsvButton_(sec, b, '협력회사별');
       else if (b.title.indexOf('공사별') === 0) appendCsvButton_(sec, b, '공사별');
       /* 데스크톱 2열(D2) — 이번 주·오늘 제출된 점검만 반폭. 나머지는 CSS 기본값(전폭).
