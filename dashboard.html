@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-ea9d301a">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-ea9d301a">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-0958eb1c">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-0958eb1c">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -351,11 +351,14 @@
 /* KPI 카드 줄(K1~K6, 2026-09-17) — 필터 아래·첫 데이터 블록 위. 데이터가 없으면
    만들지 않는다(JS). 맨몸 텍스트 칩과 아래 「이번 주」 타일에 같은 숫자(점검·부적합·
    협력회사)가 두 번 나오던 중복을 걷어내고, 이 카드 줄 하나로 합쳤다(사용자 지시).
-   카드 자체는 .dash-tile 을 그대로 재사용한다(412행~) — 새 카드 스타일을 만들지 않는다. */
+   카드 자체는 .dash-tile 을 그대로 재사용한다(412행~) — 새 카드 스타일을 만들지 않는다.
+   R1~R5(2026-09-17) — 줄이 두 묶음(조회 기간 · 이번 주)이 됐다. 캡션+그리드가 반복되므로
+   두 번째 캡션(이번 주 캡션)에만 위 여백을 줘 묶음을 시각적으로 가른다. */
 #dash-summary { margin: 0 0 20px; }
 #dash-summary[hidden] { display: none; }
 .dash-kpis-caption { font-size: 0.78rem; font-weight: 600; color: var(--muted);
   letter-spacing: 0.02em; margin: 0 0 8px; }
+.dash-kpis-caption ~ .dash-kpis-caption { margin-top: 18px; }
 #dash-key-screen { max-width: 400px; margin: 64px auto; display: flex; flex-direction: column;
   gap: 14px; background: var(--surface); border: 1px solid var(--border);
   border-radius: 16px; padding: 32px 28px; }
@@ -695,7 +698,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-ea9d301a"></script>
-<script src="./dashboard.js?v=0.5.5-ea9d301a"></script>
+<script src="./config.js?v=0.5.5-0958eb1c"></script>
+<script src="./dashboard.js?v=0.5.5-0958eb1c"></script>
 </body>
 </html>

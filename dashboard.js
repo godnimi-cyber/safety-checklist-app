@@ -2436,23 +2436,71 @@
     return sec;
   }
 
-  /** 미점검(누적) KPI 카드 — renderStatTiles_ 와 같은 DOM 모양(.dash-tile > .k/.v)을 낸다.
-   *  미점검은 조회 기간이 아니라 '지금 남은 빚'이라 캡션(kpiCaption_)의 지배를 받지 않는다
-   *  — 그 구분을 라벨에 '(누적)'으로 직접 적어 캡션 밖 카드임을 표시한다(B1 계약 유지,
-   *  overdue===null 이면 이 함수 자체를 호출하지 않는다 — renderKpiCards_ 참조). */
-  function overdueKpiTile_(n) {
-    var danger = Number(n) > 0;
+  /** 라벨+값 한 장 — renderStatTiles_ 와 같은 DOM 모양(.dash-tile > .k/.v)을 낸다.
+   *  block.rows 가 아니라 이미 계산된 숫자(기간 KPI 합계 등)를 카드로 낼 때 쓴다. */
+  function kpiTile_(label, value, danger) {
     var tile = document.createElement('div');
     tile.className = 'dash-tile' + (danger ? ' dash-tile-danger' : '');
     var k = document.createElement('span');
     k.className = 'k';
-    k.textContent = '미점검(누적)';
+    k.textContent = label;
     var v = document.createElement('span');
     v.className = 'v' + (danger ? ' dash-danger' : '');
-    v.textContent = String(n);
+    v.textContent = String(value);
     tile.appendChild(k);
     tile.appendChild(v);
     return tile;
+  }
+
+  /** 미점검(누적) KPI 카드 — kpiTile_ 과 같은 DOM 모양.
+   *  미점검은 조회 기간이 아니라 '지금 남은 빚'이라 캡션(kpiCaption_)의 지배를 받지 않는다
+   *  — 그 구분을 라벨에 '(누적)'으로 직접 적어 캡션 밖 카드임을 표시한다(B1 계약 유지,
+   *  overdue===null 이면 이 함수 자체를 호출하지 않는다 — renderKpiCards_ 참조). */
+  function overdueKpiTile_(n) {
+    return kpiTile_('미점검(누적)', n, Number(n) > 0);
+  }
+
+  /** grid(renderStatTiles_ 의 반환) 안에서 라벨이 keepLabels 에 없는 타일을 지운다.
+   *  renderStatTiles_ 의 반환 모양·시그니처는 그대로 둔다(D32 계약) — 골라내는 건
+   *  호출부 책임으로 뺀다(R2, 이번 주 줄에서 기간 줄과 겹치는 부적합·협력회사를 뺀다). */
+  function filterTiles_(grid, keepLabels) {
+    Array.prototype.slice.call(grid.children).forEach(function (tile) {
+      var k = tile.querySelector ? tile.querySelector('.k') : null;
+      var label = k ? k.textContent : '';
+      if (keepLabels.indexOf(label) === -1) grid.removeChild(tile);
+    });
+    return grid;
+  }
+
+  /** 조회 기간(rng) KPI 집계 — 협력회사별 블록의 rows 를 합산한다(R1, 2026-09-17).
+   *  **제목 문자열('협력회사별')로 찾지 않는다** — 제목엔 기간이 붙고 서버가 문구를 바꿀 수
+   *  있다. header 형태(['협력회사','점검','공사','부적합'])로 식별한다.
+   *  blocksFor_ 가 null 이면(범위 오류·데이터 없음) 그대로 null — 기간 줄을 만들지 않는다.
+   *  숫자 하나라도 못 읽으면(문자열 등) **집계 전체**를 null 로 만든다 — 그 행만 건너뛰거나
+   *  0 취급하면 모르는 값을 지어내는 것이다(B1 계약). rows 가 진짜 빈 배열(그 기간에 점검이
+   *  0건)이면 이건 "실제로 0" 이라 0 을 낸다(R5, rng.error 로 인한 빈 배열과 다르다 —
+   *  rng.error 는 blocksFor_ 단계에서 이미 null 로 걸러진다).
+   *  projects(공사)는 회사별 project 집합 크기의 합("회사×공사")이다 — byProj 키가
+   *  cid+'|'+project_key 라 같은 공사가 두 회사에 겹치는 경우가 서버 집계상 없으므로(gas/main.gs
+   *  buildBlocks_) 이 합이 곧 기간 내 점검된 공사 수와 같다. 그래서 '공사' 라벨로 낸다. */
+  function rangeKpiData_(data, viewName) {
+    var blocks = blocksFor_(data, viewName);
+    if (!blocks) return null;
+    var blk = null;
+    for (var i = 0; i < blocks.length; i++) {
+      var h = blocks[i].header;
+      if (h && h.length === 4 && h[0] === '협력회사' && h[1] === '점검' &&
+          h[2] === '공사' && h[3] === '부적합') { blk = blocks[i]; break; }
+    }
+    if (!blk) return null;
+    var inspections = 0, findings = 0, projects = 0, bad = false;
+    blk.rows.forEach(function (row) {
+      var insp = Number(row[1]), proj = Number(row[2]), find = Number(row[3]);
+      if (!isFinite(insp) || !isFinite(proj) || !isFinite(find)) { bad = true; return; }
+      inspections += insp; projects += proj; findings += find;
+    });
+    if (bad) return null;
+    return { inspections: inspections, findings: findings, companies: blk.rows.length, projects: projects };
   }
 
   /** KPI 캡션 — '이번 주 (YYYY-MM-DD ~ YYYY-MM-DD)' 블록 제목에서 M/D 범위만 뽑는다
@@ -2465,26 +2513,48 @@
     return m[1] + ' (' + Number(m[3]) + '/' + Number(m[4]) + ' ~ ' + Number(m[6]) + '/' + Number(m[7]) + ')';
   }
 
-  /** 상단 KPI 카드 줄(K1~K6, 2026-09-17) 다시 그리기 — 자료가 없으면 줄 자체를 숨긴다
-   *  (0 을 지어내지 않는다, D1/B1 계약 유지). 점검·부적합·협력회사 카드는 renderStatTiles_
-   *  를 그대로 재사용한다 — 이전에는 이 자리(칩)와 「이번 주」 블록 타일에 같은 숫자가
-   *  두 번 나왔다(사용자 지시 2026-09-17 실측) — 이제 숫자는 여기 카드 한 곳뿐이다. */
+  /** 상단 KPI 카드 줄(K1~K6, R1~R5 2026-09-17) 다시 그리기 — 두 묶음, **기간 줄이 위**다
+   *  (사용자가 시작일·종료일을 직접 골라 조회하므로 그 결과가 주인공, R2). 자료가 없는
+   *  묶음은 그 줄만 숨기고, 둘 다 없으면 #dash-summary 전체를 숨긴다(0 을 지어내지 않는다,
+   *  D1/B1 계약 유지).
+   *  - 기간 줄: rangeKpiData_ 합산 — 점검·부적합·협력회사·공사.
+   *  - 이번 주 줄: renderStatTiles_ 재사용 + filterTiles_ 로 **점검만** 남긴다(부적합·협력회사는
+   *    기간 줄과 라벨이 겹쳐 뺀다 — 점검만 두 줄에 남기는 이유는 캡션이 달라 중복이 아니고,
+   *    지난주 대비 sub 는 이번 주 줄에서만 의미가 있어서다) + 미점검(누적). */
   function renderKpiCards_(data, viewName) {
     var host = el_('dash-summary');
+    var rd = rangeKpiData_(data, viewName);
     var cd = summaryChipData_(data, viewName);
     host.textContent = '';
-    if (!cd) { host.hidden = true; return; }
+    if (!rd && !cd) { host.hidden = true; return; }
     host.hidden = false;
 
-    var cap = document.createElement('p');
-    cap.className = 'dash-kpis-caption';
-    cap.textContent = kpiCaption_(cd.block.title);
-    host.appendChild(cap);
+    if (rd) {
+      var rcap = document.createElement('p');
+      rcap.className = 'dash-kpis-caption';
+      rcap.textContent = (data.range && data.range.label) ? '조회 기간 ' + data.range.label : '조회 기간';
+      host.appendChild(rcap);
 
-    var grid = renderStatTiles_(cd.block);
-    grid.className += ' dash-kpis';
-    if (cd.overdue !== null) grid.appendChild(overdueKpiTile_(cd.overdue));
-    host.appendChild(grid);
+      var rgrid = document.createElement('div');
+      rgrid.className = 'dash-tiles dash-kpis';
+      rgrid.appendChild(kpiTile_('점검', rd.inspections));
+      rgrid.appendChild(kpiTile_('부적합', rd.findings, rd.findings > 0));
+      rgrid.appendChild(kpiTile_('협력회사', rd.companies));
+      rgrid.appendChild(kpiTile_('공사', rd.projects));
+      host.appendChild(rgrid);
+    }
+
+    if (cd) {
+      var wcap = document.createElement('p');
+      wcap.className = 'dash-kpis-caption';
+      wcap.textContent = kpiCaption_(cd.block.title);
+      host.appendChild(wcap);
+
+      var wgrid = filterTiles_(renderStatTiles_(cd.block), ['점검']);
+      wgrid.className += ' dash-kpis';
+      if (cd.overdue !== null) wgrid.appendChild(overdueKpiTile_(cd.overdue));
+      host.appendChild(wgrid);
+    }
   }
 
   /** 넘치는 표에만 가로 스크롤 힌트를 보인다(B2) — .dash-tablescroll 이 스크롤 컨테이너,
@@ -2530,9 +2600,14 @@
       return;
     }
     el_('dash-team').disabled = false;
-    /* 협력회사별·공사별 제목에서 걷어낸 괄호 기간(D5)을 여기 한 번만 적는다. */
-    rangeLabel.textContent = (data.range && data.range.label) ? '조회 기간 ' + data.range.label : '';
     renderKpiCards_(data, state.view);
+    /* 협력회사별·공사별 제목에서 걷어낸 괄호 기간(D5)을 여기 한 번만 적는다 — 단 기간 KPI
+       카드 줄(rangeKpiData_)이 이미 같은 문구를 캡션으로 냈으면(R3) 여기서는 비운다(중복
+       제거). 그 카드 줄이 없는 예외(협력회사별 블록을 못 찾은 경우 등)에는 여기가 유일한
+       자리이므로 그대로 채운다 — 기간 정보 자체가 화면에서 사라지면 안 된다. */
+    var rangeShownInKpi = !!rangeKpiData_(data, state.view);
+    rangeLabel.textContent = (!rangeShownInKpi && data.range && data.range.label)
+      ? '조회 기간 ' + data.range.label : '';
     var od = renderOverdue_(data);             // 밀린 일이 먼저다 — 맨 위에 둔다
     if (od) root.appendChild(od);
     blocks.forEach(function (b) {
