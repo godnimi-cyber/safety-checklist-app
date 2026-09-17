@@ -1171,7 +1171,6 @@
       }
       var todayKnown = isTodayShape && !!serverToday;
       var dateCol = todayKnown ? block.header.indexOf('점검일') : -1;
-      var projCol = todayKnown ? block.header.indexOf('공사') : -1;
       /* B2(V8) — wrap 은 스크롤하지 않는 정지 상자(힌트 기준점), scroll 이 실제 스크롤
          컨테이너다(dashboard.html .dash-tablewrap/.dash-tablescroll 주석 참조). */
       var wrap = document.createElement('div');
@@ -1179,7 +1178,10 @@
       var scroll = document.createElement('div');
       scroll.className = 'dash-tablescroll';
       var table = document.createElement('table');
-      if (todayKnown) table.className = 'dash-today-live';   // U2 — CSS 가 점검일 열·배지를 이 클래스로 가른다
+      /* W2(2026-09-17) — 반폭 소멸로 점검일 열 숨김·배지(U2)는 걷어냈지만, 이 클래스는
+         남겨 부적합 우측 정렬(dashboard.html .dash-num 규칙)을 이 표에만 스코프한다 —
+         「협력회사별」·「공사별」은 그대로 두어야 한다(판정 9). */
+      if (todayKnown) table.className = 'dash-today-live';
       var thead = document.createElement('thead');
       var hr = document.createElement('tr');
       block.header.forEach(function (t, i) {
@@ -1208,8 +1210,9 @@
             var clickable = block.keys &&
               (block.header[i] === '점검' || (block.header[i] === '부적합' && Number(cell) > 0));
             if (todayKnown && i === dateCol) {
-              /* U2 — 오늘과 같으면 비운다(반폭에서는 열 자체가 CSS 로 사라지지만, 전폭에서도
-                 매 행 반복되는 '오늘'은 소음이다). 다르면 값은 그대로 두고 공사 셀에 배지를 단다. */
+              /* U2 — 오늘과 같으면 비운다(매 행 반복되는 '오늘'은 소음이다). 다르면 값을
+                 그대로 둔다 — 열이 전폭에서 항상 보이므로(W4) 공사 셀 배지는 제거했다
+                 (중복 표시였다, 반폭 폐지로 배지를 켤 CSS 스코프도 함께 사라졌다). */
               td.textContent = (String(cell) === String(serverToday)) ? '' : String(cell);
             } else if (clickable) {
               var btn = document.createElement('button');
@@ -1221,13 +1224,6 @@
               })(block.header[i] === '점검' ? 'subs' : 'finds', block.keys[ri],
                  String(row[0]) + ' · ' + String(row[1]), Number(cell));
               td.appendChild(btn);
-            } else if (todayKnown && i === projCol && String(row[dateCol]) !== String(serverToday)) {
-              td.appendChild(document.createTextNode(String(cell)));
-              var badge = document.createElement('span');
-              badge.className = 'dash-today-badge';
-              var dm = /^\d{4}-(\d{2}-\d{2})$/.exec(String(row[dateCol] || ''));
-              badge.textContent = ' · 점검일 ' + (dm ? dm[1] : String(row[dateCol] || ''));
-              td.appendChild(badge);
             } else {
               td.textContent = String(cell);
             }
@@ -2640,12 +2636,12 @@
       var sec = renderBlock_(b, data.server_today);
       if (b.title.indexOf('협력회사별') === 0) appendCsvButton_(sec, b, '협력회사별');
       else if (b.title.indexOf('공사별') === 0) appendCsvButton_(sec, b, '공사별');
-      /* 데스크톱 2열(D2) — 이번 주·오늘 제출된 점검만 반폭. 나머지는 CSS 기본값(전폭).
-         이번 주만 dash-block-week 를 추가로 받는다 — 위계 2단(요약) 스타일용(V4). */
+      /* W1(2026-09-17) — 반폭(D2)을 걷어내고 전폭 1열로 통일한다(사용자 지시: 오늘 제출을
+         전폭으로. 오늘 제출만 바꾸면 이번 주가 홀로 반폭으로 남아 우측이 비어 더 어색해진다 —
+         허브 실측·vision 판독 확인, 두 블록 모두 전폭 채택). 이번 주는 dash-block-week 만
+         유지 — 위계 2단(요약) 스타일용(V4), 반폭과 무관하다. */
       else if (b.title.indexOf('이번 주') === 0) {
-        sec.className += ' dash-block-half dash-block-week';
-      } else if (b.title.indexOf('오늘 제출') === 0) {
-        sec.className += ' dash-block-half';
+        sec.className += ' dash-block-week';
       }
       root.appendChild(sec);
     });

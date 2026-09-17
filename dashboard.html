@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-5fec690b">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-5fec690b">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-2e25baab">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-2e25baab">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -38,72 +38,17 @@
 /* 앱 styles.css 의 전역 main 패딩(하단 액션바 공간)이 #dash-blocks 에 끼어들어
    표들만 안쪽으로 밀린다 — 이 페이지에서는 무효화한다(폭 정렬의 전제). */
 .dash-shell main { padding: 0; }
-/* 데스크톱 폭 활용(D2) — 「이번 주」·「오늘 제출된 점검」만 나란히, 나머지는 전폭.
-   문턱 미만에서는 다시 1열(좁은 화면에서 반토막 난 표는 오히려 더 안 읽힌다). */
-/* 2열 전환 문턱은 **1180px**이다(1100px 아님). DS 리뷰가 산술로 지적하고 허브가 실측으로
-   확인한 결함: 1100px 뷰포트에서 반폭 트랙 513px → 표 영역 client 454px 인데 '오늘 제출'
-   7열 표의 필요폭이 472px 라 **18px 넘쳤다**(가로 스크롤 재발). 1180px 로 올리면 트랙이
-   560px 대(client ≈518px)가 되어 472px 를 담는다 — 실측: 1180/1260/1440 넘침 0,
-   1179px 는 1열 복귀로 전폭이라 넘침 0. 경계를 낮추려면 그 폭에서 client 대비 표
-   필요폭을 먼저 재라. */
-/* U2(2026-09-17) — 「오늘 제출된 점검」 배지(점검일이 오늘과 다른 행만, 공사명 옆).
-   기본은 꺼 둔다(전폭·구서버 — 점검일 열이 그대로 보이는 곳에서는 배지가 중복이다).
-   위 @media 안의 .dash-today-live 규칙만 켠다 — 특이도가 더 높아 이 규칙보다 항상 이긴다. */
-.dash-today-badge { display: none; font-size: 0.78em; font-weight: 400; color: var(--muted); }
-@media (min-width: 1180px) {
-  /* minmax(0,1fr) — 그냥 1fr 이면 전폭(1/-1) 표 블록의 nowrap 표(공사별 등) max-content 가
-     두 트랙에 불균등하게 반영돼 반폭 열이 492px/768px 로 갈라졌다(실측). 0 하한을 명시하면
-     내용 폭과 무관하게 정확히 반씩 나눈다. */
-  #dash-blocks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 20px; }
-  #dash-blocks > * { grid-column: 1 / -1; }
-  #dash-blocks > .dash-block-half { grid-column: auto; }
-  /* 반폭(D2)이 되면 nowrap 표(7열)가 래퍼보다 넓어져 가로로 잘려 나간다(D2 회귀,
-     1440px 실측: 오늘 제출 client 586 / scroll 723). R1(구) 은 모든 열에 줄바꿈을 허용해
-     넘침만 없앴지만, 그 결과 사람 이름(2줄)·'공무팀'(3줄)·'북부지사'(4줄)처럼 좁은 열의
-     글자가 낱개로 쪼개졌다(허브 실측, T1~T5 2026-09-17 — SAFETY-CHECKLIST). 안A/안B(공사만
-     줄바꿈 + top 정렬, 열폭은 auto 그대로)도 실측했으나 공사 열이 64px 로 찌그러지고
-     가로 넘침이 재발해 기각했다 — **열폭을 고정(T1)해야 안전하다.** */
-  /* T1 — table-layout: fixed + 열폭 명시. th/td 를 쌍으로 지정해야 첫 행 기준으로
-     고정폭이 잡힌다. 주의: nth-child 는 「오늘 제출된 점검」표의 열 순서(gas/main.gs 블록2
-     header: ['시각','점검자','팀','협력회사','공사','점검일','부적합'])에 묶인다 — 서버가
-     순서를 바꾸면 폭이 엉뚱한 열로 간다. 반폭(.dash-block-half)에 표를 가진 블록은 지금
-     이 하나뿐이다(이번 주는 header:[] 인 타일 블록이라 표가 없다, renderBlock_ 확인).
-     공사(5번째) 열은 width 를 주지 않아 fixed 레이아웃이 남는 폭 전부를 몰아준다. */
-  /* U1(2026-09-17) — T1 폭은 실측 필요폭보다 좁아 시각·점검일·협력회사·팀에서 말줄임이
-     정상 데이터에도 발동했다(허브 1440px 실측). 필요폭 기준으로 다시 잡는다: 시각 59→62,
-     팀 70→72, 협력회사 107→110(안D). 점검일은 U2 가 알 때(.dash-today-live) 열째 숨기므로
-     104px 는 **모르는 구서버 폴백**(열이 그대로 보일 때)에만 쓰인다. 부적합은 56→52 로
-     줄여 늘어난 폭을 상쇄한다. */
-  .dash-block.dash-block-half table { table-layout: fixed; }
-  .dash-block.dash-block-half th, .dash-block.dash-block-half td {
-    padding-left: 10px; padding-right: 10px; vertical-align: top; }
-  .dash-block.dash-block-half th:nth-child(1), .dash-block.dash-block-half td:nth-child(1) { width: 62px; }
-  .dash-block.dash-block-half th:nth-child(2), .dash-block.dash-block-half td:nth-child(2) { width: 62px; }
-  .dash-block.dash-block-half th:nth-child(3), .dash-block.dash-block-half td:nth-child(3) { width: 72px; }
-  .dash-block.dash-block-half th:nth-child(4), .dash-block.dash-block-half td:nth-child(4) { width: 110px; }
-  .dash-block.dash-block-half th:nth-child(6), .dash-block.dash-block-half td:nth-child(6) { width: 104px; }
-  .dash-block.dash-block-half th:nth-child(7), .dash-block.dash-block-half td:nth-child(7) { width: 52px; }
-  /* U2 — server_today 를 알 때만(renderBlock_ 이 header 형태로 「오늘 제출된 점검」을
-     식별해 <table class="dash-today-live"> 를 붙인다) 점검일 열을 통째로 숨긴다. 모르면
-     (구서버 폴백) 이 규칙 자체가 안 걸려 위 104px 폭 그대로 열이 보인다 — "숨기지 말고
-     현행 유지" 원칙. 이 표만 있는 half 스코프라 nth-child(6) 지정으로 충분하다(위 T1 주석). */
-  .dash-block.dash-block-half table.dash-today-live th:nth-child(6),
-  .dash-block.dash-block-half table.dash-today-live td:nth-child(6) { display: none; }
-  /* U2 — 점검일이 숨겨진 구간(half 스코프 + server_today 앎)에서만 공사명 옆 배지를 보인다.
-     기본(전폭·구서버)은 아래 .dash-today-badge 규칙으로 꺼 둔다 — 열이 그대로 보이는
-     구간에서 같은 날짜 정보가 두 번 나오는 것을 막는다(요구사항 "배지 중복 금지"). */
-  .dash-block.dash-block-half table.dash-today-live .dash-today-badge { display: inline; }
-  /* T2 — 나머지 열은 기본 nowrap(.dash-block th/td, 위 468행)을 유지한다. 공사(5번째) 열만
-     줄바꿈을 허용해 남는 폭 안에서 2~3줄로 접는다. V7-R3 교훈 유지: 머리글(th)은 어절을
-     지키고(keep-all), 본문(td)만 글자 단위로 접는다(break-word) — 반대로 주면 짧은 머리글
-     '공사'까지 어절 중간에서 쪼개지거나, 공백 없는 긴 공사명이 한 덩어리로 남아 폭을
-     넘긴다(실측, 구 R1 주석 참조). 나머지 열은 nowrap 이라 넘칠 수 있으므로 말줄임으로
-     받는다(글자 단위 쪼개짐 대신 …) — 공사 열은 다 보여야 하므로 제외한다. */
-  .dash-block.dash-block-half th:nth-child(5), .dash-block.dash-block-half td:nth-child(5) {
-    white-space: normal; overflow-wrap: break-word; }
-  .dash-block.dash-block-half th:nth-child(5) { word-break: keep-all; }
-  .dash-block.dash-block-half td:not(:nth-child(5)) { overflow: hidden; text-overflow: ellipsis; }
-}
+/* W1(2026-09-17) — 「이번 주」·「오늘 제출된 점검」 반폭(D2)을 걷어내고 전폭 1열로
+   통일한다(사용자 지시: 오늘 제출을 전폭으로. 오늘 제출만 바꾸면 이번 주가 홀로 반폭으로
+   남아 우측 650px 가 비어 더 어색해진다 — 허브 실측·vision 판독으로 두 블록 모두 전폭
+   채택, SAFETY-CHECKLIST W1~W5). 아래는 D2/T1/T2/U1/U2(반폭 전용 2열 그리드·열폭 고정·
+   줄바꿈·점검일 열 숨김·배지)였다 — dashboard.js 가 더는 어떤 블록에도 dash-block-half 를
+   주지 않으므로 전부 죽은 규칙이라 지웠다. 전폭에서는 table-layout 기본값(auto)만으로
+   말줄임 0·가로 넘침 0 실측 확인(공사 열도 1줄) — 별도 규칙이 필요 없다. 점검일 열은
+   전폭에서 늘 보이므로 숨김·배지도 함께 걷어냈다(dashboard.js 배지 생성 로직도 제거,
+   .dash-today-badge 규칙도 없앴다). 부적합 우측 정렬은 .dash-today-live 스코프로 옮겨
+   살렸다(아래 .dash-num 규칙, W2 — 「협력회사별」·「공사별」은 그 클래스를 받지 않으므로
+   정렬이 그대로 불변이다, 판정 9). */
 /* 음영은 제목 바 전용(사용자 지시) — 본문 카드는 보더로만 구획한다 */
 /* sticky 고정 해제(사용자 지시 2026-08-10) — 모바일에서 헤더가 화면 위를 상시 점유했다 */
 .dash-topbar {
@@ -410,8 +355,15 @@
    데이터를 안 줬다). 고칠 곳이 그림이 아니라 데이터였다는 뜻이다.
    서버가 안 주면 `.has-bars` 가 안 붙어 옛 달력 그대로다 — 빈 차트를 그리지 않는다.
    오늘 칸 강조, 지난 칸 옅게. */
+/* W5(2026-09-17) — 「이번 주」가 전폭이 되면서(W1) 옛 max-width:460px 가 카드 왼쪽에만
+   붙어 우측이 크게 비었다(허브 실측). 별도 상한을 새로 정하는 대신 걷어낸다 — `.dash-shell`
+   자체가 이미 max-width:1320px 로 페이지 전체를 막고 있어(위 33행) 이 블록도 다른 전폭
+   블록과 똑같이 그 이상 커질 수 없다. 상한을 따로 두면 이 블록만 형제 블록보다 좁아
+   보여 더 어색해진다(실측 비교 후 기각). repeat(7, 1fr) 가 이제 카드 실폭을 그대로
+   나누므로 요일 칸이 균등하게 퍼진다 — 실측(1440px, 카드 내부폭 1240px): 우측 여백 0px
+   (요구 ≤40px 충족), 막대(14px)는 각 칸 안에서 그대로 가운데 정렬돼 비어 보이지 않는다. */
 .dash-weekstrip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px;
-  max-width: 460px; margin: 4px 0 14px; }
+  margin: 4px 0 14px; }
 .dash-wday { display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 8px 0 7px; border: 1px solid var(--border); border-radius: 10px;
   background: var(--surface); }
@@ -512,13 +464,15 @@
 .dash-block tbody tr:hover { background: var(--row-hover); }
 .dash-block tr:last-child td { border-bottom: 0; }
 .dash-num { text-align: right; font-variant-numeric: tabular-nums; }
-/* T3(2026-09-17) — 위 규칙은 구체도(0,1,0)가 468행 `.dash-block th, .dash-block td
+/* T3(2026-09-17) — 위 규칙은 구체도(0,1,0)가 498행 `.dash-block th, .dash-block td
    { text-align: left; }`(클래스+요소, 0,1,1)에 항상 져서 「오늘 제출된 점검」의 부적합
-   열이 계산값 left 로 렌더됐다(실측 — 소스 순서가 아니라 구체도 문제였다). 이 표만
-   고친다: `.dash-block-half` 스코프를 얹어 구체도를 (0,3,1)로 올려 이긴다. 공사별·
-   협력회사별 등 나머지 전폭 표는 같은 구체도 문제를 그대로 갖고 있지만(미확인 기존
-   버그), 판정 7(다른 표 회귀 금지) 범위 밖이라 여기서 건드리지 않는다. */
-.dash-block.dash-block-half th.dash-num, .dash-block.dash-block-half td.dash-num {
+   열이 계산값 left 로 렌더됐다(실측 — 소스 순서가 아니라 구체도 문제였다). W2(2026-09-17)
+   — 반폭 폐지로 `.dash-block-half` 스코프가 죽어 이 회귀가 되살아나므로, 이 표에만 붙는
+   `.dash-today-live`(dashboard.js renderBlock_, todayKnown 일 때만) 로 스코프를 옮겨
+   구체도 (0,3,1)를 유지한다. 공사별·협력회사별 등 나머지 전폭 표는 같은 구체도 문제를
+   그대로 갖고 있지만(미확인 기존 버그) 판정 9(다른 블록 정렬 불변) 범위 밖이라
+   여기서 건드리지 않는다 — 이 표만 스코프해야 그 불변이 지켜진다. */
+.dash-block table.dash-today-live th.dash-num, .dash-block table.dash-today-live td.dash-num {
   text-align: right; font-variant-numeric: tabular-nums; }
 .dash-danger { color: var(--danger); font-weight: 700; }
 .dash-integrity { border-left: 4px solid var(--danger); }
@@ -736,7 +690,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-5fec690b"></script>
-<script src="./dashboard.js?v=0.5.5-5fec690b"></script>
+<script src="./config.js?v=0.5.5-2e25baab"></script>
+<script src="./dashboard.js?v=0.5.5-2e25baab"></script>
 </body>
 </html>
