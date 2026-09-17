@@ -86,9 +86,9 @@
     return t ? t.blocks : data.all.blocks;
   }
 
-  /** 요약 칩 줄(D1)의 재료 — '이번 주' 블록(header 가 빈 블록)의 요약행 8칸 +
-   *  미점검(재등록 제외) 건수. 데이터가 없으면 **0 을 지어내지 않고 null** —
-   *  호출부가 줄 자체를 만들지 않는다. */
+  /** 상단 KPI 카드 줄(K1)의 재료 — '이번 주' 블록(header 가 빈 블록) 자체 +
+   *  미점검(재등록 제외) 건수. 데이터가 없으면 **null** — 호출부가 줄 자체를 만들지 않는다.
+   *  실제 숫자는 renderStatTiles_ 가 block 에서 직접 읽는다(여기서는 존재 여부만 본다). */
   function summaryChipData_(data, viewName) {
     var blocks = blocksFor_(data, viewName);
     if (!blocks) return null;
@@ -97,18 +97,15 @@
       if (!blocks[i].header || !blocks[i].header.length) { wk = blocks[i]; break; }
     }
     if (!wk || !wk.rows || !wk.rows.length) return null;
-    var row = wk.rows[0], vals = {};
-    for (var j = 0; j + 1 < row.length; j += 2) vals[String(row[j])] = Number(row[j + 1]);
-    if (!('점검' in vals) || !('부적합' in vals) || !('협력회사' in vals)) return null;
+    var row = wk.rows[0], has = {};
+    for (var j = 0; j + 1 < row.length; j += 2) has[String(row[j])] = true;
+    if (!has['점검'] || !has['부적합'] || !has['협력회사']) return null;
     /* overdue 필드가 없는 payload(구버전 저장본)에서는 0 을 지어내지 않는다 —
        null 은 "모른다", 빈 배열 필터 결과 0 은 "실제로 없다"(B1, DS 적대 리뷰). */
     var overdueN = (data && data.overdue)
       ? overdueFor_(data, viewName).filter(function (o) { return !o.reopened; }).length
       : null;
-    var prev = vals['지난주 점검'];
-    var diff = isFinite(prev) ? vals['점검'] - prev : null;
-    return { inspections: vals['점검'], findings: vals['부적합'], companies: vals['협력회사'],
-             overdue: overdueN, diff: diff };
+    return { block: wk, overdue: overdueN };
   }
 
   /** 팀 select 옵션 목록 — value 는 'all' 또는 't<i>'(팀명을 DOM value 로 안 쓴다:
@@ -840,7 +837,10 @@
   }
 
   /** 헤더 없는 요약 블록(이번 주)의 라벨·값 쌍을 스탯 타일로 그린다 —
-   *  표 한 줄보다 위계가 서고 모바일(2×2)에서도 읽힌다. 부적합>0 만 상태색. */
+   *  표 한 줄보다 위계가 서고 모바일(2×2)에서도 읽힌다. 부적합>0 만 상태색.
+   *  K1(2026-09-17)부터 상단 KPI 카드(renderKpiCards_)가 이 함수를 그대로 재사용한다 —
+   *  D32a~d(dashboard-web.test.mjs)가 이 함수를 직접 호출하므로 시그니처·반환 DOM 모양
+   *  (.dash-tile > .k/.v[/.sub])을 바꾸지 않는다. */
   function renderStatTiles_(block) {
     var grid = document.createElement('div');
     grid.className = 'dash-tiles';
@@ -855,13 +855,14 @@
     for (var i = 0; i + 1 < row.length; i += 2) {
       var label = String(row[i]);
       if (label === '지난주 점검') continue;      // 아래 점검 타일이 대신 말한다
+      var danger = label === '부적합' && Number(row[i + 1]) > 0;
       var tile = document.createElement('div');
-      tile.className = 'dash-tile';
+      tile.className = 'dash-tile' + (danger ? ' dash-tile-danger' : '');
       var k = document.createElement('span');
       k.className = 'k';
       k.textContent = label;
       var v = document.createElement('span');
-      v.className = 'v' + (label === '부적합' && Number(row[i + 1]) > 0 ? ' dash-danger' : '');
+      v.className = 'v' + (danger ? ' dash-danger' : '');
       v.textContent = String(row[i + 1]);
       tile.appendChild(k);
       tile.appendChild(v);
@@ -1142,12 +1143,14 @@
     sec.appendChild(head);
 
     if (!block.header || !block.header.length) {
+      /* K2(2026-09-17) — 점검·부적합·협력회사 숫자는 상단 KPI 카드(renderKpiCards_)로
+         옮겼다. 여기 남기면 같은 숫자가 두 번(칩+타일) 보이던 문제가 카드+타일로 그대로
+         재현된다 — 이 블록은 이제 **요일별 추이(막대)만** 말한다. */
       var wk = weekStripModel_(block.title, new Date(), block.week);
       if (wk) {
         h.textContent = wk.label;   // 괄호 날짜 범위는 스트립이 대신한다(aria 에는 전체 제목)
         sec.appendChild(renderWeekStrip_(wk, block.title));
       }
-      sec.appendChild(renderStatTiles_(block));
     } else {
       var dangerCol = block.header.indexOf('부적합');
       /* 숫자 열은 우측 정렬 — 첫 데이터 행의 타입으로 판정(서버가 집계 수를 number 로 보낸다) */
@@ -2433,61 +2436,55 @@
     return sec;
   }
 
-  /** 요약 칩 하나 — 라벨 · 숫자(선택: danger). V6 — 아이콘은 14px 에서 서로 구분되지
-   *  않는 장식이었다(실측) — 뺐다. */
-  function summaryChip_(label, value, danger) {
-    var chip = document.createElement('span');
-    chip.className = 'dash-chip' + (danger ? ' dash-chip-danger' : '');
-    var lab = document.createElement('span');
-    lab.className = 'dash-chip-label';
-    lab.textContent = label;
-    chip.appendChild(lab);
-    var b = document.createElement('b');
-    b.textContent = String(value);
-    chip.appendChild(b);
-    return chip;
+  /** 미점검(누적) KPI 카드 — renderStatTiles_ 와 같은 DOM 모양(.dash-tile > .k/.v)을 낸다.
+   *  미점검은 조회 기간이 아니라 '지금 남은 빚'이라 캡션(kpiCaption_)의 지배를 받지 않는다
+   *  — 그 구분을 라벨에 '(누적)'으로 직접 적어 캡션 밖 카드임을 표시한다(B1 계약 유지,
+   *  overdue===null 이면 이 함수 자체를 호출하지 않는다 — renderKpiCards_ 참조). */
+  function overdueKpiTile_(n) {
+    var danger = Number(n) > 0;
+    var tile = document.createElement('div');
+    tile.className = 'dash-tile' + (danger ? ' dash-tile-danger' : '');
+    var k = document.createElement('span');
+    k.className = 'k';
+    k.textContent = '미점검(누적)';
+    var v = document.createElement('span');
+    v.className = 'v' + (danger ? ' dash-danger' : '');
+    v.textContent = String(n);
+    tile.appendChild(k);
+    tile.appendChild(v);
+    return tile;
   }
 
-  /** 칩 사이 구분자 — 시각적으로만 가른다(스크린리더는 칩 텍스트만 잇따라 읽는다). */
-  function chipSep_() {
-    var sep = document.createElement('span');
-    sep.className = 'dash-chip-sep';
-    sep.setAttribute('aria-hidden', 'true');
-    sep.textContent = '·';
-    return sep;
+  /** KPI 캡션 — '이번 주 (YYYY-MM-DD ~ YYYY-MM-DD)' 블록 제목에서 M/D 범위만 뽑는다
+   *  (weekStripModel_ 과 같은 정규식 — 같은 제목을 두 곳에서 다르게 해석하지 않는다).
+   *  형식이 달라지면(서버 문구 변경 등) 파싱을 포기하고 '이번 주'만 남긴다 — 캡션이
+   *  깨진 글자를 보이는 것보다 안전하다. */
+  function kpiCaption_(weekTitle) {
+    var m = /^(.*?)\s*\((\d{4})-(\d{2})-(\d{2})\s*~\s*(\d{4})-(\d{2})-(\d{2})\)\s*$/.exec(String(weekTitle || ''));
+    if (!m) return '이번 주';
+    return m[1] + ' (' + Number(m[3]) + '/' + Number(m[4]) + ' ~ ' + Number(m[6]) + '/' + Number(m[7]) + ')';
   }
 
-  /** 요약 칩 줄(D1) 다시 그리기 — 자료가 없으면 줄 자체를 숨긴다(0 을 지어내지 않는다). */
-  function renderSummaryChips_(data, viewName) {
+  /** 상단 KPI 카드 줄(K1~K6, 2026-09-17) 다시 그리기 — 자료가 없으면 줄 자체를 숨긴다
+   *  (0 을 지어내지 않는다, D1/B1 계약 유지). 점검·부적합·협력회사 카드는 renderStatTiles_
+   *  를 그대로 재사용한다 — 이전에는 이 자리(칩)와 「이번 주」 블록 타일에 같은 숫자가
+   *  두 번 나왔다(사용자 지시 2026-09-17 실측) — 이제 숫자는 여기 카드 한 곳뿐이다. */
+  function renderKpiCards_(data, viewName) {
     var host = el_('dash-summary');
     var cd = summaryChipData_(data, viewName);
     host.textContent = '';
     if (!cd) { host.hidden = true; return; }
     host.hidden = false;
-    /* M3 — 이 세 칩은 조회 기간(from~to)이 아니라 **이번 주 고정**이다(서버 buildBlocks_
-       블록1, weekBounds_). 라벨에 그 사실을 적지 않으면 바로 위 '조회 기간 …' 라벨과
-       섞여 오독된다(사용자 지시 반영). */
-    var chips = [
-      summaryChip_('이번 주 점검', cd.inspections, false),
-      summaryChip_('이번 주 부적합', cd.findings, cd.findings > 0),
-      summaryChip_('이번 주 협력회사', cd.companies, false)
-    ];
-    /* B1 — overdue 가 없는 저장본(cd.overdue === null)에서는 칩 자체를 만들지 않는다.
-       '미점검 0' 을 지어내면 실제로 밀린 일이 있어도 없다고 오독시킨다. 미점검은
-       기간 개념이 아니라 '지금 남은 빚'이라 '이번 주' 접두를 붙이지 않는다. */
-    if (cd.overdue !== null) {
-      chips.push(summaryChip_('미점검', cd.overdue, cd.overdue > 0));
-    }
-    /* 대상 명사 없이 '+4' 만 있으면 무엇의 증감인지 화면에서 알 수 없다 — 점검 건수임을
-       적는다. renderStatTiles_ 의 '증감 없음' 문구 규약과 같은 결로 맞춘다. */
-    if (cd.diff !== null) {
-      chips.push(summaryChip_('지난주 대비 점검',
-        cd.diff > 0 ? '+' + cd.diff : cd.diff < 0 ? String(cd.diff) : '증감 없음', false));
-    }
-    chips.forEach(function (chip, i) {
-      if (i > 0) host.appendChild(chipSep_());
-      host.appendChild(chip);
-    });
+
+    var cap = document.createElement('p');
+    cap.className = 'dash-kpis-caption';
+    cap.textContent = kpiCaption_(cd.block.title);
+    host.appendChild(cap);
+
+    var grid = renderStatTiles_(cd.block);
+    grid.className += ' dash-kpis';
+    if (cd.overdue !== null) grid.appendChild(overdueKpiTile_(cd.overdue));
+    host.appendChild(grid);
   }
 
   /** 넘치는 표에만 가로 스크롤 힌트를 보인다(B2) — .dash-tablescroll 이 스크롤 컨테이너,
@@ -2535,7 +2532,7 @@
     el_('dash-team').disabled = false;
     /* 협력회사별·공사별 제목에서 걷어낸 괄호 기간(D5)을 여기 한 번만 적는다. */
     rangeLabel.textContent = (data.range && data.range.label) ? '조회 기간 ' + data.range.label : '';
-    renderSummaryChips_(data, state.view);
+    renderKpiCards_(data, state.view);
     var od = renderOverdue_(data);             // 밀린 일이 먼저다 — 맨 위에 둔다
     if (od) root.appendChild(od);
     blocks.forEach(function (b) {

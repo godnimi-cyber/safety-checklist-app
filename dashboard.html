@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-6789bbce">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-6789bbce">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-ea9d301a">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-ea9d301a">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -348,22 +348,14 @@
 .dash-controls select:focus-visible, .dash-controls input:focus-visible,
 #dash-key-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .dash-controls .note { color: var(--muted); font-size: 0.85rem; align-self: center; }
-/* 요약 칩 줄(D1) — 필터 아래·첫 데이터 블록 위. 데이터가 없으면 만들지 않는다(JS). */
-/* 칩 사이 구분자(·, JS)가 시각 경계를 지므로 칩 자체의 간격은 좁혀 둔다 — 18px 을
-   그대로 두면 구분자 양옆에 18px 씩 붙어 '협력회사 6  ·  미점검 2' 처럼 과하게 벌어진다. */
-/* V2/V4 — 칩은 2단(요약)이라 숫자를 키운다(14.7→20px+), 라벨은 반대로 더 조용하게 뺀다.
-   숫자가 라벨보다 훨씬 커져서 baseline 정렬이 아니라 center 로 바꾼다(안 바꾸면 큰 숫자
-   밑변에 작은 라벨이 붕 떠 보인다). */
-.dash-summary-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-  padding: 12px 20px; margin: 0 0 20px; font-size: 0.92rem; color: var(--text); }
-.dash-summary-chips[hidden] { display: none; }
-/* V6 — 14px 아이콘 5개는 서로 구분되지 않는 장식이었다(실측). 칩은 숫자·라벨만 남긴다. */
-.dash-chip { display: inline-flex; align-items: center; gap: 6px; }
-.dash-chip-label { font-size: 0.72rem; font-weight: 500; color: var(--muted); letter-spacing: 0.02em; }
-.dash-chip b { font-size: 1.3rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-.dash-chip-danger .dash-chip-label, .dash-chip-danger b { color: var(--danger); }
-.dash-chip-sep { color: var(--muted); }
+/* KPI 카드 줄(K1~K6, 2026-09-17) — 필터 아래·첫 데이터 블록 위. 데이터가 없으면
+   만들지 않는다(JS). 맨몸 텍스트 칩과 아래 「이번 주」 타일에 같은 숫자(점검·부적합·
+   협력회사)가 두 번 나오던 중복을 걷어내고, 이 카드 줄 하나로 합쳤다(사용자 지시).
+   카드 자체는 .dash-tile 을 그대로 재사용한다(412행~) — 새 카드 스타일을 만들지 않는다. */
+#dash-summary { margin: 0 0 20px; }
+#dash-summary[hidden] { display: none; }
+.dash-kpis-caption { font-size: 0.78rem; font-weight: 600; color: var(--muted);
+  letter-spacing: 0.02em; margin: 0 0 8px; }
 #dash-key-screen { max-width: 400px; margin: 64px auto; display: flex; flex-direction: column;
   gap: 14px; background: var(--surface); border: 1px solid var(--border);
   border-radius: 16px; padding: 32px 28px; }
@@ -424,6 +416,14 @@
 /* 「지난주 대비」 맥락 줄 — 숫자 아래 작은 보조 글. 증감은 글로도 말한다(색만 쓰지 않는다). */
 .dash-tile .sub { display: block; font-size: 0.74rem; color: var(--muted); margin-top: 5px;
   line-height: 1.4; }
+/* K4 — 미점검·부적합이 0 보다 큰 카드는 border-top·배경 tint·라벨/숫자 색을 위험색으로.
+   결합 선택자(.dash-tile.dash-tile-danger)로 특이도를 올려 위 .dash-tile 규칙과의 소스
+   순서 문제를 원천 차단한다(이 파일 상단 CSS 함정 주석 참조). 배경은 surface 기준
+   color-mix 로만 섞는다(행 tint 이중 적용 방지, V8 교훈) — 완료로 오독되는 초록(--ok)은
+   쓰지 않는다(V6 교훈). */
+.dash-tile.dash-tile-danger { border-top-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 4%, var(--surface)); }
+.dash-tile.dash-tile-danger .k, .dash-tile.dash-tile-danger .v { color: var(--danger); }
 .dash-block { margin: 0 0 20px; background: var(--surface);
   border: 1px solid var(--border); border-radius: 12px;
   padding: 18px 20px; }
@@ -575,20 +575,11 @@
   text-decoration-thickness: 3px; text-underline-offset: 3px; }
 .dash-page-gap { min-width: 24px; text-align: center; color: var(--muted); font-size: 0.9rem; }
 @media (max-width: 640px) {
-  /* F1(사용자 실기기 리포트) — flex-wrap 이 칩을 접을 때 구분자(·)가 독립 flex 아이템이라
-     줄 끝에 혼자 남았다(실측 390px: 줄1·2 끝이 구분자). 2열 그리드로 바꾸고 구분자는
-     CSS 로만 숨긴다(DOM 유지 — aria-hidden 이라 SR 영향 없음, 데스크톱 1440px 은 이 쿼리
-     밖이라 한 줄 + 구분자 표시 그대로). 마지막 홀수 칩(5개→2-2-1)은 전폭으로 늘리지 않고
-     그대로 둔다 — 구분자가 DOM 에 남아 nth-child 로 "실제 칩 개수의 홀짝"을 가려낼 수
-     없고(항목 사이 hidden sep 이 끼어 인덱스가 항상 홀수), 그걸 가리려면 JS 가 필요해
-     이 정도 비대칭은 감수한다. */
-  /* 칩 5개(점검·부적합·협력회사·미점검·지난주 대비)면 2열이라도 3행이 된다 — 데스크톱
-     패딩(12px)·행간(8px)을 그대로 두면 3행 합이 104px 로 목표(90px 이하)를 넘는다.
-     좁은 화면에서만 세로 여백을 줄인다(실측: 8px 16px + 4px 12px → 88.4px). */
-  .dash-summary-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px;
-    padding: 8px 16px; }
-  .dash-chip-sep { display: none; }
   .dash-tiles { grid-template-columns: repeat(2, 1fr); }
+  /* K5 — 카드가 홀수(3장: overdue===null 이라 미점검 카드가 없는 저장본)면 2열 그리드의
+     마지막 카드가 새 줄에 혼자 남아 옆 칸이 빈 구멍으로 보인다(옛 칩 5개→2-2-1 배치에서
+     실측된 문제, 위 F1 주석). 카드에서는 마지막 카드에 전폭을 줘 구멍을 없앤다. */
+  .dash-kpis > *:last-child:nth-child(odd) { grid-column: 1 / -1; }
   /* V2 — 40px 숫자는 2열 좁은 타일(170px 하한)에서 여섯 자리를 넘기면 빠듯하다.
      모바일에서만 한 단 낮춘다(1440px 프로브는 이 미디어쿼리 밖이라 영향 없다). */
   .dash-tile .v { font-size: 2rem; }
@@ -686,7 +677,7 @@
     <span class="note" id="dash-range-label"></span>
   </section>
 
-  <div id="dash-summary" class="dash-summary-chips" hidden aria-live="polite"></div>
+  <div id="dash-summary" hidden aria-live="polite"></div>
 
   <main id="dash-blocks"></main>
 </div>
@@ -704,7 +695,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-6789bbce"></script>
-<script src="./dashboard.js?v=0.5.5-6789bbce"></script>
+<script src="./config.js?v=0.5.5-ea9d301a"></script>
+<script src="./dashboard.js?v=0.5.5-ea9d301a"></script>
 </body>
 </html>
