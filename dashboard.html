@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-8bede559">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-8bede559">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-56005c64">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-56005c64">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -54,25 +54,36 @@
   #dash-blocks > * { grid-column: 1 / -1; }
   #dash-blocks > .dash-block-half { grid-column: auto; }
   /* 반폭(D2)이 되면 nowrap 표(7열)가 래퍼보다 넓어져 가로로 잘려 나간다(D2 회귀,
-     1440px 실측: 오늘 제출 client 586 / scroll 723). 반폭일 때만 줄바꿈을 허용해
-     넘침을 없앤다 — **클래스 둘을 겹쳐 걸어야 한다.** `.dash-block-half th` 하나만으로는
-     `.dash-block th` 의 nowrap 과 구체도가 같아, 스타일시트 뒤쪽에 있는 nowrap 이 소스
-     순서로 이겨 버린다(실측 — 구체도만 보고 넘어갔다가 스크롤이 그대로 남는 것으로 발견).
-     `.dash-wraptext` 가 두 클래스를 겹쳐 구체도를 올리는 것과 같은 이유. overflow-wrap 도
-     같이 준다: 공백 없는 한글 사업장명은 word-break 만으로 항상 갈라지진 않는다(실측).
-     문턱 미만(1열 복귀)에는 이 규칙이 없다: 그때는 전폭이라 넘침이 없었다.
-     V7-R3 — overflow-wrap:break-word 를 th 에도 줬더니 '점검자'·'부적합' 같은 3글자
-     머리글까지 어절 중간에서 쪼개졌다(실측, 반폭 630px). 머리글은 어절을 지키고,
-     본문 셀은 갈라질 수 있어야 한다 — 둘의 요구가 반대라 규칙을 나눈다.
-     **keep-all 을 td 에까지 주면 안 된다**: 공백 없는 긴 한글 공사명이 한 덩어리로
-     남아 표가 다시 내용 폭만큼 넓어지고, R1 이 없앴던 가로 스크롤이 되살아난다
-     (실측 — th·td 공통 keep-all 일 때 client 571 vs scroll 589 로 재발).
-     th = keep-all(어절 보존, 머리글은 짧아 폭 압박이 없다) /
-     td = break-word(긴 고유명사를 강제로 접어 폭을 래퍼 안에 가둔다). */
+     1440px 실측: 오늘 제출 client 586 / scroll 723). R1(구) 은 모든 열에 줄바꿈을 허용해
+     넘침만 없앴지만, 그 결과 사람 이름(2줄)·'공무팀'(3줄)·'북부지사'(4줄)처럼 좁은 열의
+     글자가 낱개로 쪼개졌다(허브 실측, T1~T5 2026-09-17 — SAFETY-CHECKLIST). 안A/안B(공사만
+     줄바꿈 + top 정렬, 열폭은 auto 그대로)도 실측했으나 공사 열이 64px 로 찌그러지고
+     가로 넘침이 재발해 기각했다 — **열폭을 고정(T1)해야 안전하다.** */
+  /* T1 — table-layout: fixed + 열폭 명시. th/td 를 쌍으로 지정해야 첫 행 기준으로
+     고정폭이 잡힌다. 주의: nth-child 는 「오늘 제출된 점검」표의 열 순서(gas/main.gs 블록2
+     header: ['시각','점검자','팀','협력회사','공사','점검일','부적합'])에 묶인다 — 서버가
+     순서를 바꾸면 폭이 엉뚱한 열로 간다. 반폭(.dash-block-half)에 표를 가진 블록은 지금
+     이 하나뿐이다(이번 주는 header:[] 인 타일 블록이라 표가 없다, renderBlock_ 확인).
+     공사(5번째) 열은 width 를 주지 않아 fixed 레이아웃이 남는 폭 전부를 몰아준다. */
+  .dash-block.dash-block-half table { table-layout: fixed; }
   .dash-block.dash-block-half th, .dash-block.dash-block-half td {
-    white-space: normal; }
-  .dash-block.dash-block-half th { word-break: keep-all; }
-  .dash-block.dash-block-half td { overflow-wrap: break-word; }
+    padding-left: 10px; padding-right: 10px; vertical-align: top; }
+  .dash-block.dash-block-half th:nth-child(1), .dash-block.dash-block-half td:nth-child(1) { width: 52px; }
+  .dash-block.dash-block-half th:nth-child(2), .dash-block.dash-block-half td:nth-child(2) { width: 62px; }
+  .dash-block.dash-block-half th:nth-child(3), .dash-block.dash-block-half td:nth-child(3) { width: 64px; }
+  .dash-block.dash-block-half th:nth-child(4), .dash-block.dash-block-half td:nth-child(4) { width: 86px; }
+  .dash-block.dash-block-half th:nth-child(6), .dash-block.dash-block-half td:nth-child(6) { width: 86px; }
+  .dash-block.dash-block-half th:nth-child(7), .dash-block.dash-block-half td:nth-child(7) { width: 56px; }
+  /* T2 — 나머지 열은 기본 nowrap(.dash-block th/td, 위 468행)을 유지한다. 공사(5번째) 열만
+     줄바꿈을 허용해 남는 폭 안에서 2~3줄로 접는다. V7-R3 교훈 유지: 머리글(th)은 어절을
+     지키고(keep-all), 본문(td)만 글자 단위로 접는다(break-word) — 반대로 주면 짧은 머리글
+     '공사'까지 어절 중간에서 쪼개지거나, 공백 없는 긴 공사명이 한 덩어리로 남아 폭을
+     넘긴다(실측, 구 R1 주석 참조). 나머지 열은 nowrap 이라 넘칠 수 있으므로 말줄임으로
+     받는다(글자 단위 쪼개짐 대신 …) — 공사 열은 다 보여야 하므로 제외한다. */
+  .dash-block.dash-block-half th:nth-child(5), .dash-block.dash-block-half td:nth-child(5) {
+    white-space: normal; overflow-wrap: break-word; }
+  .dash-block.dash-block-half th:nth-child(5) { word-break: keep-all; }
+  .dash-block.dash-block-half td:not(:nth-child(5)) { overflow: hidden; text-overflow: ellipsis; }
 }
 /* 음영은 제목 바 전용(사용자 지시) — 본문 카드는 보더로만 구획한다 */
 /* sticky 고정 해제(사용자 지시 2026-08-10) — 모바일에서 헤더가 화면 위를 상시 점유했다 */
@@ -482,6 +493,14 @@
 .dash-block tbody tr:hover { background: var(--row-hover); }
 .dash-block tr:last-child td { border-bottom: 0; }
 .dash-num { text-align: right; font-variant-numeric: tabular-nums; }
+/* T3(2026-09-17) — 위 규칙은 구체도(0,1,0)가 468행 `.dash-block th, .dash-block td
+   { text-align: left; }`(클래스+요소, 0,1,1)에 항상 져서 「오늘 제출된 점검」의 부적합
+   열이 계산값 left 로 렌더됐다(실측 — 소스 순서가 아니라 구체도 문제였다). 이 표만
+   고친다: `.dash-block-half` 스코프를 얹어 구체도를 (0,3,1)로 올려 이긴다. 공사별·
+   협력회사별 등 나머지 전폭 표는 같은 구체도 문제를 그대로 갖고 있지만(미확인 기존
+   버그), 판정 7(다른 표 회귀 금지) 범위 밖이라 여기서 건드리지 않는다. */
+.dash-block.dash-block-half th.dash-num, .dash-block.dash-block-half td.dash-num {
+  text-align: right; font-variant-numeric: tabular-nums; }
 .dash-danger { color: var(--danger); font-weight: 700; }
 .dash-integrity { border-left: 4px solid var(--danger); }
 /* h2 글자·아이콘 색은 위 .dash-overdue h2, .dash-integrity h2 규칙(M1)로 옮겼다 — 여기 두면
@@ -698,7 +717,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-8bede559"></script>
-<script src="./dashboard.js?v=0.5.5-8bede559"></script>
+<script src="./config.js?v=0.5.5-56005c64"></script>
+<script src="./dashboard.js?v=0.5.5-56005c64"></script>
 </body>
 </html>
