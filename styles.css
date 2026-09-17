@@ -311,6 +311,9 @@ select.input {
 
 /* ---------- Home ---------- */
 .sync-line { font-size: 13px; color: var(--color-neutral); display: flex; align-items: center; gap: var(--space-2); }
+.sync-line-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.sync-line-row .sync-line { flex: 1 1 auto; }
+.btn-master-refresh { flex: 0 0 auto; padding: var(--space-1) var(--space-2); font-size: 12px; min-height: 0; }
 
 /* 「N분 전 확인 · 최신이 아닐 수 있습니다」의 강조. **색만으로 말하지 않는다** — 문구가 이미
    낡음을 말하고 있고, 색은 거기에 무게만 더한다(WCAG 1.4.1). */

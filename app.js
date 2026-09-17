@@ -365,11 +365,18 @@
          한다(K3) — tombstone 해제가 이미 "계획을 다시 연다"는 그 하나이므로, 이 큐 항목은
          재전송 불가로 확정(retire)한다: 조용히 없애면 안 되므로(K4) 배너로 알린다. */
       state.queue = state.queue.filter(function (q) { return q.submission_id !== id; });
-      showBanner('error', '이전 제출이 입력 오류로 거절되어 미전송 목록에서 정리했습니다 — '
-        + (draftCopyKept
-            ? '작성하던 내용은 남아 있습니다. 이어쓰기 또는 계획에서 열어 고친 뒤 다시 제출하세요: '
-            : '계획을 다시 열어 확인 후 제출하세요: ')
-        + (error.message || '') + ' (' + error.code + ')');
+      /* A8(i): PIN_MISMATCH 로 인한 retire 는 대개 그 점검자의 token 이 회수된 경우다
+         (docs/OPERATIONS.md §7-13) — 이 사람이 고칠 입력이 없는데 "입력을 고쳐 다시
+         제출하세요"라고 하면 헛수고를 시킨다. 삭제(retire) 동작 자체는 그대로 두고
+         문구만 바로잡는다(범위를 좁게 유지 — U2·K3 계약은 건드리지 않는다). */
+      showBanner('error', String(error.message || '').indexOf('PIN_MISMATCH') >= 0
+        ? '이전 제출이 거절되어 미전송 목록에서 정리했습니다 — 점검자 권한이 해제되었습니다. '
+          + '관리자에게 문의하세요' + (draftCopyKept ? ' (작성하던 내용은 남아 있습니다)' : '')
+        : '이전 제출이 입력 오류로 거절되어 미전송 목록에서 정리했습니다 — '
+          + (draftCopyKept
+              ? '작성하던 내용은 남아 있습니다. 이어쓰기 또는 계획에서 열어 고친 뒤 다시 제출하세요: '
+              : '계획을 다시 열어 확인 후 제출하세요: ')
+          + (error.message || '') + ' (' + error.code + ')');
       window.scrollTo(0, 0);
     }
   }
@@ -719,9 +726,29 @@
     return getJson(q, syncNotice_);
   }
 
-  /** 부팅 시 1회. 실패하면 **옛 두 경로로 되돌아간다** — 서버가 아직 bootstrap 을 모를 수도
-      있고(배포 순서), 그 한 번의 실패로 부팅을 통째로 잃으면 안 된다. */
-  function bootstrapOnce() {
+  /* ── masters 신선도 (2026-09-17, 점검자 반영 지연 해소 1단계) ─────────────────
+     서버(gas/main.gs onDashboardEdit)는 마스터 탭 편집을 캐시에 즉시 반영한다 — 지연의
+     원인은 서버가 아니라 앱이다. bootstrapOnce 가 부팅 때 1회만 불려서, 앱을 켜 둔 채
+     복귀만 반복하면 점검자 추가·삭제가 그 세션 안에서는 영영 안 보였다.
+     쿨다운 기준은 plansLastOkAt 과 같은 원칙으로 **마지막 성공**이다 — '마지막 시도'로
+     두면 실패 직후의 재개가 통째로 막힌다(아래 watchAppResume 주석과 같은 함정). */
+  var MASTERS_FRESH_BASE_MS = 5 * 60 * 1000;
+  var MASTERS_FRESH_JITTER_MS = 60 * 1000;   /* 31대가 같은 순간에 낡지 않게 흩는다 */
+  var mastersFreshMs = MASTERS_FRESH_BASE_MS + Math.floor(Math.random() * MASTERS_FRESH_JITTER_MS);
+  var mastersLastOkAt = 0;
+  function mastersAgeMs() { return mastersLastOkAt ? (Date.now() - mastersLastOkAt) : Infinity; }
+  function mastersStale_() { return mastersAgeMs() >= mastersFreshMs; }
+
+  /* A2: 같은 순간 두 번 뜨지 않게 하는 단일비행 표식. 완료(성공·실패 모두)에서 푼다.
+     동기 분기(MOCK·오프라인)는 gap 없이 그 자리에서 끝나므로 굳이 세우지 않아도 안전하다 —
+     세워도 같은 tick 에서 바로 풀리므로 무해하지만, 값을 지키는 것은 비동기 분기(fetch)뿐이다. */
+  var bootFlight = null;
+  /** 부팅 시 1회, 또는 복귀 시 masters 가 낡았을 때. 실패하면 **옛 두 경로로 되돌아간다** —
+      서버가 아직 bootstrap 을 모를 수도 있고(배포 순서), 그 한 번의 실패로 부팅을 통째로
+      잃으면 안 된다. `fromResume` 이면 이미 masters·plans 를 한 번씩 가진 상태이므로,
+      실패 폴백을 **plans 1건**으로 줄인다(A4) — 복귀마다 2건을 태울 이유가 없다. */
+  function bootstrapOnce(fromResume) {
+    if (bootFlight) return bootFlight;
     if (CONFIG.MOCK) { refreshMasters(); refreshPlans(); return; }
     /* **오프라인이면 아예 나가지 않는다.** 실측(가짜 DOM 하네스): 오프라인 부팅이
        bootstrap 4시도 + masters 4시도 + plans 4시도 = **12요청 11.2초**를 태우고,
@@ -734,8 +761,12 @@
     var batch = telSeal_();
     /* 요청을 **보내는 지금**의 세대를 붙잡아 둔다 — 응답이 도착할 때가 아니라. */
     var bootGen = state.plansGen || 0;
-    return fetchBootstrapRemote(rev, batch).then(function (res) {
-      if (!res || !res.ok || !res.data) { telPersist_(); refreshMasters(); refreshPlans(); return; }
+    bootFlight = fetchBootstrapRemote(rev, batch).then(function (res) {
+      if (!res || !res.ok || !res.data) {
+        telPersist_();
+        if (fromResume) { requestPlansRefresh(true); } else { refreshMasters(); refreshPlans(); }
+        return;
+      }
       var d = res.data;
       telAck_(d.tel_ack);   /* 서버가 확인해 준 배치만 지운다 */
       if (d.masters) {
@@ -745,6 +776,7 @@
            — 스코프 승인·탭 생성이 끝나면 버튼이 나와야 하는데 그건 마스터 내용이 아니다. */
         state.masters.caps = d.caps;
         state.mastersSyncedAt = new Date().toISOString();
+        mastersLastOkAt = Date.now();
         state.storage.saveMasters({ data: state.masters, syncedAt: state.mastersSyncedAt });
         state.masterBanner = null;
         if (state.currentScreen === 'home') renderHome();
@@ -757,7 +789,8 @@
       refreshPlans({ ok: true, data: { plans: d.plans, plans_complete: d.plans_complete,
                                        plans_rev: d.plans_rev, snapshot_at: d.snapshot_at,
                                        server_today: d.server_today } }, bootGen);
-    });
+    }).then(function () { bootFlight = null; }, function () { bootFlight = null; });
+    return bootFlight;
   }
 
   /* 오프라인이라 부팅을 미뤘다. **조용히 넘어가지 않는다** — 마스터가 없으면 새 점검을
@@ -3603,14 +3636,58 @@
     var cached = state.storage.loadMasters();
     if (cached && cached.data) { state.masters = cached.data; state.mastersSyncedAt = cached.syncedAt || null; }
   }
+  /* A6: 초안이 참조하는 행이 새 마스터에 없으면 **옛 행을 active:false 로 이어 붙여 보존**한다.
+     근거: 초안의 점검자가 사라지면 withInjectedPin(236행) 이 PIN 을 주입 못해 제출 사전검증이
+     PIN_MISMATCH 로 막힌다(web/lib.js:80~82) — 작성 화면의 점검자·공사는 잠겨 있어 사용자가
+     고칠 수 없다. 지금까지는 부팅 때만 마스터가 갱신돼 드물었지만, 복귀마다 갱신하면 같은 세션
+     안에서 일어난다. 서버(loadMasters_, gas:5213~5225)도 옛 템플릿 버전을 active:false 로
+     되살리는 관용을 이미 쓴다 — 앱을 같은 결로 맞춘다. **선택 목록(populate*Select)은 이미
+     active !== false 를 거르므로, 이 표식만으로 새 점검에 다시 뽑히지 않는다.** */
+  function preserveDraftMasterRefs_(oldMasters, newMasters, draft) {
+    if (!draft || !oldMasters || !newMasters) return;
+    function keepRow(listKey, idKey, id) {
+      if (!id) return;
+      var list = newMasters[listKey] || (newMasters[listKey] = []);
+      var stillThere = list.some(function (x) { return x[idKey] === id; });
+      if (stillThere) return;
+      var old = (oldMasters[listKey] || []).filter(function (x) { return x[idKey] === id; })[0];
+      if (!old) return;
+      var copy = {};
+      Object.keys(old).forEach(function (k) { copy[k] = old[k]; });
+      copy.active = false;
+      list.push(copy);
+    }
+    keepRow('inspectors', 'inspector_id', draft.inspector_id);
+    keepRow('companies', 'company_id', draft.company_id);
+    keepRow('projects', 'project_id', draft.project_key);
+    if (draft.template_id != null) {
+      var tlist = newMasters.templates || (newMasters.templates = []);
+      var sameTpl = function (t) {
+        return t.template_id === draft.template_id &&
+          (draft.template_ver == null || t.ver === draft.template_ver);
+      };
+      if (!tlist.some(sameTpl)) {
+        var oldT = (oldMasters.templates || []).filter(sameTpl)[0];
+        if (oldT) {
+          var tcopy = {};
+          Object.keys(oldT).forEach(function (k) { tcopy[k] = oldT[k]; });
+          tcopy.active = false;
+          tlist.push(tcopy);
+        }
+      }
+    }
+  }
   /* prefetched: bootstrap 이 이미 받아 온 봉투. 주면 네트워크를 다시 타지 않는다.
      **적용 로직을 복사하지 않기 위한 입구**다 — 배너·저장·렌더 규칙이 두 벌이 되면
      한쪽만 고치는 날이 온다(이 저장소가 여러 번 밟은 자리). */
   function refreshMasters(prefetched) {
     return (prefetched ? Promise.resolve(prefetched) : loadMastersFromNetwork()).then(function (result) {
       if (result.ok) {
+        var prevMasters = state.masters;
         state.masters = result.data;
+        preserveDraftMasterRefs_(prevMasters, state.masters, state.draft);
         state.mastersSyncedAt = new Date().toISOString();
+        mastersLastOkAt = Date.now();   /* A3: 쿨다운 기준은 성공이지 시도가 아니다 */
         state.storage.saveMasters({ data: state.masters, syncedAt: state.mastersSyncedAt });
         state.masterBanner = CONFIG.MOCK ? { level: 'info', text: 'MOCK 모드 — 내장 목 데이터 사용 중(서버 미연결)' } : null;
       } else {
@@ -3633,6 +3710,10 @@
     }
     if (cached && cached.consumed) { state.consumedPlanIds = cached.consumed; }
   }
+
+  /* A7: 「점검자 목록 새로고침」 — 쿨다운을 무시하고 bootstrapOnce() 를 1건 낸다.
+     bootFlight 단일비행 가드는 그대로 적용되므로 연타해도 요청이 겹치지 않는다. */
+  function onMasterRefreshClick() { bootstrapOnce(); }
 
   function wireEvents() {
     $('btn-back').addEventListener('click', onBack);
@@ -3702,6 +3783,10 @@
     });
     $('chk-ack').addEventListener('change', onAckChange);
     $('btn-submit').addEventListener('click', onSubmit);
+    /* A7: index.html 은 버전 쿼리가 없어 최대 10분 낡을 수 있다(sw.js 주석) — 새 app.js 가
+       옛 index.html(이 버튼이 없는 마크업)과 짝지어질 수 있으므로, 요소가 있을 때만 배선한다. */
+    var masterRefreshBtn = $('btn-master-refresh');
+    if (masterRefreshBtn) masterRefreshBtn.addEventListener('click', onMasterRefreshClick);
   }
 
   /* 손상 계열 op 판정 — logic.js(storage 래퍼)가 원본을 백업하고 빈 값으로 복구하는 두 경우를
@@ -3909,20 +3994,29 @@
     mark();   /* 앱을 연 것 자체가 조작이다 */
   }
 
+  /* A1: 복귀 진입점의 **배타 분기**. masters 가 낡았으면 bootstrap(masters+plans 를 한 응답으로)
+     하나만, 아니면 plans 만 받는다 — **동시에 부르지 않는다**. 함께 부르면 bootstrap 의 plans
+     봉투와 requestPlansRefresh 의 coalesce 타이머가 각각 요청을 내어 반드시 2건이 된다
+     (실측 근거: requestPlansRefresh 는 800ms 뒤 별도 조회를 던진다).
+     A5: 어느 갈래든 폴링을 다시 건다 — 배타 분기라고 폴 재예약까지 생략하면 안 된다. */
+  function resumeRefresh_(plansForce) {
+    if (mastersStale_()) { bootstrapOnce(true); } else { requestPlansRefresh(plansForce); }
+    schedulePlansPoll();
+  }
+
   function watchAppResume() {
     if (!document || !document.addEventListener) return;
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) { stopPlansPoll(); return; }   /* 배경에서 타이머를 돌리지 않는다 */
       lastUserActionAt = Date.now();   /* 앱으로 돌아온 것도 조작이다 */
       recheckServiceWorkerUpdate();
-      requestPlansRefresh(false);
-      schedulePlansPoll();
+      resumeRefresh_(false);
     });
     if (window && window.addEventListener) {
       /* bfcache 복원 — visibilitychange 가 안 뜨는 경로다. 복원일 때만(persisted) 반응한다:
          일반 최초 로드에서도 pageshow 는 뜨는데 그때는 부팅이 이미 갱신한다. */
       window.addEventListener('pageshow', function (e) {
-        if (e && e.persisted) { recheckServiceWorkerUpdate(); requestPlansRefresh(true); }
+        if (e && e.persisted) { recheckServiceWorkerUpdate(); resumeRefresh_(true); }
       });
       window.addEventListener('pagehide', stopPlansPoll);
       /* 온라인 복귀는 **실패 뒤 재개 허가**다. 직전이 성공이었다면 굳이 다시 묻지 않는다 —
@@ -3931,12 +4025,10 @@
         /* 오프라인이라 부팅을 통째로 미뤘다면 **부팅부터** 되살린다 — 계획만 받아 봐야
            마스터가 없으면 새 점검 화면이 여전히 비어 있다. */
         if (bootDeferred) { bootDeferred = false; bootstrapOnce(); schedulePlansPoll(); return; }
-        if (plansLastFailed || plansAgeMs() >= PLANS_FRESH_MS) requestPlansRefresh(true);
-        else renderPlansSyncLine();
-        /* **양쪽 갈래 모두** 폴을 다시 건다. offline 이 타이머를 지웠으므로, 갱신을 건너뛰는
-           갈래에서 안 걸면 잠깐의 통신 끊김(엘리베이터·지하) 한 번이 그 세션의 폴링을
-           통째로 죽인다 — 그러면 유령 공사가 영영 남는다. */
-        schedulePlansPoll();
+        /* 새로 받을 게 있을 때만 **배타 분기**를 태운다 — 방금 성공했으면 masters·plans
+           어느 쪽도 부르지 않고 표시만 되돌린다(양쪽 다 이 함수가 폴은 다시 건다). */
+        if (plansLastFailed || plansAgeMs() >= PLANS_FRESH_MS) { resumeRefresh_(true); }
+        else { renderPlansSyncLine(); schedulePlansPoll(); }
       });
       window.addEventListener('offline', function () { stopPlansPoll(); renderPlansSyncLine(); });
     }

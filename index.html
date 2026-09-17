@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-0958eb1c">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-f059eb1c">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <!-- 데이터 API 오리진 2곳 — 첫 요청의 DNS+TLS 를 선행한다(대시보드와 같은 처방).
      GAS 는 script.google.com 에서 302 로 googleusercontent 로 넘어가므로 둘 다 필요하다.
@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-0958eb1c">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-f059eb1c">
 <title>현장 안전점검</title>
 </head>
 <body>
@@ -61,7 +61,13 @@
             <span class="home-summary-label">오늘 보냄</span>
           </button>
         </div>
-        <p class="sync-line" id="home-sync-line">마스터 동기화 안 됨</p>
+        <div class="sync-line-row">
+          <p class="sync-line" id="home-sync-line">마스터 동기화 안 됨</p>
+          <!-- 점검자 추가·삭제가 이 세션 안에서 늦게 보일 때 쓰는 수동 새로고침(쿨다운 무시).
+               index.html 은 버전 쿼리가 없어 최대 10분 낡을 수 있다(sw.js 참고) — 옛 index.html +
+               새 app.js 조합에서도 무해하도록 app.js 쪽이 존재를 확인한 뒤에만 배선한다. -->
+          <button type="button" class="btn btn-ghost btn-master-refresh" id="btn-master-refresh">점검자 목록 새로고침</button>
+        </div>
         <!-- 저장소 비가용 상시 경고(닫을 수 없다 — 상태가 풀릴 때까지 위험이 계속되므로) -->
         <div id="home-storage-banner" class="banner" role="alert" hidden></div>
         <div id="home-master-banner" class="banner" hidden></div>
@@ -565,9 +571,9 @@
   </div>
 </template>
 
-<script src="./config.js?v=0.5.5-0958eb1c"></script>
-<script src="./lib.js?v=0.5.5-0958eb1c"></script>
-<script src="./logic.js?v=0.5.5-0958eb1c"></script>
-<script src="./app.js?v=0.5.5-0958eb1c"></script>
+<script src="./config.js?v=0.5.5-f059eb1c"></script>
+<script src="./lib.js?v=0.5.5-f059eb1c"></script>
+<script src="./logic.js?v=0.5.5-f059eb1c"></script>
+<script src="./app.js?v=0.5.5-f059eb1c"></script>
 </body>
 </html>
