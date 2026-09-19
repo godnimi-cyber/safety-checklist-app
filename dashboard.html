@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="안전점검 대시보드 — 관리자 전용 현황·협력회사 성적">
+<meta name="description" content="협력회사 SHE 현황 — 관리자 전용 대시보드·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-83ebfb8c">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-83ebfb8c">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-146b7de5">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-146b7de5">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -16,7 +16,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<title>안전점검 대시보드</title>
+<title>협력회사 SHE 현황</title>
 <style>
 /* 대시보드 전용 스타일 — 색은 styles.css :root 변수(승인 팔레트)만 쓴다(틴트는 흑백 알파만).
    앱 셸(.app-shell)과 무관한 독립 레이아웃. 내부 도구: 미관보다 상태 가시성 —
@@ -51,30 +51,57 @@
    정렬이 그대로 불변이다, 판정 9). */
 /* 음영은 제목 바 전용(사용자 지시) — 본문 카드는 보더로만 구획한다 */
 /* sticky 고정 해제(사용자 지시 2026-08-10) — 모바일에서 헤더가 화면 위를 상시 점유했다 */
+/* 헤더 3안(사용자 지시 2026-09-17) — 짙은 톤 그라디언트 + 도트 패턴 + 하단 accent 라인.
+   --topbar-fg/--topbar-chip/--topbar-danger-bg 로 전경·배지·danger 칩을 변수화한 것은
+   장식이 아니라 **다크 모드 반전 대응**이다: [data-theme="dark"] 에서는 --accent/--danger
+   가 밝은 톤으로 뒤집히므로(대시보드 밖 요소가 짙은 배경 위에서 읽히게 하려는 설계) 라이트
+   모드와 같은 색 조합을 그대로 쓰면 밝은 배경에 밝은 글자가 겹친다 — 실측(PIL, 스크린샷
+   픽셀 샘플)으로 라이트/다크 각각 대비를 잡았다. */
 .dash-topbar {
+  --topbar-fg: var(--on-accent);
+  --topbar-chip: color-mix(in srgb, var(--text) 32%, transparent);
+  --topbar-danger-bg: color-mix(in srgb, var(--on-accent) 88%, transparent);
   display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
-  background: var(--accent);
-  border-radius: 12px; padding: 16px 20px; margin-bottom: 16px;
+  position: relative; overflow: hidden;
+  border-radius: 12px; padding: 26px 24px; margin-bottom: 16px;
+  border-bottom: 3px solid var(--ok);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--text) 92%, var(--accent)) 0%,
+    color-mix(in srgb, var(--text) 70%, var(--accent)) 52%, color-mix(in srgb, var(--accent) 88%, var(--text)) 100%);
   box-shadow: 0 4px 14px color-mix(in srgb, var(--text) 18%, transparent); }
-.dash-topbar h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em;
-  color: var(--on-accent); margin: 0; }
-/* 알파 0.14 는 초록 바탕 위에서 흰 글자와 대비가 4.1:1 로 기준(4.5:1) 미달이었다
-   (실측 — color-mix 를 밝히는 방향은 배경이 글자색(밝음)에 가까워져 대비가 오히려 더
-   떨어진다). --text(짙은 톤)로 섞어 배지를 어둡게 하는 쪽이 흰 글자 대비를 올린다. */
-#dash-generated { color: var(--on-accent); font-size: 0.82rem;
-  background: color-mix(in srgb, var(--text) 32%, transparent); padding: 4px 12px; border-radius: 999px; }
+/* 다크 모드 전용 그라디언트 — --text/--accent 조합을 그대로 쓰면(라이트와 동일 공식)
+   다크 토큰에서 --text 가 밝고 --accent 가 밝은 민트라 "짙은 톤" 의도가 뒤집혀 밝은
+   그라디언트가 된다(실측 확인). --surface/--bg(다크에서도 어두운 토큰)를 축으로 섞어
+   짙은 톤을 유지한다. */
+[data-theme="dark"] .dash-topbar {
+  --topbar-fg: var(--text);
+  --topbar-chip: color-mix(in srgb, var(--bg) 55%, transparent);
+  --topbar-danger-bg: color-mix(in srgb, var(--bg) 70%, transparent);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--surface) 88%, var(--accent)) 0%,
+    color-mix(in srgb, var(--surface) 60%, var(--accent)) 52%, color-mix(in srgb, var(--bg) 82%, var(--accent)) 100%);
+}
+.dash-topbar::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .10;
+  background-image: radial-gradient(color-mix(in srgb, var(--topbar-fg) 100%, transparent) 1px, transparent 1px);
+  background-size: 18px 18px; }
+.dash-topbar > * { position: relative; z-index: 1; }
+.dash-topbar h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.01em;
+  color: var(--topbar-fg); margin: 0; }
+/* 배지 칩은 --topbar-chip(항상 짙은 톤 축)을 쓴다 — --topbar-fg 를 그대로 섞으면 다크
+   모드에서 글자색과 배지 배경이 같은 밝은 토큰(var(--text))을 공유해 밝은 글자 위에
+   밝은 배지가 겹친다(실측 확인, §Z2). */
+#dash-generated { color: var(--topbar-fg); font-size: 0.82rem;
+  background: var(--topbar-chip); padding: 4px 12px; border-radius: 999px; }
 .dash-topbar .spacer { flex: 1; }
-.dash-topbar .dash-btn { background: color-mix(in srgb, var(--on-accent) 12%, transparent);
-  border-color: color-mix(in srgb, var(--on-accent) 70%, transparent); color: var(--on-accent); }
-.dash-topbar .dash-btn:hover { background: color-mix(in srgb, var(--on-accent) 26%, transparent); border-color: var(--on-accent); }
-.dash-topbar .dash-btn:focus-visible { outline-color: var(--on-accent); }
-/* 파괴적 조치 — 간격으로 떼고(오탭 방지) 테두리·글자로도 구분한다. 상단바가 진한 초록이라
-   danger 원색 글자는 초록 위에서 대비가 거의 안 나온다(실측 1.1:1) — 밝은 면 위에 얹어
-   5.7:1 을 확보하는 것은 그대로 두되(D5), **불투명 solid 면**이던 것을 반투명(alpha 88%)
-   으로 낮춰 "일상 버튼과 같은 최강 위계"만 뺀다. 대비는 여전히 4.9:1 이상(계산 확인). */
+.dash-topbar .dash-btn { background: color-mix(in srgb, var(--topbar-fg) 12%, transparent);
+  border-color: color-mix(in srgb, var(--topbar-fg) 70%, transparent); color: var(--topbar-fg); }
+.dash-topbar .dash-btn:hover { background: color-mix(in srgb, var(--topbar-fg) 26%, transparent); border-color: var(--topbar-fg); }
+.dash-topbar .dash-btn:focus-visible { outline-color: var(--topbar-fg); }
+/* 파괴적 조치 — 간격으로 떼고(오탭 방지) 테두리·글자로도 구분한다. danger 칩은
+   --topbar-danger-bg(라이트=밝은 칩, 다크=짙은 칩) — --danger 토큰 자체가 모드마다
+   밝기가 뒤집히므로(라이트=짙은 빨강, 다크=밝은 코랄) 칩도 반대로 뒤집어야 대비가
+   유지된다(실측 확인). */
 .dash-topbar .dash-btn-danger {
   margin-left: 28px;
-  background: color-mix(in srgb, var(--on-accent) 88%, transparent);
+  background: var(--topbar-danger-bg);
   color: var(--danger);
   border-color: var(--danger);
 }
@@ -659,7 +686,7 @@
 
 <div class="dash-shell">
   <header class="dash-topbar">
-    <h1>안전점검 대시보드</h1>
+    <h1>협력회사 SHE 현황</h1>
     <span id="dash-generated"></span>
     <span class="spacer"></span>
     <button type="button" class="dash-btn" id="btn-dash-theme">
@@ -722,7 +749,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-83ebfb8c"></script>
-<script src="./dashboard.js?v=0.5.5-83ebfb8c"></script>
+<script src="./config.js?v=0.5.5-146b7de5"></script>
+<script src="./dashboard.js?v=0.5.5-146b7de5"></script>
 </body>
 </html>

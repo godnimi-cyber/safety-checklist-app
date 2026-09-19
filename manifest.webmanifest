@@ -1,7 +1,7 @@
 {
-  "name": "현장 안전점검",
-  "short_name": "안전점검",
-  "description": "협력회사 현장 안전점검 체크리스트",
+  "name": "협력회사 SHE 점검",
+  "short_name": "SHE 점검",
+  "description": "협력회사 SHE 현장 안전점검 체크리스트",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

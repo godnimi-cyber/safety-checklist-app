@@ -1006,7 +1006,7 @@
   function updateTopbar(name) {
     var title = $('topbar-title');
     var back = $('btn-back');
-    if (name === 'home') { title.textContent = '안전점검'; back.hidden = true; }
+    if (name === 'home') { title.textContent = '협력회사 SHE 점검'; back.hidden = true; }
     else if (name === 'write') { title.textContent = state.writeStep === 1 ? '작성 · 기본정보' : '작성 · 항목점검'; back.hidden = false; }
     else if (name === 'review') { title.textContent = '검토'; back.hidden = false; }
     else if (name === 'plan') { title.textContent = '점검 사전등록'; back.hidden = false; }
