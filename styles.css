@@ -147,12 +147,27 @@ button, .seg-btn, .banner, details > summary .chevron, .progress-fill {
   background: var(--color-primary);
   color: var(--color-surface);
 }
+/* 제목은 **바 기준 절대 중앙**에 고정한다(2026-09-20 사용자 실기기 지적 — 홈에서 제목이
+   왼쪽으로 치우쳐 보였다). 앞서는 flex:1 + margin-right:48px 로 "뒤로가기 버튼 폭만큼
+   오른쪽을 비워 균형을 맞추는" 방식이었는데, 그 48px 보정이 **버튼이 항상 있다고 가정**한다.
+   홈에서는 #btn-back 이 hidden 이라 좌측 48px 이 사라지는데 우측 보정만 남아 제목이
+   왼쪽으로 밀렸다 — 허브 실측: 홈 왼쪽 24px 치우침 / 버튼이 보이는 화면은 정상(0~4px).
+   left/right 를 같은 값으로 잡아 흐름에서 빼면 버튼 유무와 무관하게 항상 중앙이다
+   (실측 390·360·320px × 홈·관리 6케이스 전부 치우침 0px, 뒤로가기와 겹침 없음).
+   56px = 버튼 48px + 좌우 여백 — 이보다 작으면 긴 제목이 버튼 위로 올라탄다.
+   nowrap+ellipsis: 고정폭이 되었으므로 아주 긴 제목은 두 줄로 흐르는 대신 말줄임한다
+   (바 높이 56px 고정이라 두 줄이 되면 글자가 잘려 나간다). */
 .topbar h1 {
   font-size: 17px;
   font-weight: 700;
-  flex: 1;
+  position: absolute;
+  left: 56px;
+  right: 56px;
+  margin: 0;
   text-align: center;
-  margin-right: 48px; /* 뒤로가기 버튼 폭 보정, 제목 중앙 정렬 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #btn-back {
   /* 아이콘 전용이지만 장갑 낀 현장 사용을 전제로 48px 터치 타깃 (Apple HIG 하한 44px 상회) */
