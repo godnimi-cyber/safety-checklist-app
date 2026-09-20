@@ -1295,6 +1295,7 @@
               td.textContent = String(cell);
               var barV = Number(cell);
               if (isFinite(barV) && barV > 0) {
+                td.className = (td.className ? td.className + ' ' : '') + 'dash-inlinebar-cell';
                 var bar = document.createElement('span');
                 bar.className = 'dash-inlinebar';
                 bar.setAttribute('aria-hidden', 'true');

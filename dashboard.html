@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="협력회사 SHE 현황 — 관리자 전용 대시보드·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-52866599">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-52866599">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-0be3c966">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-0be3c966">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -577,7 +577,14 @@
    .wbar)와 같은 토큰·라운드 패턴을 재사용 — 새 색을 발명하지 않는다. 숫자가 정본이라
    aria-hidden — 막대는 숫자 옆의 보조 신호일 뿐(WCAG 1.4.1, 색·형태만으로 정보 전달 금지).
    값 0 인 행은 dashboard.js 가 막대 자체를 안 그린다(0 을 지어내지 않는다의 시각판). */
-.dash-inlinebar { display: inline-block; vertical-align: middle; margin-left: 8px;
+/* R1(0920 마감) — 위 막대는 inline-block + margin-left 라 셀의 max-content 폭 계산에
+   60+8=68px 를 더했다(table-layout:auto). 표 필수폭이 늘어 다른 표까지 함께 넘쳤다
+   (실측: 협력회사별 cw 322/sw 324, 셸 폭을 공유하는 오늘 제출 표도 cw 1236/sw 1238).
+   막대를 절대배치로 흐름에서 완전히 빼 셀 필수폭 기여를 0 으로 만든다 — 컨테이닝 블록은
+   막대를 담는 td 자신(.dash-inlinebar-cell, 값>0 인 셀에만 붙는다)이라 스크롤과 함께
+   정상 이동한다. overflow:hidden 은 주지 않는다(기존 text-overflow 동작과 충돌 금지). */
+.dash-inlinebar-cell { position: relative; }
+.dash-inlinebar { position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
   width: 60px; height: 8px; border-radius: 4px;
   background: color-mix(in srgb, var(--muted) 12%, transparent); }
 .dash-inlinebar-fill { display: block; height: 100%; min-width: 3px; border-radius: 4px;
@@ -831,7 +838,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-52866599"></script>
-<script src="./dashboard.js?v=0.5.5-52866599"></script>
+<script src="./config.js?v=0.5.5-0be3c966"></script>
+<script src="./dashboard.js?v=0.5.5-0be3c966"></script>
 </body>
 </html>
