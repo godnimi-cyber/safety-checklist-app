@@ -619,6 +619,7 @@
     var hr = document.createElement('tr');
     header.forEach(function (t) {
       var th = document.createElement('th');
+      th.scope = 'col';
       th.textContent = t;
       hr.appendChild(th);
     });
@@ -1253,6 +1254,7 @@
       var hr = document.createElement('tr');
       block.header.forEach(function (t, i) {
         var th = document.createElement('th');
+        th.scope = 'col';
         th.textContent = t;
         if (numCols[i]) th.className = 'dash-num';
         hr.appendChild(th);

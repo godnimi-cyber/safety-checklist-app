@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="협력회사 SHE 현황 — 관리자 전용 대시보드·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-0b367f96">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-0b367f96">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-eba92f50">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-eba92f50">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -459,7 +459,10 @@
 .dash-wday.today .wbar-track { background: color-mix(in srgb, var(--on-accent) 12%, transparent); }
 .dash-wday.today .wbar { background: var(--on-accent); }
 .dash-wday.today .wbar-n { color: var(--on-accent); }
-.dash-wday .dow { font-size: 0.68rem; color: var(--muted); }
+/* A1-3(X-5.4.4) — 10.88px(0.68rem) 는 본문 하한(11px) 미달. 요일 글자는 장식 뱃지가
+   아니라 데이터 라벨이라 소형 UI 예외 대상이 아니다 — 11px 로 올린다(축소가 아니라 상향
+   이라 390px 7칸 줄바꿈 실측 후 채택, 넘김/줄바꿈 없음 확인). */
+.dash-wday .dow { font-size: 11px; color: var(--muted); }
 .dash-wday .num { font-size: 0.95rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .dash-wday.past { background: color-mix(in srgb, var(--accent) 8%, var(--surface));
   border-color: color-mix(in srgb, var(--accent) 22%, var(--border)); }
@@ -844,7 +847,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-0b367f96"></script>
-<script src="./dashboard.js?v=0.5.5-0b367f96"></script>
+<script src="./config.js?v=0.5.5-eba92f50"></script>
+<script src="./dashboard.js?v=0.5.5-eba92f50"></script>
 </body>
 </html>

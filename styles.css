@@ -1074,6 +1074,10 @@ details[open] > .category-summary .chevron { transform: rotate(0deg); }
   html, body { background: var(--color-surface); color: var(--color-text); }
 
   #print-title {
+    /* A1-2(6.4.2) 로 <h1>→<p> 강등 — 문서 h1 은 topbar-title 하나만 남긴다.
+       h1,h2,h3 태그 선택자(:449)가 더 이상 안 걸리므로 헤딩 폰트를 여기서 명시해
+       출력 모양을 그대로 유지한다. */
+    font-family: var(--font-heading, var(--font-sans));
     font-size: 11pt;
     font-weight: 700;
     text-align: center;
