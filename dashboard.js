@@ -393,6 +393,7 @@
     el_('btn-dash-refresh').hidden = true;
     el_('btn-dash-monthly').hidden = true;
     el_('btn-dash-clearkey').hidden = true;
+    el_('btn-dash-controls-toggle').hidden = true;
     el_('dash-generated').textContent = '';
     showBanner_(msg || '', !!msg);
     el_('dash-key-input').value = '';
@@ -405,6 +406,7 @@
     el_('btn-dash-refresh').hidden = false;
     el_('btn-dash-monthly').hidden = false;
     el_('btn-dash-clearkey').hidden = false;
+    el_('btn-dash-controls-toggle').hidden = false;
   }
 
   /* P1-2(재평가 0920) — 390~560px 모바일 필터 기본 접힘. 데스크톱(≥561px)은 CSS 가 항상
