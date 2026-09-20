@@ -407,6 +407,31 @@
     el_('btn-dash-clearkey').hidden = false;
   }
 
+  /* P1-2(재평가 0920) — 390~560px 모바일 필터 기본 접힘. 데스크톱(≥561px)은 CSS 가 항상
+   *  펼친 채로 강제하므로(dashboard.html @media (max-width:560px) 스코프), 여기서 attribute 를
+   *  세팅해도 그 폭 밖에서는 아무 효과가 없다 — JS 는 상태만 들고 있고 시각 강제는 CSS 몫이다. */
+  function controlsFoldEl_() { return el_('dash-controls-fold'); }
+  function setControlsFolded_(collapsed) {
+    var fold = controlsFoldEl_();
+    if (!fold) return;
+    if (collapsed) fold.setAttribute('data-collapsed', '');
+    else fold.removeAttribute('data-collapsed');
+    var btn = el_('btn-dash-controls-toggle');
+    if (btn) btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  }
+  function initControlsFold_() {
+    var narrow = typeof window !== 'undefined' && typeof window.matchMedia === 'function' &&
+      window.matchMedia('(max-width: 560px)').matches;
+    setControlsFolded_(!!narrow);
+  }
+  /** 접힌 줄에 현재 조회 기간을 항상 보여준다(펼치지 않아도 무엇이 적용 중인지 알 수 있어야
+   *  한다). range.error 면 고칠 수단(필드)이 접힌 채로 숨으면 안 되므로 자동으로 펼친다. */
+  function updateControlsFoldSummary_(data) {
+    var t = el_('dash-controls-summary-text');
+    if (t) t.textContent = '조회 기간 ' + ((data && data.range && data.range.label) || '최근 30일');
+    if (data && data.range && data.range.error) setControlsFolded_(false);
+  }
+
   function wipeData_() {
     el_('dash-blocks').textContent = '';
     el_('dash-generated').textContent = '';
@@ -1185,6 +1210,19 @@
       if (block.rows.length) {
         block.rows[0].forEach(function (c, i) { if (typeof c === 'number') numCols[i] = true; });
       }
+      /* P2-C(재평가 0920) — 차트가 0개였다. 「협력회사별」 표(제목이 아니라 header 형태로
+       *  식별 — rangeKpiData_ 와 같은 판정)의 점검 열에 CSS 인라인 막대를 덧붙인다. 별도
+       *  함수로 빼지 않는다 — renderBlock_ 은 pageCtx()가 소스만 떼어 vm 으로 돌리는 조각이라
+       *  외부 함수 의존이 생기면 그 테스트가 깨진다(위 D5 주석과 같은 이유). */
+      var isCompanyBar = block.header.length === 4 && block.header[0] === '협력회사' &&
+        block.header[1] === '점검' && block.header[2] === '공사' && block.header[3] === '부적합';
+      var barMax = 0;
+      if (isCompanyBar) {
+        block.rows.forEach(function (r) {
+          var v = Number(r[1]);
+          if (isFinite(v) && v > barMax) barMax = v;
+        });
+      }
       /* U2(2026-09-17) — 「오늘 제출된 점검」은 **제목이 아니라 header 형태**로 식별한다
          (제목엔 건수가 섞여 바뀐다. 「공사별」표의 '마지막 점검일' 열은 header 가 달라 여기
          안 걸린다). serverToday(서버 server_today)를 모르면(구서버 폴백) todayKnown 이
@@ -1251,6 +1289,21 @@
               })(block.header[i] === '점검' ? 'subs' : 'finds', block.keys[ri],
                  String(row[0]) + ' · ' + String(row[1]), Number(cell));
               td.appendChild(btn);
+            } else if (isCompanyBar && i === 1 && barMax > 0) {
+              /* 숫자가 정본 — 막대는 옆의 보조 신호일 뿐이다(WCAG 1.4.1, 숫자 유지).
+               * 값 0 인 행은 막대를 그리지 않는다(0 을 지어내지 않는다의 시각판). */
+              td.textContent = String(cell);
+              var barV = Number(cell);
+              if (isFinite(barV) && barV > 0) {
+                var bar = document.createElement('span');
+                bar.className = 'dash-inlinebar';
+                bar.setAttribute('aria-hidden', 'true');
+                var fill = document.createElement('span');
+                fill.className = 'dash-inlinebar-fill';
+                fill.setAttribute('style', 'width:' + Math.max(4, Math.round((barV / barMax) * 100)) + '%');
+                bar.appendChild(fill);
+                td.appendChild(bar);
+              }
             } else {
               td.textContent = String(cell);
             }
@@ -1271,6 +1324,13 @@
       hint.setAttribute('aria-hidden', 'true');
       hint.hidden = true;
       wrap.appendChild(hint);
+      /* P1-4(재평가 0920) — 가로 힌트만 있고 세로 힌트가 없었다(공사별 표 154px 잘림,
+         updateScrollHints_ 가 세로도 재도록 아래에서 확장한다). 같은 timing/기준점 계약. */
+      var vhint = document.createElement('div');
+      vhint.className = 'dash-scrollhint dash-scrollhint-v';
+      vhint.setAttribute('aria-hidden', 'true');
+      vhint.hidden = true;
+      wrap.appendChild(vhint);
       sec.appendChild(wrap);
       var cards = null;
       if (block.keys) {                        // 공사별 — 좁은 화면용 카드도 함께(CSS 가 폭에 따라 하나만 보인다)
@@ -2457,9 +2517,21 @@
     note.textContent = list.length
       ? '예정일이 지나 현장 목록에서 내려간 계획입니다. 재등록하면 다시 작성할 수 있습니다.'
       : '지난 예정 중 점검하지 않은 건이 없습니다.';
-    sec.appendChild(note);
+    /* P1-3(재평가 0920) — 설명문을 기본 닫힘 <details> 로(삭제가 아니라 접기). 별도 함수로
+       빼지 않는다 — renderOverdue_ 는 dashboard-web.test.mjs 가 소스만 떼어 vm 으로 돌리는
+       조각(odRenderCtx)이 있어, 외부 함수 의존이 생기면 그 조각 테스트가 깨진다(D41 주석과
+       같은 이유). list.length===0 일 때도 안내문이 있어야 하므로 항상 만든다. */
+    var noteDet = document.createElement('details');
+    noteDet.className = 'dash-od-note';
+    var noteSum = document.createElement('summary');
+    noteSum.textContent = '설명 보기';
+    noteDet.appendChild(noteSum);
+    noteDet.appendChild(note);
+    sec.appendChild(noteDet);
     if (all.length) sec.appendChild(odBulkBar_(all));
-    var g1 = list.length ? odSelectAll_('미점검 전체 선택', list) : null;
+    /* P1-3 — 항목이 2건 이하면 「전체 선택」을 숨긴다(2건 전체선택보다 2번 누르는 게 빠르다).
+       개별 선택칸(odPickBox_)은 group=null 로도 동작한다 — 일괄 막대는 그대로 살아 있다. */
+    var g1 = list.length > 2 ? odSelectAll_('미점검 전체 선택', list) : null;
     if (g1) sec.appendChild(g1.node);
     list.forEach(function (o) { sec.appendChild(overdueRow_(o, g1 ? g1.group : null)); });
 
@@ -2476,10 +2548,16 @@
       n2.className = 'dash-modal-meta';
       n2.textContent = '현장 목록에 다시 올려 둔 계획입니다 — 작성을 기다리는 중입니다. '
         + '끝내 점검하지 못했다면 여기서 미점검확정이나 공사취소로 닫을 수 있습니다.';
-      sec.appendChild(n2);
-      var g2 = odSelectAll_('재등록됨 전체 선택', back);
-      sec.appendChild(g2.node);
-      back.forEach(function (o) { sec.appendChild(overdueRow_(o, g2.group)); });
+      var n2Det = document.createElement('details');
+      n2Det.className = 'dash-od-note';
+      var n2Sum = document.createElement('summary');
+      n2Sum.textContent = '설명 보기';
+      n2Det.appendChild(n2Sum);
+      n2Det.appendChild(n2);
+      sec.appendChild(n2Det);
+      var g2 = back.length > 2 ? odSelectAll_('재등록됨 전체 선택', back) : null;
+      if (g2) sec.appendChild(g2.node);
+      back.forEach(function (o) { sec.appendChild(overdueRow_(o, g2 ? g2.group : null)); });
     }
     odSyncBar_();
     return sec;
@@ -2609,10 +2687,34 @@
     var scrolls = document.querySelectorAll('.dash-tablescroll');
     for (var i = 0; i < scrolls.length; i++) {
       var s = scrolls[i];
-      var hint = s.parentNode && s.parentNode.querySelector ?
-        s.parentNode.querySelector('.dash-scrollhint') : null;
-      if (hint) hint.hidden = s.scrollWidth <= s.clientWidth;
+      /* P1-4 — 세로 스냅(snapTableScrollHeight_)을 먼저 적용해 반 잘린 행을 없앤 뒤, 그
+         확정된 높이로 넘침 여부를 잰다(순서가 바뀌면 스냅 전 높이로 힌트가 잘못 켜진다). */
+      snapTableScrollHeight_(s);
+      var hHint = s.parentNode && s.parentNode.querySelector ?
+        s.parentNode.querySelector('.dash-scrollhint:not(.dash-scrollhint-v)') : null;
+      if (hHint) hHint.hidden = s.scrollWidth <= s.clientWidth;
+      var vHint = s.parentNode && s.parentNode.querySelector ?
+        s.parentNode.querySelector('.dash-scrollhint-v') : null;
+      if (vHint) vHint.hidden = s.scrollHeight <= s.clientHeight;
     }
+  }
+
+  /** P1-4 — 공사별 표가 max-height 예산(560px) 경계에서 행을 반으로 자른 채 끝났다(실측
+   *  154px 잘림). 헤더·실제 행 높이를 재서 **완전한 행 수**만큼만 보이게 max-height 를
+   *  그 자리에서 스냅한다 — 폰트 크기·배율이 달라도 하드코딩 없이 항상 온전한 행에서 끊는다.
+   *  콘텐츠가 예산보다 짧은 표(오늘 제출·협력회사별)는 rows 가 예산을 넘지 않으므로
+   *  사실상 아무 효과가 없다(높이는 여전히 콘텐츠가 정한다). */
+  function snapTableScrollHeight_(s) {
+    if (!s || typeof s.querySelector !== 'function') return;
+    var budget = 560;                          // dashboard.html .dash-tablescroll max-height 와 동기
+    var theadEl = s.querySelector('thead');
+    var firstRow = s.querySelector('tbody tr');
+    if (!theadEl || !firstRow || typeof theadEl.getBoundingClientRect !== 'function') return;
+    var headH = theadEl.getBoundingClientRect().height;
+    var rowH = firstRow.getBoundingClientRect().height;
+    if (!rowH) return;
+    var rows = Math.max(1, Math.floor((budget - headH) / rowH));
+    s.style.maxHeight = Math.round(headH + rows * rowH) + 'px';
   }
 
   /** 렌더 직후엔 레이아웃이 아직 확정되지 않아 scrollWidth 를 바로 재면 값이 0/부정확할 수
@@ -2631,6 +2733,7 @@
     root.textContent = '';
     if (!data) { chipHost.hidden = true; chipHost.textContent = ''; rangeLabel.textContent = ''; return; }
     el_('dash-generated').textContent = '기준 ' + data.generatedAt;
+    updateControlsFoldSummary_(data);           // P1-2 — 접힌 줄 텍스트 갱신 + range.error 자동 펼침
     var blocks = blocksFor_(data, state.view);
     if (blocks === null) {                     // 범위 오류 커밋(§4.1) — 사유만, 전환·CSV 비활성
       chipHost.hidden = true;
@@ -2817,6 +2920,11 @@
       hardReset_('저장된 키를 지웠습니다');
     });
     el_('dash-team').addEventListener('change', onTeamChange_);
+    el_('btn-dash-controls-toggle').addEventListener('click', function () {
+      var fold = controlsFoldEl_();
+      setControlsFolded_(!(fold && fold.hasAttribute('data-collapsed')));
+    });
+    initControlsFold_();                         // P1-2 — 390~560px 이면 기본 접힘
     var theme = '';
     try { theme = localStorage.getItem(THEME_STORE) || ''; } catch (e) { theme = ''; }
     applyTheme_(theme);

@@ -81,6 +81,10 @@ html, body {
   font-family: var(--font-body, var(--font-sans));
   line-height: 1.5;
   -webkit-text-size-adjust: 100%;
+  /* P0-1(재평가 0920) — 한국어 어절이 좁은 폭에서 중간에 갈라졌다(실측: '한빛에스티'→
+     '한빛에스/티', '「예정된' 분리). 전역 기본을 keep-all 로 — 표의 nowrap·개별 anywhere
+     스코프(#email-send 등, 긴 URL·영문 고유명사 한정)는 그대로 각자 규칙이 이긴다. */
+  word-break: keep-all;
 }
 
 body {
