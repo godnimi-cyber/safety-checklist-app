@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="협력회사 SHE 현황 — 관리자 전용 대시보드·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-d2ac51c5">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-d2ac51c5">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-d0263454">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-d0263454">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -145,6 +145,19 @@
 .dash-mr-sec { margin-top: 24px; }
 .dash-mr-sec h3 { font-family: var(--font-heading); font-size: 1rem; font-weight: 700;
   color: var(--text); margin: 0; }
+
+/* 「보고용 1장」(2026-09-20) — 남에게 보내는 파일은 요약·설명·확인사항까지 한 파일이어야
+   한다(사용자 지시). 요약 **바로 아래**에 둔다: 표를 다 지나 맨 끝에 두면 스크롤 1000px
+   뒤라 존재를 모른다(R3 — '기능은 되는데 버튼이 안 보인' 사고가 이 리포에서 세 번 났다).
+   주 버튼(primary)은 이 모달에서 하나뿐이다 — 아래 「이 표만 CSV」 둘은 보조(기본 .dash-btn). */
+.dash-mr-onepager { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 4px; }
+.dash-mr-onepager-note { color: var(--muted); font-size: 0.85rem; line-height: 1.5;
+  word-break: keep-all; }
+@media (max-width: 560px) {
+  /* 좁은 폭에서는 설명이 버튼 아래로 내려온다 — 버튼이 전폭을 쓰게 두면 누르기 쉽다. */
+  .dash-mr-onepager .dash-btn { width: 100%; }
+}
 
 /* 미점검 — 밀린 일. **한 행 = 계획 하나**(사용자 지시 2026-08-19): 왼쪽 내용, 오른쪽 조치 둘.
    색은 승인 팔레트 토큰만 쓴다(원값 금지). */
@@ -847,7 +860,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-d2ac51c5"></script>
-<script src="./dashboard.js?v=0.5.5-d2ac51c5"></script>
+<script src="./config.js?v=0.5.5-d0263454"></script>
+<script src="./dashboard.js?v=0.5.5-d0263454"></script>
 </body>
 </html>

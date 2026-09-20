@@ -1497,7 +1497,9 @@
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'dash-btn';
-      btn.textContent = 'CSV 다운로드';
+      /* 「보고용 1장」이 옆에 생겼다 — 두 버튼이 무엇이 다른지 **버튼 자신이** 말해야
+         한다(appendCsvButton_ 이 건수를 적는 것과 같은 규칙). */
+      btn.textContent = '이 표만 CSV';
       btn.addEventListener('click', function () {
         downloadCsv_('월간_' + kind + '_' + monthly.ym + '.csv',
                      buildCsv_({ header: header, rows: cells }));
@@ -1521,6 +1523,128 @@
     return sec;
   }
 
+  /* ---------- 보고용 1장 CSV (2026-09-20) ------------------------------
+     사용자 지시: "csv 한장으로 보고에 필요한 정리가 다 되어 있으면 좋겠어."
+     용도가 **남에게 보내는 것**이라 판단이 갈린다 — 표만 보내면 받는 사람에게는
+     머리글뿐인 조각이 된다. 실측(2026-09-20): 기존 CSV 2개 어디에도 기준월·요약
+     숫자·겹침 설명·확인 필요 사항이 없었다(전부 화면에만 있었다).
+
+     그래서 **화면에서 읽는 순서 그대로** 한 파일에 담는다:
+       머리말 → 요약 → 수행 → 미점검확정 → 확인이 필요한 것
+
+     **숫자를 여기서 다시 세지 않는다** — 서버 응답(monthly.data)만 읽는다.
+     화면 타일과 CSV 가 다른 수를 말하면 어느 쪽을 믿을지 알 수 없다.
+     **조립만 여기서 하고 셀 소독은 csvField_ 에 맡긴다** — 수식 주입 방어·따옴표
+     이스케이프가 이미 검증돼 있다(새로 쓰지 않는다). */
+
+  /** 표 절 하나를 CSV 줄들로. rows 가 비면 '해당 없음' 한 줄(빈 머리글만 있는 표를
+   *  만들지 않는다 — 화면의 monthlySection_ 과 같은 규칙). */
+  function csvSection_(title, header, rows) {
+    var out = [csvField_(title)];
+    if (!rows.length) {
+      out.push(csvField_('해당 없음'));
+      return out;
+    }
+    out.push(header.map(csvField_).join(','));
+    rows.forEach(function (r) { out.push(r.map(csvField_).join(',')); });
+    return out;
+  }
+
+  /** 월간 리포트 1장. d = 서버 응답 그대로. 문자열(CRLF 구분)을 돌려준다.
+   *  절 사이는 **빈 줄**로 가른다 — 엑셀에서 절 경계가 눈에 보이고 영역 선택이 쉽다. */
+  function buildMonthlyOnePager_(d) {
+    var L = [];
+    function blank() { L.push(''); }
+
+    L.push(csvField_('협력회사 안전점검 월간 리포트'));
+    L.push(csvField_('기준월') + ',' + csvField_(d.ym));
+    L.push(csvField_('작성') + ',' + csvField_(d.generatedAt || ''));
+    /* 팀 필터와 무관하다는 사실은 화면에도 적혀 있다(renderMonthly_ 의 meta).
+       받는 사람은 그 화면을 못 보므로 파일에도 적는다. */
+    L.push(csvField_('범위') + ',' + csvField_('전체 (팀 구분 없음)'));
+    blank();
+
+    /* 요약 — 세로 나열보다 **표 한 장**이 두 구분을 나란히 읽게 한다.
+       미점검확정의 부적합 칸은 **빈칸**이다. 0 을 적으면 "부적합 없이 끝났다"로
+       읽히는데 확정 건에는 부적합 개념 자체가 없다(0 지어내기 금지). */
+    L.push(csvField_('■ 요약'));
+    L.push(['구분', '점검/확정', '공사', '부적합'].map(csvField_).join(','));
+    L.push(['수행', d.done.subs, d.done.projects, d.done.findings].map(csvField_).join(','));
+    L.push(['미점검확정', d.unchecked.plans, d.unchecked.projects, ''].map(csvField_).join(','));
+    blank();
+
+    /* 겹침 설명 — 이 한 줄이 없으면 받는 사람이 중복 집계로 오해한다.
+       화면 monthlyNote_ 와 **같은 문장**을 쓴다(두 곳이 다른 말을 하면 안 된다). */
+    L.push(csvField_(d.overlapProjects
+      ? '※ 두 표에 함께 나오는 공사 ' + d.overlapProjects + '건 — 같은 공사의 다른 점검 건입니다.'
+      : '※ 수행과 미점검확정에 겹치는 공사가 없습니다.'));
+    if (d.overlapProjects) {
+      L.push(csvField_('※ 미점검확정은 그 공사의 수행 기록을 건드리지 않습니다.'));
+    }
+    blank();
+
+    csvSection_('■ 수행 — 공사별',
+      ['협력회사', '공사', '점검 건수', '부적합 건수', '첫 점검일', '마지막 점검일', '점검자'],
+      d.done.rows.map(function (r) {
+        return [r.company_name, r.project_name, r.count, r.findings, r.first, r.last,
+                r.inspectors];
+      })).forEach(function (s) { L.push(s); });
+    blank();
+
+    csvSection_('■ 미점검확정 (확정 건별)',
+      ['협력회사', '공사', '원래 예정일', '확정일시', '확정자', '등록자', '점검팀'],
+      d.unchecked.rows.map(function (r) {
+        return [r.company_name, r.project_name, r.planned_date, r.confirmed_at,
+                r.confirmed_by, r.owner, r.team];
+      })).forEach(function (s) { L.push(s); });
+
+    /* 확인 필요 사항이 **없으면 절 자체를 넣지 않는다** — 빈 절은 "확인할 게 있나?"
+       하고 매번 읽게 만든다(화면 monthlyIssues_ 와 같은 규칙). */
+    var notes = (d && d.notes) || [];
+    if (notes.length) {
+      blank();
+      L.push(csvField_('■ 확인이 필요한 것'));
+      notes.forEach(function (n) {
+        L.push([n.label, n.count + '건', n.hint].map(csvField_).join(','));
+      });
+    }
+
+    return L.join('\r\n');
+  }
+
+  /** 보고용 파일명 — 조직 밖 사람이 받은편지함에서 봐도 알아야 한다.
+   *  기존 '월간_수행_2026-09.csv' 는 무엇의 수행인지가 없다. */
+  function monthlyOnePagerName_(ym) {
+    return '안전점검_월간리포트_' + ym + '.csv';
+  }
+
+  /** 「보고용 1장 받기」 줄. 주 버튼 + 무엇이 들었는지 한 줄 설명.
+   *  설명을 붙이는 이유: 아래에 「이 표만 CSV」가 둘 더 있어서, 버튼 이름만으로는
+   *  무엇이 다른지 누르기 전에 알 수 없다(appendCsvButton_ 이 건수를 적는 것과 같은 결). */
+  function monthlyOnePagerBar_(d) {
+    var bar = document.createElement('div');
+    bar.className = 'dash-mr-onepager';
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'dash-btn dash-btn-primary';
+    btn.textContent = '보고용 1장 받기 (CSV)';
+    btn.addEventListener('click', function () {
+      downloadCsv_(monthlyOnePagerName_(d.ym), buildMonthlyOnePager_(d));
+    });
+    bar.appendChild(btn);
+
+    var note = document.createElement('span');
+    note.className = 'dash-mr-onepager-note';
+    /* 절 이름을 그대로 적는다 — 파일을 열었을 때 보이는 것과 같은 말이라야
+       "내가 받은 게 이거구나" 가 바로 확인된다. */
+    note.textContent = '요약 · 수행 · 미점검확정'
+      + (((d && d.notes) || []).length ? ' · 확인이 필요한 것' : '')
+      + ' 을 한 파일에 담습니다';
+    bar.appendChild(note);
+    return bar;
+  }
+
   function renderMonthly_(d) {
     monthly.data = d;
     monthly.ym = d.ym;
@@ -1531,6 +1655,13 @@
     body.appendChild(metaP_('기준 ' + d.generatedAt + ' · 전체 기준입니다(팀 전환과 무관).'));
     body.appendChild(monthlySummary_(d));
     body.appendChild(monthlyNote_(d));
+
+    /* 「보고용 1장」 — 남에게 보낼 파일은 **요약·설명·확인사항까지 한 파일**이어야 한다
+       (사용자 지시 2026-09-20). 아래 표별 「이 표만 CSV」는 엑셀에서 표 하나만 가공할
+       때 쓴다 — 두 용도가 달라 둘 다 남긴다.
+       자리: 요약 **바로 아래**다. 표를 다 지나 맨 끝에 두면 스크롤 1000px 뒤라
+       존재를 모른다(R3 — '기능은 되는데 버튼이 안 보인' 사고가 이 리포에서 세 번 났다). */
+    body.appendChild(monthlyOnePagerBar_(d));
 
     /* 점검자는 **맨 끝**이다(사용자 지시 2026-08-22) — 앞의 수·날짜가 이 표를 읽는 축이고,
        사람은 그 뒤에 확인하는 값이다. 열을 가운데 끼우면 숫자 세 개가 갈라져 훑기 나빠진다. */
