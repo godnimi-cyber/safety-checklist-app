@@ -1213,19 +1213,6 @@
       if (block.rows.length) {
         block.rows[0].forEach(function (c, i) { if (typeof c === 'number') numCols[i] = true; });
       }
-      /* P2-C(재평가 0920) — 차트가 0개였다. 「협력회사별」 표(제목이 아니라 header 형태로
-       *  식별 — rangeKpiData_ 와 같은 판정)의 점검 열에 CSS 인라인 막대를 덧붙인다. 별도
-       *  함수로 빼지 않는다 — renderBlock_ 은 pageCtx()가 소스만 떼어 vm 으로 돌리는 조각이라
-       *  외부 함수 의존이 생기면 그 테스트가 깨진다(위 D5 주석과 같은 이유). */
-      var isCompanyBar = block.header.length === 4 && block.header[0] === '협력회사' &&
-        block.header[1] === '점검' && block.header[2] === '공사' && block.header[3] === '부적합';
-      var barMax = 0;
-      if (isCompanyBar) {
-        block.rows.forEach(function (r) {
-          var v = Number(r[1]);
-          if (isFinite(v) && v > barMax) barMax = v;
-        });
-      }
       /* U2(2026-09-17) — 「오늘 제출된 점검」은 **제목이 아니라 header 형태**로 식별한다
          (제목엔 건수가 섞여 바뀐다. 「공사별」표의 '마지막 점검일' 열은 header 가 달라 여기
          안 걸린다). serverToday(서버 server_today)를 모르면(구서버 폴백) todayKnown 이
@@ -1293,22 +1280,6 @@
               })(block.header[i] === '점검' ? 'subs' : 'finds', block.keys[ri],
                  String(row[0]) + ' · ' + String(row[1]), Number(cell));
               td.appendChild(btn);
-            } else if (isCompanyBar && i === 1 && barMax > 0) {
-              /* 숫자가 정본 — 막대는 옆의 보조 신호일 뿐이다(WCAG 1.4.1, 숫자 유지).
-               * 값 0 인 행은 막대를 그리지 않는다(0 을 지어내지 않는다의 시각판). */
-              td.textContent = String(cell);
-              var barV = Number(cell);
-              if (isFinite(barV) && barV > 0) {
-                td.className = (td.className ? td.className + ' ' : '') + 'dash-inlinebar-cell';
-                var bar = document.createElement('span');
-                bar.className = 'dash-inlinebar';
-                bar.setAttribute('aria-hidden', 'true');
-                var fill = document.createElement('span');
-                fill.className = 'dash-inlinebar-fill';
-                fill.setAttribute('style', 'width:' + Math.max(4, Math.round((barV / barMax) * 100)) + '%');
-                bar.appendChild(fill);
-                td.appendChild(bar);
-              }
             } else {
               td.textContent = String(cell);
             }
