@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="협력회사 SHE 현황 — 관리자 전용 대시보드·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-b5e6dfed">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-b5e6dfed">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-c3b61ac7">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-c3b61ac7">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -654,6 +654,18 @@
 /* nowrap(.dash-block td)보다 구체도가 높아야 줄바꿈이 실제로 걸린다 — 긴 항목 문구가
    한 줄로 화면 밖까지 밀리던 원인. */
 .dash-block td.dash-wraptext { white-space: normal; min-width: 220px; }
+/* 부적합 상세 — 공사·점검항목·지적내용 세 열이 nowrap 그대로라 1440px 모달에서
+   scrollWidth(1103) > clientWidth(830) 로 넘쳤다(가로 넘침 보정, R1 2026-09-23).
+   .dash-mr-finds 스코프로 구체도를 위 .dash-block td(0,1,1)보다 높인다(0,3,1) —
+   dash-wraptext(min-width:220px)는 이 표의 실측 목표치와 어긋나 여기선 안 쓴다. */
+.dash-mr-finds .dash-block td:nth-child(3),
+.dash-mr-finds .dash-block td:nth-child(5),
+.dash-mr-finds .dash-block td:nth-child(6) {
+  white-space: normal; word-break: keep-all; overflow-wrap: anywhere;
+}
+.dash-mr-finds .dash-block td:nth-child(3) { min-width: 150px; }
+.dash-mr-finds .dash-block td:nth-child(5) { min-width: 110px; }
+.dash-mr-finds .dash-block td:nth-child(6) { min-width: 230px; }
 .dash-sheet-section { background: var(--bg); font-weight: 700; }
 /* 기본안전수칙(분류 머리) 행 — 딸린 일반 안전수칙과 갈라 보이게 음영을 준다.
    구획 줄(.dash-sheet-section)과 같은 --bg 를 쓰되 글자는 그대로 둔다(판정 열이 있는 행이라
@@ -758,6 +770,14 @@
   .dash-sheet th, .dash-sheet td { padding: 10px 10px; font-size: 0.88rem; }
   .dash-sheet th:nth-child(2), .dash-sheet td:nth-child(2) { width: 48px; }
 }
+/* 부적합 상세 — 390px 실측(412px 행높이)에 맞춘 좁은 폭 하한. base 규칙 뒤에 둬야
+   같은 구체도(0,3,1)에서 소스 순서로 이긴다. 390px 은 7열 표라 가로 스크롤이 남는 것이
+   설계사양(다른 월간 표와 동일) — 이 구간은 min-width 만 좁힐 뿐 스크롤을 없애지 않는다. */
+@media (max-width: 560px) {
+  .dash-mr-finds .dash-block td:nth-child(3) { min-width: 130px; }
+  .dash-mr-finds .dash-block td:nth-child(5) { min-width: 100px; }
+  .dash-mr-finds .dash-block td:nth-child(6) { min-width: 180px; }
+}
 @media (prefers-reduced-motion: reduce) {
   .dash-btn, .dash-page, .dash-controls select, .dash-controls input, .dash-block tbody tr { transition: none; }
 }
@@ -843,7 +863,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-b5e6dfed"></script>
-<script src="./dashboard.js?v=0.5.5-b5e6dfed"></script>
+<script src="./config.js?v=0.5.5-c3b61ac7"></script>
+<script src="./dashboard.js?v=0.5.5-c3b61ac7"></script>
 </body>
 </html>

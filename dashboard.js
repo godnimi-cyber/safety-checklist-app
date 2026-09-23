@@ -1452,10 +1452,11 @@
   }
 
   /** 절 하나 = 제목 + CSV 버튼 + 표. CSV 는 화면에 보이는 그 표 그대로다.
-   *  wrapCol(선택) — 그 열 인덱스만 줄바꿈 허용(긴 자유입력 열, 예: 지적내용). */
-  function monthlySection_(title, kind, header, rows, cellsOf, wrapCol) {
+   *  extraClass(선택) — section 에 덧붙일 클래스. 열별 줄바꿈·폭은 그 클래스를 스코프로
+   *  CSS(:nth-child) 에서 정한다(열 인덱스를 JS 로 넘기지 않는다). */
+  function monthlySection_(title, kind, header, rows, cellsOf, extraClass) {
     var sec = document.createElement('section');
-    sec.className = 'dash-mr-sec';
+    sec.className = extraClass ? 'dash-mr-sec ' + extraClass : 'dash-mr-sec';
     var head = document.createElement('div');
     head.className = 'dash-block-head';
     var h = document.createElement('h3');
@@ -1485,9 +1486,8 @@
     }
     sec.appendChild(modalTable_(header, cells, function (row) {
       var tr = document.createElement('tr');
-      row.forEach(function (c, ci) {
+      row.forEach(function (c) {
         var td = document.createElement('td');
-        if (ci === wrapCol) td.className = 'dash-wraptext';
         td.textContent = String(c === null || c === undefined ? '' : c);
         tr.appendChild(td);
       });
@@ -1659,14 +1659,15 @@
       }));
 
     /* 구서버 호환 — findRows 가 배열일 때만 절을 만든다(필드 부재 → 절 생략, 0 지어내기
-       금지 원칙과 동일). 지적내용(note)은 자유 입력이라 길 수 있어 그 열만 줄바꿈 허용. */
+       금지 원칙과 동일). 공사·점검항목·지적내용은 자유 입력이라 길 수 있어 줄바꿈 허용
+       (dash-mr-finds 스코프, CSS). */
     if (Array.isArray(d.findRows)) {
       body.appendChild(monthlySection_('■ 부적합 상세', '부적합상세',
         ['점검일', '협력회사', '공사', '분류', '점검항목', '지적내용', '점검자'],
         d.findRows, function (r) {
           return [r.date, r.company_name, r.project_name, r.category, r.item, r.note,
                   r.inspector];
-        }, 5));
+        }, 'dash-mr-finds'));
     }
 
     /* 미점검확정은 **공사별로 접지 않는다** — 확정 1건 = 1행이다. 접으면 같은 공사의 확정
