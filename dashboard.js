@@ -503,6 +503,10 @@
     modal.trapFocus = false;                   // 가둠·복귀는 켠 쪽(일괄 모달)만 다시 켠다
     modal.returnFocus = null;
     odStopNote_();                             // 앞 창의 자정 예고 갱신이 남아 있으면 멈춘다
+    /* 넓힘은 월간 리포트(renderMonthly_)만 켠다 — 여기서 매번 지워야 다른 모달로 전환할 때
+       남지 않는다(누수 금지). */
+    var wideCard = document.querySelector('.dash-modal-card');
+    if (wideCard) wideCard.classList.remove('dash-modal-wide');
     if (root.hidden) {
       /* 닫힘→열림 전이에만: ① 히스토리 1칸 — 뒤로가기가 페이지 이탈 대신 팝업을 닫는다
          ② 본문 스크롤 잠금 — 팝업 스크롤이 끝에 닿아도 뒤 화면이 안 움직인다 */
@@ -1635,6 +1639,8 @@
     monthly.data = d;
     monthly.ym = d.ym;
     openModal_('월간 리포트 — ' + d.ym.replace('-', '년 ') + '월');
+    var wideCard = document.querySelector('.dash-modal-card');
+    if (wideCard) wideCard.classList.add('dash-modal-wide');
     var body = el_('dash-modal-body');
     body.textContent = '';
     body.appendChild(monthlyPicker_(fetchMonthly_));
