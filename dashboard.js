@@ -1451,8 +1451,9 @@
     return p;
   }
 
-  /** 절 하나 = 제목 + CSV 버튼 + 표. CSV 는 화면에 보이는 그 표 그대로다. */
-  function monthlySection_(title, kind, header, rows, cellsOf) {
+  /** 절 하나 = 제목 + CSV 버튼 + 표. CSV 는 화면에 보이는 그 표 그대로다.
+   *  wrapCol(선택) — 그 열 인덱스만 줄바꿈 허용(긴 자유입력 열, 예: 지적내용). */
+  function monthlySection_(title, kind, header, rows, cellsOf, wrapCol) {
     var sec = document.createElement('section');
     sec.className = 'dash-mr-sec';
     var head = document.createElement('div');
@@ -1484,8 +1485,9 @@
     }
     sec.appendChild(modalTable_(header, cells, function (row) {
       var tr = document.createElement('tr');
-      row.forEach(function (c) {
+      row.forEach(function (c, ci) {
         var td = document.createElement('td');
+        if (ci === wrapCol) td.className = 'dash-wraptext';
         td.textContent = String(c === null || c === undefined ? '' : c);
         tr.appendChild(td);
       });
@@ -1562,6 +1564,17 @@
       })).forEach(function (s) { L.push(s); });
     blank();
 
+    /* 구서버 호환 — findRows 가 배열일 때만 절을 넣는다(renderMonthly_ 와 같은 규칙). */
+    if (Array.isArray(d.findRows)) {
+      csvSection_('■ 부적합 상세',
+        ['점검일', '협력회사', '공사', '분류', '점검항목', '지적내용', '점검자'],
+        d.findRows.map(function (r) {
+          return [r.date, r.company_name, r.project_name, r.category, r.item, r.note,
+                  r.inspector];
+        })).forEach(function (s) { L.push(s); });
+      blank();
+    }
+
     csvSection_('■ 미점검확정 (확정 건별)',
       ['협력회사', '공사', '원래 예정일', '확정일시', '확정자', '등록자', '점검팀'],
       d.unchecked.rows.map(function (r) {
@@ -1609,7 +1622,9 @@
     note.className = 'dash-mr-onepager-note';
     /* 절 이름을 그대로 적는다 — 파일을 열었을 때 보이는 것과 같은 말이라야
        "내가 받은 게 이거구나" 가 바로 확인된다. */
-    note.textContent = '요약 · 수행 · 미점검확정'
+    note.textContent = '요약 · 수행'
+      + (Array.isArray(d && d.findRows) ? ' · 부적합 상세' : '')
+      + ' · 미점검확정'
       + (((d && d.notes) || []).length ? ' · 확인이 필요한 것' : '')
       + ' 을 한 파일에 담습니다';
     bar.appendChild(note);
@@ -1642,6 +1657,17 @@
         return [r.company_name, r.project_name, r.count, r.findings, r.first, r.last,
                 r.inspectors];
       }));
+
+    /* 구서버 호환 — findRows 가 배열일 때만 절을 만든다(필드 부재 → 절 생략, 0 지어내기
+       금지 원칙과 동일). 지적내용(note)은 자유 입력이라 길 수 있어 그 열만 줄바꿈 허용. */
+    if (Array.isArray(d.findRows)) {
+      body.appendChild(monthlySection_('■ 부적합 상세', '부적합상세',
+        ['점검일', '협력회사', '공사', '분류', '점검항목', '지적내용', '점검자'],
+        d.findRows, function (r) {
+          return [r.date, r.company_name, r.project_name, r.category, r.item, r.note,
+                  r.inspector];
+        }, 5));
+    }
 
     /* 미점검확정은 **공사별로 접지 않는다** — 확정 1건 = 1행이다. 접으면 같은 공사의 확정
        두 건이 한 줄이 되어 언제 예정이던 건인지·누가 확정했는지가 사라진다. */
