@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="협력회사 SHE 현황 — 관리자 전용 대시보드·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-e98535eb">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-e98535eb">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-660b6f20">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-660b6f20">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -46,9 +46,9 @@
    주지 않으므로 전부 죽은 규칙이라 지웠다. 전폭에서는 table-layout 기본값(auto)만으로
    말줄임 0·가로 넘침 0 실측 확인(공사 열도 1줄) — 별도 규칙이 필요 없다. 점검일 열은
    전폭에서 늘 보이므로 숨김·배지도 함께 걷어냈다(dashboard.js 배지 생성 로직도 제거,
-   .dash-today-badge 규칙도 없앴다). 부적합 우측 정렬은 .dash-today-live 스코프로 옮겨
-   살렸다(아래 .dash-num 규칙, W2 — 「협력회사별」·「공사별」은 그 클래스를 받지 않으므로
-   정렬이 그대로 불변이다, 판정 9). */
+   .dash-today-badge 규칙도 없앴다). 부적합 우측 정렬은 당시 .dash-today-live 스코프로만
+   살렸었다(W2, 판정 9로 「협력회사별」·「공사별」은 제외) — 2026-09-28 사용자 지적으로
+   그 스코프 자체가 버그 회피였음이 드러나 걷어내고 아래 .dash-num 규칙을 전역화했다. */
 /* 음영은 제목 바 전용(사용자 지시) — 본문 카드는 보더로만 구획한다 */
 /* sticky 고정 해제(사용자 지시 2026-08-10) — 모바일에서 헤더가 화면 위를 상시 점유했다 */
 /* 헤더 3안(사용자 지시 2026-09-17) — 짙은 톤 그라디언트 + 도트 패턴 + 하단 accent 라인.
@@ -592,16 +592,16 @@
 .dash-block tbody tr { transition: background 0.15s; }
 .dash-block tbody tr:hover { background: var(--row-hover); }
 .dash-block tr:last-child td { border-bottom: 0; }
-.dash-num { text-align: right; font-variant-numeric: tabular-nums; }
-/* T3(2026-09-17) — 위 .dash-num 규칙은 구체도(0,1,0)가 498행 `.dash-block th, .dash-block td
-   { text-align: left; }`(클래스+요소, 0,1,1)에 항상 져서 「오늘 제출된 점검」의 부적합
-   열이 계산값 left 로 렌더됐다(실측 — 소스 순서가 아니라 구체도 문제였다). W2(2026-09-17)
-   — 반폭 폐지로 `.dash-block-half` 스코프가 죽어 이 회귀가 되살아나므로, 이 표에만 붙는
-   `.dash-today-live`(dashboard.js renderBlock_, todayKnown 일 때만) 로 스코프를 옮겨
-   구체도 (0,3,1)를 유지한다. 공사별·협력회사별 등 나머지 전폭 표는 같은 구체도 문제를
-   그대로 갖고 있지만(미확인 기존 버그) 판정 9(다른 블록 정렬 불변) 범위 밖이라
-   여기서 건드리지 않는다 — 이 표만 스코프해야 그 불변이 지켜진다. */
-.dash-block table.dash-today-live th.dash-num, .dash-block table.dash-today-live td.dash-num {
+/* T3(2026-09-17)에서 남긴 '미확인 기존 버그'는 2026-09-28 사용자 지적으로 해소했다 —
+   위 `.dash-num { text-align:right }`(구체도 0,1,0)는 572행 `.dash-block th, .dash-block td
+   { text-align: left; }`(0,1,1)에 항상 져서 「공사별」·「협력회사별」 등 전폭 표의 숫자 열이
+   계산값 left 로 렌더됐다(실측). 그동안 「오늘 제출된 점검」표에만 `.dash-today-live`
+   스코프(구체도 0,3,1)로 우회해 그 표만 살리고 나머지는 '판정 9(다른 블록 정렬 불변)'
+   범위 밖이라 방치했었다 — 이번엔 우회 대신 전역으로 구체도를 올려(요소 선택자를 클래스
+   선택자로: 0,2,1) 모든 .dash-block 숫자 열을 right 로 통일한다. 이 규칙이 옛 스코프 규칙을
+   흡수하므로 `.dash-today-live` 전용 CSS 는 걷어냈다(JS 의 클래스 부여 자체는 남겨 둔다 —
+   다른 용도로 재사용될 수 있어 이 커밋 범위 밖). */
+.dash-block th.dash-num, .dash-block td.dash-num {
   text-align: right; font-variant-numeric: tabular-nums; }
 .dash-danger { color: var(--danger); font-weight: 700; }
 .dash-integrity { border-left: 4px solid var(--danger); }
@@ -627,9 +627,22 @@
    td 의 scrollWidth(overflow 계산)에는 그대로 잡혀, text-align:right 로 셀 오른쪽에
    붙은 링크의 우측 삐침이 td 오른쪽 padding(16px)을 넘겨 표 전체가 2px 넘쳤다
    (실측: cw 1236/sw 1238, 문제 td cw 144/sw 146 — 부적합 값이 0 이 아닌 셀만).
-   대신 가로는 위 .dash-linknum 자신에 min-width:44px 를 준다 — text-align:right 정렬이라
-   폭이 늘어도 우측 끝(=오른쪽 padding 안쪽 8px, 기존과 동일)은 그대로고 왼쪽으로만 자라
-   td 의 필요폭에 새로 얹히지 않는다(실측: 144 셀 예산 안에서 흡수, 넘침 0). */
+   대신 가로는 위 .dash-linknum 자신에 min-width:44px 를 준다 — 폭이 늘어도 우측
+   끝(=오른쪽 padding 안쪽 8px, 기존과 동일)은 그대로고 왼쪽으로만 자라 td 의 필요폭에
+   새로 얹히지 않는다(실측: 144 셀 예산 안에서 흡수, 넘침 0). 이때 "우측 끝이 그대로"는
+   **td(부모)의 text-align:right** 가 버튼 상자 자체를 셀 오른쪽에 붙였다는 뜻이었을 뿐
+   — 작성 당시(0920)엔 `.dash-today-live` 스코프 표에서만 참이었고, 그 밖의 전폭 표는
+   T3(2026-09-17) 결함으로 실제론 left 였다(2026-09-28 전역화로 지금은 모든 .dash-block
+   표에서 참) —, 버튼 **안**의 숫자 글자는 버튼 기본 정렬(가운데)로 44px 상자 중앙에
+   있었다 — 부적합 0(일반 텍스트, td 오른쪽 끝에 붙음)과 부적합>0(버튼, 44px 상자 중앙)의
+   글자 x 좌표가 갈라진 원인(사용자 지적 2026-09-28). 버튼 자신의 정렬도 오른쪽으로
+   맞춰, 글자 우측 끝이 padding-right 8px/margin-right -8px 로 상쇄된 같은 지점(=td
+   오른쪽 끝)에 오게 한다 — 상자 폭(44px, 넘침 0 계약)과 ::after 세로 터치 영역은 이
+   변경으로 바뀌지 않는다. R2(2026-09-28, Codex 지적) — 이 text-align:right 는
+   `.dash-linknum` 자신이 아니라 `.dash-block td .dash-linknum` 에만 건다: 같은 클래스가
+   모바일 공사별 카드(dash-projcard, 표 셀이 아니다)의 점검/부적합 버튼에도 쓰이는데,
+   거기서 오른쪽 정렬을 받으면 44px 버튼 안에서 숫자가 오른쪽으로 쏠린다. */
+.dash-block td .dash-linknum { text-align: right; }
 .dash-linknum::after { content: ""; position: absolute;
   top: 50%; left: 50%; transform: translate(-50%, -50%);
   min-height: 44px; }
@@ -881,7 +894,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-e98535eb"></script>
-<script src="./dashboard.js?v=0.5.5-e98535eb"></script>
+<script src="./config.js?v=0.5.5-660b6f20"></script>
+<script src="./dashboard.js?v=0.5.5-660b6f20"></script>
 </body>
 </html>

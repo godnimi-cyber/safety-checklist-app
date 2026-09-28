@@ -1556,9 +1556,10 @@
       var scroll = document.createElement('div');
       scroll.className = 'dash-tablescroll';
       var table = document.createElement('table');
-      /* W2(2026-09-17) — 반폭 소멸로 점검일 열 숨김·배지(U2)는 걷어냈지만, 이 클래스는
-         남겨 부적합 우측 정렬(dashboard.html .dash-num 규칙)을 이 표에만 스코프한다 —
-         「협력회사별」·「공사별」은 그대로 두어야 한다(판정 9). */
+      /* W2(2026-09-17) — 반폭 소멸로 점검일 열 숨김·배지(U2)는 걷어냈다. 이 클래스는
+         한때 부적합 우측 정렬(dashboard.html .dash-num 규칙)을 이 표에만 스코프하는
+         용도였으나(판정 9), 그 스코프는 2026-09-28 사용자 지적으로 걷어내 지금은 전역
+         .dash-block td.dash-num 규칙이 모든 표를 맡는다 — 이 클래스는 CSS 훅 없이 남는다. */
       if (todayKnown) table.className = 'dash-today-live';
       var thead = document.createElement('thead');
       var hr = document.createElement('tr');
