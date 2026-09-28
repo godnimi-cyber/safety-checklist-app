@@ -308,7 +308,7 @@
     });
   }
 
-  /** 열이 전부(행이 1개 이상) number 타입이면 숫자 열 — 우측 정렬 스타일 대상(스펙 §2). */
+  /** 열이 전부(행이 1개 이상) number 타입이면 숫자 열 — 가운데 정렬(2026-09-28 사용자 재지시) 스타일 대상(스펙 §2). */
   function numericCols_(header, rows) {
     return header.map(function (_, c) {
       if (!rows.length) return false;
@@ -930,7 +930,7 @@
   /** 모달용 표 — 본문 표와 같은 스타일 계열(.dash-block table)을 재사용한다.
    *  B2 — .dash-tablewrap/.dash-tablescroll 2단 구조를 renderBlock_ 과 맞춘다
    *  (스크롤·max-height 는 .dash-tablescroll 쪽 CSS 에만 있다). */
-  function modalTable_(header, rows, trOf) {
+  function modalTable_(header, rows, trOf, numCols) {
     var block = document.createElement('div');
     block.className = 'dash-block dash-modal-tables';
     var wrap = document.createElement('div');
@@ -940,10 +940,11 @@
     var table = document.createElement('table');
     var thead = document.createElement('thead');
     var hr = document.createElement('tr');
-    header.forEach(function (t) {
+    header.forEach(function (t, i) {
       var th = document.createElement('th');
       th.scope = 'col';
       th.textContent = t;
+      if (numCols && numCols.indexOf(i) !== -1) th.className = 'dash-num';
       hr.appendChild(th);
     });
     thead.appendChild(hr);
@@ -1024,7 +1025,7 @@
         if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openIt(); }
       });
       return tr;
-    }));
+    }, [4]));
   }
 
   /** 점검 1건의 전체 점검표 — 그 버전의 항목 문구 그대로(서버 kind=sheet). */
@@ -1531,7 +1532,7 @@
       }
     } else {
       var dangerCol = block.header.indexOf('부적합');
-      /* 숫자 열은 우측 정렬 — 첫 데이터 행의 타입으로 판정(서버가 집계 수를 number 로 보낸다) */
+      /* 숫자 열은 가운데 정렬(2026-09-28 사용자 재지시) — 첫 데이터 행의 타입으로 판정(서버가 집계 수를 number 로 보낸다) */
       var numCols = {};
       if (block.rows.length) {
         block.rows[0].forEach(function (c, i) { if (typeof c === 'number') numCols[i] = true; });
