@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="협력회사 SHE 현황 — 관리자 전용 대시보드·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-1c0517b9">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-1c0517b9">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-e98535eb">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-e98535eb">
 <link rel="preconnect" href="https://script.google.com" crossorigin>
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -359,17 +359,17 @@
 .dash-btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .dash-btn-primary:active { background: var(--accent-active); border-color: var(--accent-active); }
 .dash-btn:disabled { opacity: 0.5; cursor: default; }
-/* P1-1(B, 재평가 0920) — 실측 1440px: 필터 카드 우측 628px(49%) 공백, 정렬선이 아래 전폭
-   블록과 끊겨 「로딩 실패처럼 보인다」던 W1~W5 반폭 사고와 같은 유형이었다. 3안(A: KPI 카드
-   줄을 끌어올려 한 줄 / B: max-width 로 좁힘 / C: 우측에 캡션·기준시각 이동) 중 B 채택 —
-   내용 실측폭 652px 보다 넉넉한 760px 로, 필드 줄바꿈 없이 의도된 좌측 정렬 카드가 된다.
-   A 는 renderKpiCards_ host(#dash-summary)를 이 카드와 같은 부모로 재배선해야 하는데
-   D57~D61 이 검사하는 renderStatTiles_ DOM 계약·호출 순서를 건드릴 위험이 있어 보류,
-   C 는 헤더(#dash-generated, P0-2 대상)까지 같이 옮겨야 해 범위가 커진다 — 최저비용 B 로
-   같은 목표(정렬선 복구)를 먼저 확보한다. */
-.dash-controls { display: flex; gap: 16px; align-items: end; flex-wrap: wrap;
+/* P1-1(B, 재평가 0920) 은 2026-09-28 사용자 지시로 번복됐다 — "조회화면·조회기간 카드 폭이
+   좁아서 부자연스럽다". 760px 상한을 걷어내고 전폭(.dash-shell 기준, 아래 미점검·표 블록과
+   같은 좌우 정렬선)으로 되돌린다. 대신 내부를 grid 로 짜 팀·시작일·종료일이 폭을 나눠
+   늘어나고(151행 auto 열의 [조회] 버튼은 입력칸과 같은 44px 높이·바닥선), 안내문 두 줄은
+   전폭 helper 줄로 내려 입력칸 옆에 붕 뜨지 않게 한다(align-self:center 이던 것 — 라벨이
+   2단(제목+입력)이라 기준선이 달랐던 원인). 모바일 접힘(≤560px)·640px 이하 2열 규칙은
+   아래 @media 가 그대로 덮어써 손대지 않는다. */
+.dash-controls { display: grid; grid-template-columns: repeat(3, minmax(130px, 1fr)) auto;
+  gap: 12px 16px; align-items: end;
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 12px; padding: 16px 20px; margin: 0 0 24px; max-width: 760px; }
+  border-radius: 12px; padding: 16px 20px; margin: 0 0 24px; }
 .dash-controls label { display: flex; flex-direction: column; gap: 6px;
   font-size: 0.8rem; font-weight: 600; color: var(--muted); }
 .dash-controls select, .dash-controls input { min-height: 44px; padding: 8px 12px;
@@ -379,7 +379,11 @@
 .dash-controls select:hover, .dash-controls input:hover { border-color: var(--muted); }
 .dash-controls select:focus-visible, .dash-controls input:focus-visible,
 #dash-key-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.dash-controls .note { color: var(--muted); font-size: 0.85rem; align-self: center; }
+.dash-controls .note { grid-column: 1 / -1; color: var(--muted); font-size: 0.85rem;
+  align-self: start; margin: 0; }
+/* 비어 있을 땐 격자에서 아예 빼서 빈 행의 gap 만 남는 여백을 없앤다(Codex 지적) —
+   내용이 채워지면(JS 가 textContent 를 쓰면) 다시 보인다. */
+#dash-range-label:empty { display: none; }
 /* P1-2 — 요약 줄(접힌 상태)은 데스크톱에서 항상 숨긴다. 폭 조건은 아래 @media 에서만 켠다 —
    base 는 마지막에 지지 않도록 @media 규칙을 **이 뒤(소스 순서 나중)** 에 둔다. */
 .dash-controls-summary { display: none; }
@@ -404,18 +408,19 @@
    두 번째 캡션(이번 주 캡션)에만 위 여백을 줘 묶음을 시각적으로 가른다. */
 #dash-summary { margin: 0 0 20px; }
 #dash-summary[hidden] { display: none; }
-/* P2-A(스코프 축소, 재평가 0920) — 모든 블록이 전폭 1컬럼이라 리듬이 없다(vision 판독:
-   "같은 라운드·같은 폭 카드 세로 반복"). KPI 카드 줄만 필터 카드(.dash-controls, P1-1)와
-   같은 폭으로 좁혀 좌측 정렬 리듬을 준다. 「이번 주」 블록과 나란히 2열로 합치는 안(원 지시
-   (A))은 #dash-summary·#dash-blocks 가 서로 다른 컨테이너(형제 아님, main 안쪽에 이번 주
-   섹션이 중첩)라 display:contents 로 경계를 걷어내야 하는데, #dash-blocks 는 odBarSpace_·
-   scrollBlockTop_ 등 자체 rect 를 재는 JS 가 물려 있어 위험이 크다 — 이번 라운드는 보류하고
-   낮은 위험의 폭 차등만 적용한다(표 블록은 W1~W5 전폭 결정 그대로, 손대지 않는다). */
-@media (min-width: 1181px) {
-  #dash-summary { max-width: 760px; }
-}
+/* P2-A(스코프 축소, 재평가 0920) 의 760px 폭 차등은 2026-09-28 사용자 지시로 번복됐다 —
+   필터 카드(.dash-controls, 위 P1-1 주석 참조)와 같은 이유로 전폭 정렬선을 되돌린다.
+   KPI 카드 4장은 auto-fit 대신 고정 4열(아래 #dash-summary .dash-kpis)로 균등 분배해
+   전폭에서도 카드가 과도하게 늘어지지 않게 한다. */
 .dash-kpis-caption { font-size: 0.78rem; font-weight: 600; color: var(--muted);
   letter-spacing: 0.02em; margin: 0 0 8px; }
+/* 641px 이상(태블릿·데스크톱) — 조회 기간 KPI 카드 4장은 항상 4열 균등 분배.
+   auto-fit(170px 하한, .dash-tiles 기본)은 전폭에서 5~7열까지 벌어져 카드가 과도하게
+   늘어진다. ≤640px 모바일 2열(730행 미디어)은 별도 breakpoint 라 겹치지 않는다 —
+   「이번 주」 그리드(.dash-week-layout .dash-kpis)는 #dash-summary 밖이라 영향 없다. */
+@media (min-width: 641px) {
+  #dash-summary .dash-kpis { grid-template-columns: repeat(4, 1fr); }
+}
 .dash-kpis-caption ~ .dash-kpis-caption { margin-top: 18px; }
 #dash-key-screen { max-width: 400px; margin: 64px auto; display: flex; flex-direction: column;
   gap: 14px; background: var(--surface); border: 1px solid var(--border);
@@ -876,7 +881,7 @@
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-1c0517b9"></script>
-<script src="./dashboard.js?v=0.5.5-1c0517b9"></script>
+<script src="./config.js?v=0.5.5-e98535eb"></script>
+<script src="./dashboard.js?v=0.5.5-e98535eb"></script>
 </body>
 </html>

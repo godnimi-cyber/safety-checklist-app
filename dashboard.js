@@ -167,22 +167,341 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 0);
   }
 
-  /** 협력회사별·공사별 블록 머리(제목 오른쪽)에 CSV 버튼. 파일명·데이터 모두 커밋된
-   *  상태에서만 나온다 — 진행 중 조회(범위 B)와 섞이지 않도록 **committedRange** 를
+  /* ---------- 엑셀(.xlsx) — 협력회사별·공사별 표 다운로드 (2026-09-28 사용자 지시)
+     CSV 는 열 폭·서식을 못 담아 Excel 에서 공사명·업체명이 잘리고 날짜가 ####### 로 깨졌다.
+     외부 라이브러리·CDN 없이 최소 xlsx(OOXML) 작성기를 여기 직접 둔다 — ZIP(STORE, 무압축)
+     + 6개 파트([Content_Types].xml·_rels/.rels·xl/workbook.xml·xl/_rels/workbook.xml.rels·
+     xl/styles.xml·xl/worksheets/sheet1.xml). 문자열은 sharedStrings 없이 inlineStr 로 쓴다 —
+     수식으로 해석되지 않으니 CSV 식 아포스트로피 소독이 필요 없다(`=SUM(1)` 이 문자열 그대로
+     보인다). csvField_/buildCsv_/downloadCsv_ 는 월간 리포트가 그대로 쓰므로 손대지 않는다. */
+
+  var CRC_TABLE_ = (function () {
+    var t = [];
+    for (var n = 0; n < 256; n++) {
+      var c = n;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t.push(c >>> 0);
+    }
+    return t;
+  })();
+
+  /** bytes 는 0~255 숫자 배열(원소별 push 로 채운다 — apply/concat 스프레드는 인자수
+   *  상한에 걸릴 수 있어 쓰지 않는다, 스펙 §2). */
+  function crc32_(bytes) {
+    var crc = 0xFFFFFFFF;
+    for (var i = 0; i < bytes.length; i++) crc = CRC_TABLE_[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  /** TextEncoder 는 vm 조각 테스트 환경에 없다 — 수동 UTF-8 인코더로 대체(브라우저와 동작 동일). */
+  function utf8Bytes_(str) {
+    var s = String(str === null || str === undefined ? '' : str);
+    var out = [];
+    for (var i = 0; i < s.length; i++) {
+      var c = s.codePointAt(i);
+      if (c > 0xFFFF) i++;               // 서로게이트 쌍은 codePointAt 이 이미 합쳐 읽었다
+      if (c < 0x80) { out.push(c); }
+      else if (c < 0x800) { out.push(0xC0 | (c >> 6), 0x80 | (c & 0x3F)); }
+      else if (c < 0x10000) { out.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 0x3F), 0x80 | (c & 0x3F)); }
+      else {
+        out.push(0xF0 | (c >> 18), 0x80 | ((c >> 12) & 0x3F), 0x80 | ((c >> 6) & 0x3F), 0x80 | (c & 0x3F));
+      }
+    }
+    return out;
+  }
+
+  function u16LE_(n) { return [n & 0xFF, (n >> 8) & 0xFF]; }
+  function u32LE_(n) { return [n & 0xFF, (n >> 8) & 0xFF, (n >> 16) & 0xFF, (n >>> 24) & 0xFF]; }
+
+  /** parts(배열의 배열)를 하나로 편다 — push.apply 대신 단건 push 루프라 크기 상한이 없다. */
+  function bytesConcat_(parts) {
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i];
+      for (var j = 0; j < p.length; j++) out.push(p[j]);
+    }
+    return out;
+  }
+
+  var ZIP_DOS_DATE_ = 0x0021;   // 1980-01-01 — STORE 항목의 고정 타임스탬프(내용과 무관)
+  var ZIP_DOS_TIME_ = 0x0000;
+
+  function zipLocalHeader_(nameBytes, crc, size) {
+    return bytesConcat_([
+      u32LE_(0x04034b50), u16LE_(20), u16LE_(0x0800), u16LE_(0),
+      u16LE_(ZIP_DOS_TIME_), u16LE_(ZIP_DOS_DATE_), u32LE_(crc), u32LE_(size), u32LE_(size),
+      u16LE_(nameBytes.length), u16LE_(0), nameBytes
+    ]);
+  }
+  function zipCentralHeader_(nameBytes, crc, size, offset) {
+    return bytesConcat_([
+      u32LE_(0x02014b50), u16LE_(20), u16LE_(20), u16LE_(0x0800), u16LE_(0),
+      u16LE_(ZIP_DOS_TIME_), u16LE_(ZIP_DOS_DATE_), u32LE_(crc), u32LE_(size), u32LE_(size),
+      u16LE_(nameBytes.length), u16LE_(0), u16LE_(0), u16LE_(0), u16LE_(0), u32LE_(0),
+      u32LE_(offset), nameBytes
+    ]);
+  }
+
+  /** entries: [{name, bytes(0~255 배열)}] → ZIP 전체 바이트(배열). 무압축(STORE) +
+   *  UTF-8 파일명 플래그(bit11, 0x0800) — 로컬 헤더 + 파일들 + 중앙 디렉터리 + EOCD. */
+  function zipStore_(entries) {
+    var offset = 0, localParts = [], centralParts = [];
+    entries.forEach(function (e) {
+      var nameBytes = utf8Bytes_(e.name);
+      var data = e.bytes;
+      var crc = crc32_(data);
+      var lh = zipLocalHeader_(nameBytes, crc, data.length);
+      localParts.push(lh, data);
+      centralParts.push(zipCentralHeader_(nameBytes, crc, data.length, offset));
+      offset += lh.length + data.length;
+    });
+    var centralStart = offset;
+    var central = bytesConcat_(centralParts);
+    var eocd = bytesConcat_([
+      u32LE_(0x06054b50), u16LE_(0), u16LE_(0), u16LE_(entries.length), u16LE_(entries.length),
+      u32LE_(central.length), u32LE_(centralStart), u16LE_(0)
+    ]);
+    return bytesConcat_(localParts.concat([central, eocd]));
+  }
+
+  /** XML 1.0 금지 제어문자 제거 + 고립 서로게이트·U+FFFE·U+FFFF 를 U+FFFD 로 치환(정상
+      서로게이트 쌍은 보존) 후 & < > " ' 이스케이프(스펙 §2, Codex 지적 — utf8Bytes_ 가
+      고립 서로게이트를 CESU-8(ED A0 80 류)로 잘못 인코딩해 Excel 이 파일을 거부/복구했다). */
+  function xmlEscape_(v) {
+    var raw = String(v === null || v === undefined ? '' : v).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+    var s = '';
+    for (var i = 0; i < raw.length; i++) {
+      var c = raw.charCodeAt(i);
+      if (c >= 0xD800 && c <= 0xDBFF) {
+        var next = raw.charCodeAt(i + 1);
+        if (next >= 0xDC00 && next <= 0xDFFF) { s += raw[i] + raw[i + 1]; i++; }
+        else { s += '�'; }
+      } else if ((c >= 0xDC00 && c <= 0xDFFF) || c === 0xFFFE || c === 0xFFFF) {
+        s += '�';
+      } else {
+        s += raw[i];
+      }
+    }
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+  }
+
+  /* 동아시아 전각 문자(한글·CJK·가나·전각 기호) 대역 — 열 폭 계산에서 1문자를 2칸으로 센다. */
+  var WIDE_CHAR_RE_ = /[ᄀ-ᅟ⺀-〾ぁ-㏿㐀-䶿一-鿿ꀀ-꓏가-힣豈-﫿＀-｠￠-￦]/;
+  function dispLen_(v) {
+    var s = String(v === null || v === undefined ? '' : v);
+    var len = 0;
+    for (var i = 0; i < s.length; i++) len += WIDE_CHAR_RE_.test(s[i]) ? 2 : 1;
+    return len;
+  }
+
+  /** 열마다 (헤더, 모든 셀) 표시 길이의 최대값 + 여유 2, 하한 6·상한 60(스펙 §2). */
+  function colWidths_(header, rows) {
+    return header.map(function (h, c) {
+      var max = dispLen_(h);
+      rows.forEach(function (r) {
+        var l = dispLen_(r[c]);
+        if (l > max) max = l;
+      });
+      var w = max + 2;
+      return w < 6 ? 6 : (w > 60 ? 60 : w);
+    });
+  }
+
+  /** 열이 전부(행이 1개 이상) number 타입이면 숫자 열 — 우측 정렬 스타일 대상(스펙 §2). */
+  function numericCols_(header, rows) {
+    return header.map(function (_, c) {
+      if (!rows.length) return false;
+      return rows.every(function (r) { return typeof r[c] === 'number' && isFinite(r[c]); });
+    });
+  }
+
+  function colLetter_(n) {
+    var s = '';
+    while (n > 0) {
+      var m = (n - 1) % 26;
+      s = String.fromCharCode(65 + m) + s;
+      n = Math.floor((n - 1) / 26);
+    }
+    return s;
+  }
+
+  /** styles.xml — 헤더(굵게+연한 배경+테두리+가운데) / 본문(테두리) / 숫자 본문(테두리+우측)
+   *  세 가지 cellXfs 만 둔다(인덱스 1·2·3, 0은 스펙상 필수 기본값). */
+  function xlsxStylesXml_() {
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>' +
+      '<font><b/><sz val="11"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="3"><fill><patternFill patternType="none"/></fill>' +
+      '<fill><patternFill patternType="gray125"/></fill>' +
+      '<fill><patternFill patternType="solid"><fgColor rgb="FFE8EEEC"/>' +
+      '<bgColor indexed="64"/></patternFill></fill></fills>' +
+      '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border>' +
+      '<border><left style="thin"><color indexed="64"/></left>' +
+      '<right style="thin"><color indexed="64"/></right>' +
+      '<top style="thin"><color indexed="64"/></top>' +
+      '<bottom style="thin"><color indexed="64"/></bottom><diagonal/></border></borders>' +
+      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+      '<cellXfs count="4">' +
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+      '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" ' +
+      'applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1"/>' +
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" ' +
+      'applyAlignment="1"><alignment horizontal="right"/></xf>' +
+      '</cellXfs>' +
+      '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
+      '</styleSheet>';
+  }
+
+  /** 표 블록(header/rows) → 시트 XML. 문자열=inlineStr(수식 아님), 숫자(number·유한)만
+   *  <v> 숫자 셀 — 날짜 문자열은 숫자가 아니므로 문자열 셀로 남아 #######이 생기지 않는다.
+   *  첫 행 고정 + 헤더 자동 필터(스펙 §2). */
+  function xlsxSheetXml_(header, rows) {
+    var ncols = header.length;
+    var widths = colWidths_(header, rows);
+    var numFlags = numericCols_(header, rows);
+    var lastCol = colLetter_(ncols);
+    var lastRow = rows.length + 1;
+
+    var cols = '<cols>';
+    for (var c = 0; c < ncols; c++) {
+      cols += '<col min="' + (c + 1) + '" max="' + (c + 1) + '" width="' + widths[c] + '" customWidth="1"/>';
+    }
+    cols += '</cols>';
+
+    function cell_(colIdx, rowIdx, value, isHeader) {
+      var ref = colLetter_(colIdx + 1) + rowIdx;
+      var isNum = !isHeader && typeof value === 'number' && isFinite(value);
+      var styleId = isHeader ? 1 : (numFlags[colIdx] ? 3 : 2);
+      if (isNum) return '<c r="' + ref + '" s="' + styleId + '"><v>' + value + '</v></c>';
+      var text = xmlEscape_(value === null || value === undefined ? '' : String(value));
+      return '<c r="' + ref + '" s="' + styleId + '" t="inlineStr"><is><t xml:space="preserve">' +
+        text + '</t></is></c>';
+    }
+
+    var rowsXml = '<row r="1">';
+    for (var h = 0; h < ncols; h++) rowsXml += cell_(h, 1, header[h], true);
+    rowsXml += '</row>';
+    rows.forEach(function (r, ri) {
+      var rr = ri + 2;
+      var line = '<row r="' + rr + '">';
+      for (var c2 = 0; c2 < ncols; c2++) line += cell_(c2, rr, r[c2], false);
+      rowsXml += line + '</row>';
+    });
+
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      '<dimension ref="A1:' + lastCol + lastRow + '"/>' +
+      '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" ' +
+      'activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
+      '<sheetFormatPr defaultRowHeight="15"/>' + cols +
+      '<sheetData>' + rowsXml + '</sheetData>' +
+      '<autoFilter ref="A1:' + lastCol + lastRow + '"/>' +
+      '</worksheet>';
+  }
+
+  /** 시트 이름 — 31자 이하, 금지문자 [ ] : * ? / \ 제거(스펙 §2). */
+  function xlsxSheetName_(kind) {
+    var s = String(kind || '').replace(/[[\]:*?/\\]/g, '');
+    s = s.length > 31 ? s.slice(0, 31) : s;
+    return s || 'Sheet1';
+  }
+
+  function xlsxContentTypesXml_() {
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ' +
+      'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ' +
+      'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+      '<Override PartName="/xl/worksheets/sheet1.xml" ' +
+      'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+      '</Types>';
+  }
+  function xlsxRootRelsXml_() {
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" ' +
+      'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" ' +
+      'Target="xl/workbook.xml"/></Relationships>';
+  }
+  function xlsxWorkbookRelsXml_() {
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" ' +
+      'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" ' +
+      'Target="worksheets/sheet1.xml"/>' +
+      '<Relationship Id="rId2" ' +
+      'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" ' +
+      'Target="styles.xml"/></Relationships>';
+  }
+  function xlsxWorkbookXml_(sheetName, lastCol, lastRow) {
+    var nameEsc = xmlEscape_(sheetName);
+    var filterRef = '$A$1:$' + lastCol + '$' + lastRow;
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheets><sheet name="' + nameEsc + '" sheetId="1" r:id="rId1"/></sheets>' +
+      '<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">\'' +
+      nameEsc + '\'!' + filterRef + '</definedName></definedNames>' +
+      '</workbook>';
+  }
+
+  /** header/rows(표 블록과 같은 모양) → .xlsx 바이트 배열(0~255). */
+  function buildXlsx_(kind, header, rows) {
+    var sheetName = xlsxSheetName_(kind);
+    var lastCol = colLetter_(header.length);
+    var lastRow = rows.length + 1;
+    var parts = [
+      { name: '[Content_Types].xml', text: xlsxContentTypesXml_() },
+      { name: '_rels/.rels', text: xlsxRootRelsXml_() },
+      { name: 'xl/workbook.xml', text: xlsxWorkbookXml_(sheetName, lastCol, lastRow) },
+      { name: 'xl/_rels/workbook.xml.rels', text: xlsxWorkbookRelsXml_() },
+      { name: 'xl/styles.xml', text: xlsxStylesXml_() },
+      { name: 'xl/worksheets/sheet1.xml', text: xlsxSheetXml_(header, rows) }
+    ];
+    return zipStore_(parts.map(function (p) { return { name: p.name, bytes: utf8Bytes_(p.text) }; }));
+  }
+
+  /** 파일명 규칙은 csvFileName_ 과 같되 확장자만 .xlsx(스펙 §2). */
+  function xlsxFileName_(kind, teamLabel, rng) {
+    return kind + '_' + fileSafe_(teamLabel) + '_' + rng.from + '_' + rng.to + '.xlsx';
+  }
+
+  function downloadXlsx_(filename, byteArray) {
+    var blob = new Blob([new Uint8Array(byteArray)],
+      { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+  }
+
+  /** 협력회사별·공사별 블록 머리(제목 오른쪽)에 엑셀 다운로드 버튼. 파일명·데이터 모두
+   *  커밋된 상태에서만 나온다 — 진행 중 조회(범위 B)와 섞이지 않도록 **committedRange** 를
    *  쓴다(스펙 §4.1). sec 의 firstChild 는 renderBlock_ 이 만든 .dash-block-head 다. */
-  function appendCsvButton_(sec, block, kind) {
+  function appendXlsxButton_(sec, block, kind) {
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'dash-btn';
     /* 쪽을 나눠 보는 블록에서는 **버튼 자신이** 전체 건수를 말한다 — 화면에 15건만 있는데
-       'CSV 다운로드' 라고만 적혀 있으면 그 15건을 받는 줄 안다(Codex 렌즈B #6).
-       안내문이 목록 아래 3~4화면 뒤에 있어서, 버튼 앞에 선 사람에게는 닿지 않는다. */
+       '엑셀 다운로드' 라고만 적혀 있으면 그 15건을 받는 줄 안다(Codex 렌즈B #6, CSV 시절 지적
+       그대로 유지). 안내문이 목록 아래 3~4화면 뒤에 있어서, 버튼 앞에 선 사람에게는 닿지 않는다. */
     btn.textContent = (block.keys && block.rows.length > PROJ_PAGE_SIZE)
-      ? 'CSV 다운로드 (전체 ' + block.rows.length + '건)'
-      : 'CSV 다운로드';
+      ? '엑셀 다운로드 (전체 ' + block.rows.length + '건)'
+      : '엑셀 다운로드';
     btn.addEventListener('click', function () {
       var team = state.view === null ? '전체' : (findTeam_(state.payload, state.view) || { label: '전체' }).label;
-      downloadCsv_(csvFileName_(kind, team, state.committedRange), buildCsv_(block));
+      downloadXlsx_(xlsxFileName_(kind, team, state.committedRange),
+        buildXlsx_(kind, block.header, block.rows));
     });
     sec.firstChild.appendChild(btn);
   }
@@ -1060,7 +1379,7 @@
     shell.all.textContent = showAll ? '15건씩 나눠 보기' : '전체 ' + sl.total + '건 한 화면에 보기';
     /* 보이는 것과 받는 것이 다르다는 사실을 적어 둔다 — 15건만 보이는 화면에서
        CSV 가 전체를 준다는 것은 눌러 보기 전에는 알 수 없다. */
-    shell.note.textContent = 'CSV 다운로드는 언제나 전체 ' + sl.total + '건입니다';
+    shell.note.textContent = '엑셀 다운로드는 언제나 전체 ' + sl.total + '건입니다';
     shell.btns.textContent = '';
 
     var want = null, current = null;
@@ -1162,7 +1481,7 @@
   function renderBlock_(block, serverToday, weekCards) {
     var sec = document.createElement('section');
     sec.className = 'dash-block';
-    var head = document.createElement('div');   // 제목 + CSV 버튼 자리(appendCsvButton_ 이 붙인다)
+    var head = document.createElement('div');   // 제목 + 엑셀 버튼 자리(appendXlsxButton_ 이 붙인다)
     head.className = 'dash-block-head';
     var h = document.createElement('h2');
     /* 협력회사별·공사별 제목의 괄호 기간은 **화면 표시에서만** 걷어낸다(D5) — 필터 줄의
@@ -1475,7 +1794,7 @@
       btn.type = 'button';
       btn.className = 'dash-btn';
       /* 「보고용 1장」이 옆에 생겼다 — 두 버튼이 무엇이 다른지 **버튼 자신이** 말해야
-         한다(appendCsvButton_ 이 건수를 적는 것과 같은 규칙). */
+         한다(appendXlsxButton_ 이 건수를 적는 것과 같은 규칙). */
       btn.textContent = '이 표만 CSV';
       btn.addEventListener('click', function () {
         downloadCsv_('월간_' + kind + '_' + monthly.ym + '.csv',
@@ -1608,7 +1927,7 @@
 
   /** 「보고용 1장 받기」 줄. 주 버튼 + 무엇이 들었는지 한 줄 설명.
    *  설명을 붙이는 이유: 아래에 「이 표만 CSV」가 둘 더 있어서, 버튼 이름만으로는
-   *  무엇이 다른지 누르기 전에 알 수 없다(appendCsvButton_ 이 건수를 적는 것과 같은 결). */
+   *  무엇이 다른지 누르기 전에 알 수 없다(appendXlsxButton_ 이 건수를 적는 것과 같은 결). */
   function monthlyOnePagerBar_(d) {
     var bar = document.createElement('div');
     bar.className = 'dash-mr-onepager';
@@ -2902,8 +3221,8 @@
       var isWeek = b.title.indexOf('이번 주') === 0;
       var weekGrid = isWeek ? buildWeekTilesGrid_(cd) : null;
       var sec = renderBlock_(b, data.server_today, weekGrid);
-      if (b.title.indexOf('협력회사별') === 0) appendCsvButton_(sec, b, '협력회사별');
-      else if (b.title.indexOf('공사별') === 0) appendCsvButton_(sec, b, '공사별');
+      if (b.title.indexOf('협력회사별') === 0) appendXlsxButton_(sec, b, '협력회사별');
+      else if (b.title.indexOf('공사별') === 0) appendXlsxButton_(sec, b, '공사별');
       /* W1(2026-09-17) — 반폭(D2)을 걷어내고 전폭 1열로 통일한다(사용자 지시: 오늘 제출을
          전폭으로. 오늘 제출만 바꾸면 이번 주가 홀로 반폭으로 남아 우측이 비어 더 어색해진다 —
          허브 실측·vision 판독 확인, 두 블록 모두 전폭 채택). 이번 주는 dash-block-week 만
