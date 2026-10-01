@@ -486,6 +486,11 @@ h1, h2, h3 { font-family: var(--font-heading, var(--font-sans)); }   /* 킷 헤�
 .continue-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .continue-actions .btn { flex: 1 1 120px; }
 
+/* '지난 계획의 작성 중' 행 여러 개를 가르는 구분선 — 새 색·토큰 없이 카드 테두리색을 그대로 쓴다 */
+.orphan-draft-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.orphan-draft-row { display: flex; flex-direction: column; gap: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--tint-warn-strong); }
+.orphan-draft-row:first-child { padding-top: 0; border-top: none; }
+
 /* 오늘 보낸 점검 — 예정 점검 행과 같은 뼈대(날짜·공사·회사 세 줄)로 맞춘다 */
 .sent-row {
   display: flex;

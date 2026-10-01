@@ -1043,6 +1043,7 @@
     renderPlansBanner();
     renderPlanTeams();
     renderPlanList();
+    renderOrphanDrafts();
     renderSentList();
 
     var list = $('home-template-list');
@@ -1414,6 +1415,45 @@
         dropBtn.hidden = true;
       }
 
+      wrap.appendChild(node);
+    });
+  }
+  /* 예정 목록(state.plans, **팀 필터 적용 전** 전체)에서 빠진 계획의 draft 키 — 'adhoc'(§홈:
+     새 점검/이어쓰기)은 계획이 아니므로 제외한다. 서버가 지난 예정일·완료·취소 계획을 목록에서
+     빼면 renderPlanList 의 이어쓰기·삭제 진입점이 그 계획에 더는 안 붙어 draft 가 갈 곳을 잃는다
+     (gate_orphan_drafts.md). plansListComplete 가 아직 안 섰으면(부팅 직후 캐시·로딩 중)
+     빈 배열을 돌려준다 — 그 시점엔 "목록에 없다"가 "빠졌다"가 아니라 "아직 못 받았다"일 수 있다.
+     H1(적대 리뷰 R1): 마감 스필(onSubmit)은 큐 재전송이 끝날 때까지 draft 와 큐 항목을 **둘 다**
+     남긴다(같은 submission_id) — 그 계획이 목록에서 빠져도 이 draft 는 '지난 계획'이 아니라
+     '아직 전송 중'이다. 삭제를 권하면, 이후 큐가 VALIDATION 으로 retire 될 때 재제출에 쓸
+     유일한 사본까지 같이 사라진다. 그래서 draft.submission_id 가 큐에 살아 있는 동안은 제외한다. */
+  function orphanDraftKeys() {
+    if (!plansListComplete) return [];
+    var have = {};
+    (state.plans || []).forEach(function (p) { if (p && p.plan_id) have[p.plan_id] = true; });
+    var inFlight = {};
+    (state.queue || []).forEach(function (q) { if (q && q.submission_id) inFlight[q.submission_id] = true; });
+    return Object.keys(state.drafts || {}).filter(function (k) {
+      if (k === 'adhoc' || have[k]) return false;
+      var d = state.drafts[k];
+      return !(d && d.submission_id && inFlight[d.submission_id]);
+    });
+  }
+  /* '지난 계획의 작성 중' 카드 — 이어쓰기 버튼은 없다(설계 결정): 계획 객체가 없고, 남이 이미
+     제출·취소했을 수 있어 재제출하면 서버 멱등이 안 걸려 점검대장에 2행이 남는다(H4·T1 계열).
+     삭제만 기존 discardDraft 를 재사용한다(confirm·clearDraft·K4 배너·renderHome 재호출 포함). */
+  function renderOrphanDrafts() {
+    var wrap = $('home-orphan-list');
+    wrap.innerHTML = '';
+    var keys = orphanDraftKeys();
+    $('home-orphan-drafts').hidden = keys.length === 0;
+    keys.forEach(function (key) {
+      var d = state.drafts[key];
+      var node = $('tpl-orphan-draft-row').content.firstElementChild.cloneNode(true);
+      var label = draftLabel(d);
+      if (d.planned_date_label) label += ' · 예정일 ' + d.planned_date_label;
+      node.querySelector('.orphan-draft-label').textContent = label;
+      node.querySelector('.orphan-draft-discard').addEventListener('click', function () { discardDraft(key); });
       wrap.appendChild(node);
     });
   }
@@ -2402,6 +2442,19 @@
   var plansPending = false;      /* 도는 동안 들어온 갱신 요구 */
   var plansTrailLeft = 2;        /* trailing 예산. 깨끗이 반영되면 되돌아온다 */
   var plansLastOkAt = 0;         /* **성공** 시각. 신선도·쿨다운의 기준은 시도가 아니라 성공이다 */
+  /* orphanDraftKeys 의 판정 보류 기준 — **지금 state.plans 가 완전한 스냅숏(completeSnapshot,
+     applyPlansResult)에서 왔는가**(M1·M2, 적대 리뷰 R1). "한 번이라도 받았는가"가 아니다 —
+     usable 응답마다 true/false 를 **다시** 쓴다(아래 applyPlansResult 의 `if (usable)` 분기).
+     한 번 true 가 되면 영구화하면 안 되는 이유: 이후 usable 응답이 plans_complete 없이(구서버·
+     중간계층) 오면 state.plans 가 그 잘린 응답으로 교체되는데(또는 rev 동일로 안 바뀌더라도
+     "지금 화면 근거가 불완전"이라는 사실은 바뀐다), 영구 플래그는 그걸 모른 채 계속 "완전하다"고
+     우겨 잘려서 안 보일 뿐인 계획의 draft 를 '지난 계획'으로 오판한다.
+     반대로 **usable 이 아닌 응답**(ok:false, 또는 d.plans 가 배열이 아님) 및 seq/gen 폐기 경로는
+     이 값을 건드리지 않는다 — state.plans 가 안 바뀌었으니 그 완전성 판정도 안 바뀐 것이 맞다.
+     **로컬 낙관 수정**(removePlanLocally·사전등록·취소)도 이 값을 바꾸지 않는다 — 그 수정들은
+     state.plans 를 줄이거나 늘릴 뿐 "서버가 완전한 스냅숏을 줬다"는 사실 자체는 그대로이고,
+     줄어든 쪽(제출·취소된 계획)은 그 draft 가 실제로 더 갈 곳이 없으니 고아 판정이 맞다. */
+  var plansListComplete = false;
   /* 예산이 다했을 때 마지막 요구를 잇는 한 발짜리 타이머(Codex 재심 #1). 예산은 폭주를 막는
      장치이지 요구를 **지우는** 장치가 아니다 — 버리면 마지막 변경이 다음 주기(15분)까지 안 뜬다. */
   var PLANS_TRAIL_DEFER_MS = 5 * 1000;
@@ -2495,6 +2548,8 @@
        사용자가 실제 누락을 볼 때 쓸 신뢰를 미리 태워 버린다. */
     var completeSnapshot = !!(d && d.plans_complete === true);
     if (usable) {
+      /* M1·M2: usable 응답마다 다시 쓴다(true/false 모두) — plansListComplete 선언부 주석 참고. */
+      plansListComplete = completeSnapshot;
       /* 내용이 그대로면(rev 동일) 목록 교체·묘비 판정·저장을 되풀이하지 않는다.
          폴링은 대부분 "안 바뀜" 이라 이 갈래가 기본 경로다 — 매번 localStorage 를 다시 쓰면
          현장 폰에서 이유 없는 저장 실패 위험만 는다. 확인 시각은 갱신한다(확인은 했으니까). */

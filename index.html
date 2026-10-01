@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-938ed37a">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-89e51226">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <!-- 데이터 API 오리진 2곳 — 첫 요청의 DNS+TLS 를 선행한다(대시보드와 같은 처방).
      GAS 는 script.google.com 에서 302 로 googleusercontent 로 넘어가므로 둘 다 필요하다.
@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-938ed37a">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-89e51226">
 <title>협력회사 SHE 점검</title>
 </head>
 <body>
@@ -118,6 +118,16 @@
             <button type="button" class="btn btn-outline" id="btn-continue-draft">이어쓰기</button>
             <button type="button" class="btn btn-outline" id="btn-discard-draft">작성 취소</button>
           </div>
+        </div>
+
+        <!-- 예정 목록에서 빠진 계획(예정일 지남·다른 곳에서 처리·취소)의 임시저장 — 계획별
+             이어쓰기·삭제 진입점(renderPlanList)은 state.plans 에 남은 계획에만 붙어, 빠진
+             계획의 draft 는 이 카드가 없으면 지울 방법이 없다(gate_orphan_drafts.md). -->
+        <div class="continue-card" id="home-orphan-drafts" hidden>
+          <h2 class="card-title" style="margin-bottom:0">지난 계획의 작성 중</h2>
+          <p class="muted">예정 목록에서 빠진 계획(예정일 지남·다른 곳에서 처리·취소)의 임시저장입니다.
+            이 화면에서는 이어서 제출할 수 없습니다 — 필요 없으면 삭제하세요.</p>
+          <div class="orphan-draft-list" id="home-orphan-list"></div>
         </div>
 
         <div class="queue-card">
@@ -521,6 +531,16 @@
   </div>
 </template>
 
+<!-- '지난 계획의 작성 중' 행 — 이어쓰기 없이 삭제만(renderOrphanDrafts) -->
+<template id="tpl-orphan-draft-row">
+  <div class="orphan-draft-row">
+    <p class="muted orphan-draft-label"></p>
+    <div class="continue-actions">
+      <button type="button" class="btn btn-outline orphan-draft-discard">삭제</button>
+    </div>
+  </div>
+</template>
+
 <template id="tpl-sent-row">
   <div class="sent-row">
     <span class="sent-when"></span>
@@ -571,9 +591,9 @@
   </div>
 </template>
 
-<script src="./config.js?v=0.5.5-938ed37a"></script>
-<script src="./lib.js?v=0.5.5-938ed37a"></script>
-<script src="./logic.js?v=0.5.5-938ed37a"></script>
-<script src="./app.js?v=0.5.5-938ed37a"></script>
+<script src="./config.js?v=0.5.5-89e51226"></script>
+<script src="./lib.js?v=0.5.5-89e51226"></script>
+<script src="./logic.js?v=0.5.5-89e51226"></script>
+<script src="./app.js?v=0.5.5-89e51226"></script>
 </body>
 </html>
