@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta id="adm-build" name="adm-build" content="0.5.5-225735b0">
+<meta name="description" content="안전점검 관리자 페이지 — 점검자·자동등록·공사·기록·상태 관리">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-225735b0">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-225735b0">
+<title>안전점검 관리자</title>
+<style>
+/* 관리자 페이지 전용 — 색은 tokens.css 변수만 쓴다(원값 금지, 대시보드와 같은 규칙). */
+body { background: var(--bg); color: var(--text); }
+.adm-shell { max-width: 1200px; margin: 0 auto; padding: 12px 16px 64px; font-family: var(--font-body); }
+.adm-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0 12px; border-bottom: 1px solid var(--border); }
+.adm-top h1 { font-family: var(--font-heading); font-size: 20px; margin: 0; flex: 1; }
+.adm-who { color: var(--muted); font-size: 14px; }
+.adm-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin: 12px 0; }
+.adm-card h2 { font-family: var(--font-heading); font-size: 17px; margin: 0 0 10px; }
+.adm-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 12px 0 0; }
+.adm-tabs button { border: 1px solid var(--border); background: var(--surface); color: var(--text); padding: 8px 14px; border-radius: 8px 8px 0 0; cursor: pointer; font: inherit; }
+.adm-tabs button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.adm-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
+.adm-row label { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 2px; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+textarea { width: 100%; min-height: 72px; box-sizing: border-box; }
+.adm-btn { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.adm-btn:hover { background: var(--accent-hover); }
+.adm-btn.ghost { background: var(--surface); color: var(--accent); }
+.adm-btn.danger { border-color: var(--danger); background: var(--danger); color: var(--on-accent); }
+.adm-btn:disabled { opacity: .5; cursor: default; }
+.adm-btn:focus-visible, .adm-tabs button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.adm-tablewrap { overflow-x: auto; }
+table.adm-table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.adm-table th, .adm-table td { border-bottom: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
+.adm-table th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+.adm-table tr:hover td { background: var(--row-hover); }
+.adm-muted { color: var(--muted); font-size: 13px; }
+.adm-msg { margin: 8px 0; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); }
+.adm-msg.err { border-color: var(--danger); color: var(--danger); }
+.adm-msg.ok { border-color: var(--ok); color: var(--ok); }
+.adm-msg.warn { border-color: var(--warn); color: var(--warn); }
+.adm-chip { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; margin: 1px; }
+.adm-sheet-back { position: fixed; inset: 0; background: color-mix(in srgb, var(--text) 45%, transparent); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+.adm-sheet { background: var(--surface); border-radius: 12px; max-width: 520px; width: 100%; padding: 18px; max-height: 90vh; overflow: auto; }
+.adm-sheet h2 { margin: 0 0 8px; font-family: var(--font-heading); font-size: 18px; }
+.adm-diff { font-size: 14px; margin: 8px 0; }
+.adm-diff dt { color: var(--muted); }
+.adm-diff dd { margin: 0 0 6px; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="adm-shell">
+  <header class="adm-top" id="adm-header">
+    <h1>안전점검 관리자</h1>
+    <span class="adm-who" id="adm-who"></span>
+    <a class="adm-btn ghost" href="./dashboard.html">대시보드</a>
+    <button class="adm-btn ghost" id="adm-logout" hidden>로그아웃</button>
+  </header>
+
+  <div id="adm-global-msg" role="status" aria-live="polite"></div>
+  <div id="adm-pending" hidden></div>
+
+  <section class="adm-card" id="adm-key-view" hidden>
+    <h2>관리 키</h2>
+    <p class="adm-muted">대시보드와 같은 관리 키를 입력하세요. 이 기기에만 저장됩니다.</p>
+    <div class="adm-row"><input id="adm-key" type="password" autocomplete="off" aria-label="관리 키"><button class="adm-btn" id="adm-key-save">저장</button></div>
+  </section>
+
+  <section class="adm-card" id="adm-login-view" hidden>
+    <h2>사번·PIN 로그인</h2>
+    <div class="adm-row">
+      <label>사번<input id="adm-login-id" autocomplete="username"></label>
+      <label>PIN<input id="adm-login-pin" type="password" inputmode="numeric" autocomplete="current-password"></label>
+      <button class="adm-btn" id="adm-login-btn">로그인</button>
+    </div>
+    <p class="adm-muted">관리자 권한은 소유자가 Apps Script 편집기의 ADMIN_ACL 로만 줍니다.</p>
+  </section>
+
+  <nav class="adm-tabs" id="adm-tabs" role="tablist" hidden></nav>
+  <main id="adm-main"></main>
+</div>
+
+<div class="adm-sheet-back" id="adm-sheet-back" hidden>
+  <div class="adm-sheet" id="adm-sheet" role="dialog" aria-modal="true" aria-labelledby="adm-sheet-title">
+    <h2 id="adm-sheet-title"></h2>
+    <div id="adm-sheet-body"></div>
+    <div class="adm-row"><label>내 PIN(확인)<input id="adm-sheet-pin" type="password" inputmode="numeric" autocomplete="off"></label></div>
+    <div id="adm-sheet-err" class="adm-msg err" hidden></div>
+    <div class="adm-row">
+      <button class="adm-btn" id="adm-sheet-ok"></button>
+      <button class="adm-btn ghost" id="adm-sheet-cancel">취소</button>
+    </div>
+  </div>
+</div>
+
+<script src="./config.js?v=0.5.5-225735b0"></script>
+<script src="./admin.js?v=0.5.5-225735b0"></script>
+</body>
+</html>

@@ -22,7 +22,7 @@
 
 /* 배포마다 바뀌어야 옛 캐시가 정리된다. config.js 의 APP_VER 과 같은 값을 쓴다
    (tests-js/wiring.test.mjs 가 둘이 어긋나면 잡는다 — 어긋나면 옛 캐시가 영영 남는다). */
-var CACHE = 'safety-checklist-v0.5.5-89e51226';
+var CACHE = 'safety-checklist-v0.5.5-225735b0';
 
 /* 껍데기 = 앱을 띄우는 데 필요한 최소 집합. config.js 는 API 주소·키라 반드시 포함한다.
    버전 쿼리(?v=)는 넣지 않는다 — 요청 URL 과 캐시 키를 맞추는 일을 fetch 쪽에서 한다. */
@@ -69,6 +69,13 @@ self.addEventListener('activate', function (e) {
   );
 });
 
+/* 관리자 페이지가 이 워커의 버전을 묻는다(설계 §9 4단계). 옛 워커는 답하지 않으므로 페이지가 옛 버전으로 본다. */
+self.addEventListener('message', function (e) {
+  if (e && e.data && e.data.type === 'adm-sw-ver' && e.ports && e.ports[0]) {
+    try { e.ports[0].postMessage({ ver: CACHE }); } catch (err) { /* 질의한 페이지가 사라졌다 */ }
+  }
+});
+
 self.addEventListener('fetch', function (e) {
   var req = e.request;
   /* email_send(PDF 발송) 응답은 절대 캐시하지 않는다 — 실명·부적합 사유가 담긴 요청·응답이
@@ -85,7 +92,9 @@ self.addEventListener('fetch', function (e) {
      담으면 옛 대시보드가 새 서버 계약과 어긋난 채 박제되고, navigate 대체를 남기면
      오프라인 첫 방문에 점검 앱(index.html)이 대신 뜬다. 온라인 전용 관리자 페이지라
      오프라인엔 브라우저 표준 오류 화면이 정직하다. */
-  if (/\/dashboard\.(?:html|js)$/.test(url.pathname)) return;
+  /* 관리자 페이지(admin.html·admin.js)도 같은 이유로 network-only — 옛 관리 화면이 새 서버 계약과
+     어긋난 채 남으면 쓰기 요청이 엉뚱하게 나간다(관리자 페이지 설계 §2·R1). */
+  if (/\/(?:dashboard|admin)\.(?:html|js)$/.test(url.pathname)) return;
 
   /* 캐시 키에서 버전 쿼리를 뗀다. index.html 이 styles.css?v=0.2.0 로 부르는데 캐시에는
      쿼리 없는 주소로 담겨 있어, 그대로 찾으면 오프라인에서 못 찾는다. */
