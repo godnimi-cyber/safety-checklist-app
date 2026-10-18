@@ -712,6 +712,8 @@
     el_('btn-dash-refresh').hidden = true;
     el_('btn-dash-monthly').hidden = true;
     el_('btn-dash-clearkey').hidden = true;
+    el_('btn-dash-admin').hidden = true;
+    el_('dash-topbar-break').hidden = true;
     el_('btn-dash-controls-toggle').hidden = true;
     el_('dash-generated').textContent = '';
     showBanner_(msg || '', !!msg);
@@ -725,6 +727,8 @@
     el_('btn-dash-refresh').hidden = false;
     el_('btn-dash-monthly').hidden = false;
     el_('btn-dash-clearkey').hidden = false;
+    el_('btn-dash-admin').hidden = false;
+    el_('dash-topbar-break').hidden = false;
     el_('btn-dash-controls-toggle').hidden = false;
   }
 
