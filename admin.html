@@ -4,51 +4,108 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<meta id="adm-build" name="adm-build" content="0.5.5-fb9dc6b7">
+<meta id="adm-build" name="adm-build" content="0.5.5-c79aeb8b">
 <meta name="description" content="안전점검 관리자 페이지 — 점검자·자동등록·공사·기록·상태 관리">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-fb9dc6b7">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-fb9dc6b7">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-c79aeb8b">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-c79aeb8b">
 <title>안전점검 관리자</title>
 <style>
 /* 관리자 페이지 전용 — 색은 tokens.css 변수만 쓴다(원값 금지, 대시보드와 같은 규칙). */
 body { background: var(--bg); color: var(--text); }
 .adm-shell { max-width: 1200px; margin: 0 auto; padding: 12px 16px 64px; font-family: var(--font-body); }
-.adm-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 0 12px; border-bottom: 1px solid var(--border); }
-.adm-top h1 { font-family: var(--font-heading); font-size: 20px; margin: 0; flex: 1; }
+.adm-top { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; padding: 8px 0 12px; }
+.adm-top h1 { font-family: var(--font-heading); font-size: 20px; margin: 0; flex: 1 1 auto; }
 .adm-who { color: var(--muted); font-size: 14px; }
+.adm-who:empty { display: none; }
 .adm-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin: 12px 0; }
 .adm-card h2 { font-family: var(--font-heading); font-size: 17px; margin: 0 0 10px; }
-.adm-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: 12px 0 0; }
-.adm-tabs button { border: 1px solid var(--border); background: var(--surface); color: var(--text); padding: 8px 14px; border-radius: 8px 8px 0 0; cursor: pointer; font: inherit; }
-.adm-tabs button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.adm-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
-.adm-row label { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 2px; }
-input, select, textarea { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
-textarea { width: 100%; min-height: 72px; box-sizing: border-box; }
-.adm-btn { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); padding: 6px 12px; border-radius: 6px; cursor: pointer; }
-.adm-btn:hover { background: var(--accent-hover); }
-.adm-btn.ghost { background: var(--surface); color: var(--accent); }
+.adm-card h3 { font-size: 15px; margin: 18px 0 6px; }
+.adm-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+.adm-card-head h2 { margin: 0; }
+.adm-card.attn { border-color: var(--warn); border-width: 2px; }
+/* 탭 — 밑줄형. 좁은 화면에서는 줄바꿈 대신 가로로 민다. */
+.adm-tabs { display: flex; gap: 0; flex-wrap: nowrap; overflow-x: auto; margin: 0; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; background: var(--bg); }
+.adm-tabs button { flex: none; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--muted); padding: 10px 14px; cursor: pointer; font: inherit; font-weight: 600; white-space: nowrap; }
+.adm-tabs button:hover { color: var(--text); }
+.adm-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+/* 입력 줄 — 라벨이 위, 버튼은 입력칸 밑선에 맞춘다. */
+.adm-row { display: flex; gap: 10px 12px; flex-wrap: wrap; align-items: flex-end; margin: 8px 0; }
+.adm-row label { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 4px; }
+.adm-form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px 12px; margin: 8px 0 12px; }
+.adm-form-grid label { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); gap: 4px; }
+.adm-form-grid input { width: 100%; }
+.adm-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; align-items: center; margin-top: 12px; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; min-height: 36px; box-sizing: border-box; }
+input[type="checkbox"] { min-height: 0; width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+textarea { width: 100%; min-height: 96px; box-sizing: border-box; }
+.adm-btn { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-height: 36px; font: inherit; font-size: 14px; font-weight: 600; line-height: 1.2; white-space: nowrap; text-decoration: none; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+.adm-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.adm-btn.ghost { background: var(--surface); color: var(--accent); border-color: var(--border); }
+.adm-btn.ghost:hover { background: var(--row-hover); border-color: var(--accent); }
 .adm-btn.danger { border-color: var(--danger); background: var(--danger); color: var(--on-accent); }
+.adm-btn.danger:hover { background: color-mix(in srgb, var(--danger) 85%, var(--text)); }
+/* 표 안의 위험 동작 — 칠한 빨강 대신 테두리만(같은 줄의 다른 버튼보다 튀지 않게, 맨 뒤에 둔다). */
+.adm-btn.danger-ghost { background: var(--surface); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 55%, var(--border)); }
+.adm-btn.danger-ghost:hover { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); border-color: var(--danger); }
+.adm-btn.sm { min-height: 30px; padding: 3px 10px; font-size: 13px; }
 .adm-btn:disabled { opacity: .5; cursor: default; }
+.adm-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.adm-acts .adm-muted { flex-basis: 100%; text-align: right; }
 .adm-btn:focus-visible, .adm-tabs button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .adm-tablewrap { overflow-x: auto; }
 table.adm-table { border-collapse: collapse; width: 100%; font-size: 14px; }
-.adm-table th, .adm-table td { border-bottom: 1px solid var(--border); padding: 6px 8px; text-align: left; vertical-align: top; }
-.adm-table th { color: var(--muted); font-weight: 600; white-space: nowrap; }
-.adm-table tr:hover td { background: var(--row-hover); }
+.adm-table th, .adm-table td { border-bottom: 1px solid var(--border); padding: 8px; text-align: left; vertical-align: middle; }
+.adm-table th { color: var(--muted); font-weight: 600; white-space: nowrap; font-size: 13px; }
+.adm-table tbody tr:hover td { background: var(--row-hover); }
+.adm-table td.adm-td-acts { width: 1%; min-width: 120px; text-align: right; }
+.adm-table td.adm-td-acts .adm-acts { flex-wrap: nowrap; }
+.adm-table td.adm-td-acts .adm-acts .adm-muted { white-space: normal; min-width: 180px; }
+.adm-table td.adm-td-nowrap { white-space: nowrap; }
 .adm-muted { color: var(--muted); font-size: 13px; }
+.adm-summary { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.adm-stat { display: inline-flex; gap: 6px; align-items: baseline; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; }
+.adm-stat b { font-size: 15px; }
+.adm-stat.warn { border-color: var(--warn); }
 .adm-msg { margin: 8px 0; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); }
 .adm-msg.err { border-color: var(--danger); color: var(--danger); }
 .adm-msg.ok { border-color: var(--ok); color: var(--ok); }
 .adm-msg.warn { border-color: var(--warn); color: var(--warn); }
 .adm-chip { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; margin: 1px; }
+.adm-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+label.adm-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: 13px; color: var(--text); cursor: pointer; margin: 0; }
+label.adm-chip:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
+.adm-check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; margin: 4px 0 10px; cursor: pointer; }
 .adm-sheet-back { position: fixed; inset: 0; background: color-mix(in srgb, var(--text) 45%, transparent); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
 .adm-sheet { background: var(--surface); border-radius: 12px; max-width: 520px; width: 100%; padding: 18px; max-height: 90vh; overflow: auto; }
 .adm-sheet h2 { margin: 0 0 8px; font-family: var(--font-heading); font-size: 18px; }
-.adm-diff { font-size: 14px; margin: 8px 0; }
+.adm-diff { font-size: 14px; margin: 8px 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; }
 .adm-diff dt { color: var(--muted); }
-.adm-diff dd { margin: 0 0 6px; }
+.adm-diff dd { margin: 0; word-break: break-word; }
+.adm-sheet .adm-row label, .adm-sheet > div > label { width: 100%; }
+.adm-sheet input:not([type="checkbox"]) { width: 100%; }
+.adm-sheet-actions { justify-content: flex-end; margin-top: 14px; }
+/* 좁은 화면 — 표를 줄마다 카드로 쌓고, 버튼은 카드 아래쪽에 왼쪽 정렬. */
+@media (max-width: 720px) {
+  .adm-shell { padding: 8px 10px 48px; }
+  .adm-card { padding: 12px; }
+  .adm-row > label { flex: 1 1 100%; }
+  .adm-row > label input { width: 100%; }
+  .adm-table thead { display: none; }
+  .adm-table, .adm-table tbody, .adm-table tr, .adm-table td { display: block; width: auto; }
+  .adm-table tr { border: 1px solid var(--border); border-radius: 8px; margin: 8px 0; padding: 6px 10px; }
+  .adm-table td { display: flex; gap: 10px; border: 0; padding: 3px 0; }
+  .adm-table td::before { content: attr(data-label); flex: none; width: 76px; color: var(--muted); font-size: 12px; padding-top: 2px; }
+  .adm-table td[data-label=""]::before { content: none; }
+  .adm-table td.adm-td-acts { display: block; min-width: 0; width: auto; text-align: left; padding-top: 8px; margin-top: 4px; border-top: 1px dashed var(--border); }
+  .adm-table td.adm-td-nowrap { white-space: normal; }
+  .adm-table td.adm-td-acts .adm-acts { flex-wrap: wrap; }
+  .adm-acts { justify-content: flex-start; }
+  .adm-top h1 { flex-basis: 100%; }
+  .adm-who { flex: 1 1 auto; }
+  .adm-acts .adm-muted { text-align: left; }
+  .adm-btn, .adm-btn.sm { min-height: 40px; padding: 6px 14px; }
+}
 [hidden] { display: none !important; }
 </style>
 </head>
@@ -90,14 +147,14 @@ table.adm-table { border-collapse: collapse; width: 100%; font-size: 14px; }
     <div id="adm-sheet-body"></div>
     <div class="adm-row"><label>내 PIN(확인)<input id="adm-sheet-pin" type="password" inputmode="numeric" autocomplete="off"></label></div>
     <div id="adm-sheet-err" class="adm-msg err" hidden></div>
-    <div class="adm-row">
-      <button class="adm-btn" id="adm-sheet-ok"></button>
+    <div class="adm-row adm-sheet-actions">
       <button class="adm-btn ghost" id="adm-sheet-cancel">취소</button>
+      <button class="adm-btn" id="adm-sheet-ok"></button>
     </div>
   </div>
 </div>
 
-<script src="./config.js?v=0.5.5-fb9dc6b7"></script>
-<script src="./admin.js?v=0.5.5-fb9dc6b7"></script>
+<script src="./config.js?v=0.5.5-c79aeb8b"></script>
+<script src="./admin.js?v=0.5.5-c79aeb8b"></script>
 </body>
 </html>
