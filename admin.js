@@ -19,17 +19,19 @@
   var SID_STORE = 'safety_admin_sid';
   var PENDING_STORE = 'safety_admin_pending';
   var REQUEST_TIMEOUT_MS = 12000;
-  var ADMIN_BUILD = '0.5.5-c79aeb8b';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
+  var ADMIN_BUILD = '0.5.5-24e4d1f3';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
 
   var state = { key: '', sid: '', who: null, roles: [], tab: '', gen: 0, viewGen: 0, showDeleted: false };
   var NEVER = function () { return new Promise(function () { /* 버린 응답 — 콜백을 부르지 않는다 */ }); };
 
+  /* 2026-10-19 사용자 지시 — 관리자 페이지는 네 가지만: ①점검자 등록/삭제 ②협력회사 등록/삭제
+     ③자동등록 보류 정리(보류 종결) ④등록된 공사 수정/삭제. 「확인 필요」는 결과를 모르는 요청이 대상을 잠그는
+     안전장치라 남긴다(없애면 잠긴 대상을 풀 길이 없다). 서버의 다른 관리 동작은 그대로 두고 화면에서만 뺐다. */
   var TABS = [
     { id: 'roster', label: '점검자', role: 'roster' },
-    { id: 'ingest', label: '자동등록', role: 'ingest' },
-    { id: 'master', label: '공사/협력회사', role: 'master' },
-    { id: 'record', label: '기록 정정', role: 'record' },
-    { id: 'ops', label: '상태/이력', role: 'ops' },
+    { id: 'company', label: '협력회사', role: 'master' },
+    { id: 'project', label: '공사', role: 'master' },
+    { id: 'ingest', label: '자동등록 보류', role: 'ingest' },
     { id: 'reqs', label: '확인 필요', role: '' }
   ];
 
@@ -137,13 +139,6 @@
       }))
     ])]);
   }
-  function stats(pairs) {
-    return el('div', { 'class': 'adm-summary' }, pairs.map(function (p) {
-      return el('span', { 'class': 'adm-stat' + (p[2] ? ' ' + p[2] : '') }, [p[0], el('b', { text: String(p[1]) })]);
-    }));
-  }
-  function kv(o) { return Object.keys(o || {}).map(function (k) { return k + ' ' + (typeof o[k] === 'object' ? JSON.stringify(o[k]) : o[k]); }).join(' · '); }
-  var PIN_LABEL = { hash: '설정됨', plain: '평문(해시 필요)', none: '없음', broken: '손상' };
   function msgBox(text, kind) { return el('div', { 'class': 'adm-msg ' + (kind || ''), role: kind === 'err' ? 'alert' : 'status', text: text }); }
   function flash(text, kind) {
     var g = $('adm-global-msg');
@@ -511,330 +506,168 @@
   }
   function failInto(main, r) { main.appendChild(msgBox(errText(r), 'err')); }
 
-  /* ---------- 탭: 점검자 ---------- */
+  /* ---------- ① 점검자 등록/삭제 ---------- */
   function viewRoster(main) {
     return read('adm_insp_list').then(function (r) {
       if (!r || !r.ok) return failInto(main, r);
       var items = r.data.items || [];
-      main.appendChild(card('점검자 추가', [
+      main.appendChild(card('점검자 등록', [
         el('div', { 'class': 'adm-form-grid' }, [input('ri-id', '사번'), input('ri-team', '팀'), input('ri-name', '이름'),
-          input('ri-display', '표시 이름'), input('ri-email', '이메일'), input('ri-pin', '처음 PIN(숫자 4자리)', { type: 'password', inputmode: 'numeric' })]),
-        el('div', { 'class': 'adm-actions' }, [btn('점검자 추가', function () {
+          input('ri-display', '표시 이름(선택)'), input('ri-email', '이메일'), input('ri-pin', '처음 PIN(숫자 4자리)', { type: 'password', inputmode: 'numeric' })]),
+        el('div', { 'class': 'adm-actions' }, [btn('점검자 등록', function () {
           var p = { inspector_id: val('ri-id'), team: val('ri-team'), name: val('ri-name'), display: val('ri-display'), email: val('ri-email') };
           var np = String($('ri-pin').value || '');
-          confirmWrite({ action: 'adm_insp_add', target: p.inspector_id, title: '점검자 추가', okLabel: p.name + '(' + p.inspector_id + ') 추가',
+          /* 서버 필수값(사번·팀·이름·이메일·PIN)을 확인 창 전에 본다 — 폼은 확인 창 밖이라 서버 오류로는 고칠 칸을 가리킬 수 없다(Codex P8-R1). */
+          var need = [['ri-id', '사번'], ['ri-team', '팀'], ['ri-name', '이름'], ['ri-email', '이메일'], ['ri-pin', '처음 PIN']];
+          need.forEach(function (f) { var n = $(f[0]); if (n) n.removeAttribute('aria-invalid'); });
+          var miss = need.filter(function (f) { return f[0] === 'ri-pin' ? !/^\d{4}$/.test(np) : !val(f[0]); });
+          if (miss.length) {
+            miss.forEach(function (f) { var n = $(f[0]); if (n) n.setAttribute('aria-invalid', 'true'); });
+            var first = $(miss[0][0]); if (first && first.focus) first.focus();
+            flash('입력하세요: ' + miss.map(function (f) { return f[1] + (f[0] === 'ri-pin' ? '(숫자 4자리)' : ''); }).join(', '), 'err');
+            return;
+          }
+          confirmWrite({ action: 'adm_insp_add', target: p.inspector_id, title: '점검자 등록', okLabel: p.name + '(' + p.inspector_id + ') 등록',
             body: [diff([['사번', p.inspector_id], ['팀', p.team], ['이름', p.name], ['표시', p.display || '-'], ['이메일', p.email || '-']]),
-                   el('p', { 'class': 'adm-muted', text: '점검자 앱은 다시 실행해야 새 명부를 받습니다.' })],
+                   el('p', { 'class': 'adm-muted', text: '처음 PIN 은 본인에게 직접 전달하세요. 점검자 앱은 다시 실행해야 새 명부를 받습니다.' })],
             collect: function () { p.new_pin = np; return p; } });
         })])
       ]));
-      var nAct = items.filter(function (o) { return o.active; }).length;
-      main.appendChild(card('명부 — 활성 ' + nAct + '명 / 전체 ' + items.length + '명', [
-        table(['사번', '이름', '팀', '상태', 'PIN', '이메일', ''], items.map(function (o) {
-          var a;
-          if (o.is_admin) a = acts([el('span', { 'class': 'adm-chip', text: '관리자 — 편집기에서만 변경' })]);
-          else a = acts([
-            sbtn('편집', function () { editInsp(o); }),
-            sbtn('PIN 초기화', function () { pinInsp(o, 'adm_insp_pin_reset', 'PIN 초기화'); }),
-            sbtn('잠금 해제', function () {
-              confirmWrite({ action: 'adm_insp_unlock', target: o.inspector_id, title: 'PIN 잠금 해제', okLabel: o.name + ' 잠금 해제', payload: { real_id: o.inspector_id } });
-            }),
-            o.active ? sbtn('퇴사', function () { retireInsp(o); }, 'danger-ghost')
-                     : sbtn('재활성화', function () { pinInsp(o, 'adm_insp_reactivate', '재활성화'); })
-          ]);
-          return [o.inspector_id, o.name + (o.display && o.display !== o.name ? ' / ' + o.display : ''), o.team, o.active ? '활성' : '퇴사',
-                  PIN_LABEL[o.pin_state] || o.pin_state, o.email, a];
-        }), [0, 2, 3])
-      ], [btn('명부 점검', function () {
-          read('adm_insp_check').then(function (c) { flash(c && c.ok ? '명부 점검: ' + kv(c.data) : errText(c), c && c.ok ? '' : 'err'); });
-        }, 'ghost')]));
+      var act = items.filter(function (o) { return o.active; });
+      main.appendChild(card('점검자 ' + act.length + '명', [
+        act.length ? table(['사번', '이름', '팀', ''], act.map(function (o) {
+          var a = o.is_admin ? acts([el('span', { 'class': 'adm-chip', style: 'white-space:nowrap', title: '관리자 계정은 Apps Script 편집기(ADMIN_ACL)에서만 바꿉니다', text: '관리자' })])
+                             : acts([sbtn('삭제', function () { retireInsp(o); }, 'danger-ghost')]);
+          return [o.inspector_id, o.name + (o.display && o.display !== o.name ? ' / ' + o.display : ''), o.team, a];
+        }), [0, 2]) : msgBox('등록된 점검자가 없습니다', ''),
+        items.length > act.length ? el('p', { 'class': 'adm-muted', text: '삭제(퇴사 처리)된 점검자 ' + (items.length - act.length) + '명은 목록에서 뺐습니다 — 과거 점검 기록은 그대로 남습니다.' }) : null
+      ]));
     });
-  }
-  function editInsp(o) {
-    var fields = ['team', 'name', 'display', 'email', 'alias'];
-    var labels = { team: '팀', name: '이름', display: '표시 이름', email: '이메일', alias: '별칭(쉼표 구분)' };
-    confirmWrite({ action: 'adm_insp_edit', target: o.inspector_id, title: o.name + '(' + o.inspector_id + ') 편집', okLabel: '저장',
-      body: fields.map(function (f) { return input('ei-' + f, labels[f], { value: o[f] || '' }); }),
-      collect: function () {
-        var set = {}, expect = {};
-        fields.forEach(function (f) { var v = val('ei-' + f); if (v !== String(o[f] || '')) { set[f] = v; expect[f] = String(o[f] || ''); } });
-        if (!Object.keys(set).length) return null;
-        return { real_id: o.inspector_id, set: set, expect: expect };
-      } });
-  }
-  function pinInsp(o, action, label) {
-    confirmWrite({ action: action, target: o.inspector_id, title: o.name + ' ' + label, okLabel: o.name + '(' + o.inspector_id + ') ' + label,
-      body: [input('pi-new', '새 PIN(숫자 4자리)', { type: 'password', inputmode: 'numeric' }),
-             el('p', { 'class': 'adm-muted', text: '새 PIN 은 본인에게 직접 전달하세요. 화면에 다시 보이지 않습니다.' })],
-      collect: function () { return { real_id: o.inspector_id, new_pin: String($('pi-new').value || ''), expect: { cred_v: o.cred_v } }; } });
   }
   function retireInsp(o) {
     var cb = el('input', { type: 'checkbox', id: 'rt-confirm' });
-    confirmWrite({ action: 'adm_insp_retire', target: o.inspector_id, title: o.name + ' 퇴사 처리', okLabel: o.name + '(' + o.inspector_id + ') 퇴사 처리', danger: true,
-      body: [el('p', { text: '토큰을 비우고 비활성으로 바꿉니다. 그 폰에 아직 안 보낸 기록이 있으면 더 보낼 수 없습니다.' }),
+    confirmWrite({ action: 'adm_insp_retire', target: o.inspector_id, title: '점검자 삭제(퇴사 처리)', okLabel: o.name + '(' + o.inspector_id + ') 삭제', danger: true,
+      body: [el('p', { text: '명부에서 비활성으로 바꾸고 앱 접속을 끊습니다. 과거 점검 기록은 지우지 않습니다. 그 폰에 아직 안 보낸 기록이 있으면 더 보낼 수 없습니다.' }),
+             el('p', { 'class': 'adm-muted', text: '이 화면에서는 되돌릴 수 없고, 같은 사번으로 다시 등록할 수도 없습니다. 실수로 삭제했으면 시스템 담당에게 재활성화(adm_insp_reactivate)를 요청하세요.' }),
              el('label', { 'class': 'adm-check' }, [cb, '그 점검자 폰에 미전송 기록이 없음을 확인했습니다'])],
       collect: function () { return { real_id: o.inspector_id, confirm_queue_empty: !!$('rt-confirm').checked }; } });
   }
 
-  /* ---------- 탭: 자동등록 ---------- */
-  var INGEST_FILTERS = [['created', '등록됨'], ['revived', '되살림'], ['dup', '멱등'], ['skip_done', '건너뜀·완료'],
-    ['skip_unchecked', '건너뜀·미점검확정'], ['skip_canceled', '건너뜀·취소'], ['skip_not_target', '대상 아님'],
-    ['skip_excluded', '제외 업체'], ['held', '보류'], ['rejected', '거절'], ['reverted', '되돌림'], ['processing', '처리 대기']];
-  var ingestQuery = { days: 7, results: [], q: '' };
-  var INGEST_LABEL = {};
-  INGEST_FILTERS.forEach(function (f) { INGEST_LABEL[f[0]] = f[1]; });
-  function viewIngest(main) {
-    var filterBox = el('div', { 'class': 'adm-row' }, [
-      el('label', {}, ['기간(일)', el('input', { id: 'ig-days', type: 'number', min: 1, max: 60, value: ingestQuery.days, style: 'width:90px' })]),
-      el('label', { style: 'flex:1 1 220px' }, ['검색(회사·공사·담당)', el('input', { id: 'ig-q', value: ingestQuery.q })]),
-      btn('조회', function () {
-        ingestQuery.days = Number(val('ig-days') || 7); ingestQuery.q = val('ig-q');
-        ingestQuery.results = INGEST_FILTERS.map(function (f) { return f[0]; }).filter(function (k) { var c = $('ig-f-' + k); return c && c.checked; });
-        refresh();
-      })
-    ]);
-    var chips = el('div', { 'class': 'adm-chips', role: 'group', 'aria-label': '결과 종류(고르지 않으면 전체)' }, INGEST_FILTERS.map(function (f) {
-      return el('label', { 'class': 'adm-chip' }, [el('input', { type: 'checkbox', id: 'ig-f-' + f[0], checked: ingestQuery.results.indexOf(f[0]) >= 0 }), f[1]]);
-    }));
-    /* 순서: 요약 메일에 매일 다시 나오는 보류(조치 대상) → 결과 조회 → 실행 기록 → 설정 */
-    main.appendChild(el('div', { id: 'ig-status' }));
-    main.appendChild(card('사전등록 결과', [filterBox, chips, el('div', { id: 'ig-results' })]));
-    main.appendChild(el('div', { id: 'ig-runs' }));
-    main.appendChild(el('div', { id: 'ig-cfg' }));
-    return Promise.all([
-      read('adm_ingest_results', { days: ingestQuery.days, results: ingestQuery.results, q: ingestQuery.q }).then(function (r) {
-        var box = $('ig-results'); if (!box) return;
-        if (!r || !r.ok) { box.appendChild(msgBox(errText(r), 'err')); return; }
-        var d = r.data;
-        box.appendChild(el('p', { 'class': 'adm-muted', text: d.since + ' 이후' + (d.truncated ? ' · 2,000건까지만 표시' : '') }));
-        box.appendChild(stats(Object.keys(d.summary).map(function (k) { return [INGEST_LABEL[k] || k, d.summary[k], k === 'held' ? 'warn' : '']; })));
-        if (d.heartbeat_check && !d.heartbeat_check.ok) box.appendChild(msgBox('실행 기록(created ' + d.heartbeat_check.heartbeat_created + ')과 원장(created ' + d.heartbeat_check.ledger_created + ')이 다릅니다 — 개발 담당 확인 필요', 'warn'));
-        if (!d.items.length) { box.appendChild(msgBox('해당 기간에 결과가 없습니다', '')); return; }
-        box.appendChild(table(['처리일', '원문(회사 · 공사 · 담당)', '결과', '사유', '계획', ''], d.items.map(function (it) {
-          var list = [];
-          if (it.revive.ok) list.push(sbtn('계획 되살리기', function () { reviveRow(it); }));
-          if (/^(skip_|rejected|created|dup|revived|reverted|resolved|shadow)/.test(it.state)) list.push(sbtn('재처리 요청', function () { reprocessRow(it); }));
-          if (it.dismiss && it.dismiss.ok) list.push(sbtn('보류 종결', function () { dismissHeld(it); }, 'danger-ghost'));
-          if (it.revert.ok) list.push(sbtn('자동등록 취소', function () { revertRow(it); }, 'danger-ghost'));
-          if (it.badge === 'UNSKIPPED_NEEDS_REPROCESS') list.push(el('span', { 'class': 'adm-chip', text: '제외 해제됨 — 재처리 요청 필요' }));
-          if (it.badge === 'WILL_SKIP_AGAIN') list.push(el('span', { 'class': 'adm-chip', text: '다시 건너뛸 예정(제외 목록에 있음)' }));
-          if (!it.revert.ok && it.revert.why === 'NOT_INGEST_OWNED') list.push(el('span', { 'class': 'adm-muted', text: VMSG.NOT_INGEST_OWNED }));
-          return [it.batch_date, it.raw_company + ' · ' + it.raw_project + ' · ' + it.raw_owner, it.label,
-                  (it.why || '') + (it.reason ? ' [' + it.reason + ']' : ''), it.plan_id ? it.plan_status + ' ' + it.planned_date : '', acts(list)];
-        }), [0, 2]));
-      }),
-      read('adm_ingest_status').then(function (r) {
-        var box = $('ig-status'), runs = $('ig-runs'); if (!box || !runs) return;
-        if (!r || !r.ok) { box.appendChild(msgBox(errText(r), 'err')); return; }
-        var d = r.data;
-        box.appendChild(card('보류 ' + d.held.length + '건' + (d.running ? ' — 자동등록 지금 실행 중' : ''), [
-          d.held.length ? el('p', { 'class': 'adm-muted', text: '보류가 남은 메일은 실행할 때마다 통째로 다시 처리되어, 요약 메일의 건너뜀·멱등·보류 건수가 매일 같은 숫자로 다시 나옵니다. ' +
-            '담당자를 명부에 넣으면 다음 실행에 자동 등록되고, 등록하지 않을 행은 「보류 종결」하면 그 메일이 더는 처리되지 않아 다음 요약부터 빠집니다.' }) : null,
-          d.held.length ? table(['처리일', '원문(회사 · 공사 · 담당)', '사유', ''], d.held.map(function (h) {
-            if (/#0$/.test(h.ingest_id)) return [h.batch_date, h.raw_company + ' · ' + h.raw_project + ' · ' + h.raw_owner, h.reason,
-                    acts([el('span', { 'class': 'adm-muted', text: '메일 단위 보류 — 다음 실행에 자동 재시도' })])];
-            return [h.batch_date, h.raw_company + ' · ' + h.raw_project + ' · ' + h.raw_owner, h.reason,
-                    acts([sbtn('보류 종결', function () { dismissHeld({ ingest_id: h.ingest_id, raw_company: h.raw_company, raw_project: h.raw_project, raw_owner: h.raw_owner, reason: h.reason, dismiss: { ok: true, g: h.g } }); }, 'danger-ghost')])];
-          }), [0]) : msgBox('보류된 행이 없습니다 — 요약 메일에 반복 집계되는 건수가 없습니다', 'ok'),
-          (d.dismissed || []).length ? el('h3', { text: '관리자가 종결한 보류 ' + d.dismissed.length + '건(최근 순)' }) : null,
-          (d.dismissed || []).length ? table(['종결 시각', '원문(회사 · 공사 · 담당)', ''], d.dismissed.map(function (h) {
-            return [h.at, h.raw_company + ' · ' + h.raw_project + ' · ' + h.raw_owner,
-                    acts([sbtn('되돌리기(재처리 요청)', function () { reprocessRow({ ingest_id: h.ingest_id }); })])];
-          }), [0]) : null
-        ], null, d.held.length > 0));
-        runs.appendChild(card('자동등록 실행 기록', [
-          d.heartbeats.length ? table(['시각', '단계', '내용'], d.heartbeats.slice(-5).reverse().map(function (h) { return [h.date, h.phase, h.note]; }), [0, 1]) : msgBox('실행 기록이 없습니다', ''),
-          el('h3', { text: '최근 거절 ' + d.rejected.length + '건' }),
-          d.rejected.length ? table(['처리일', '원문', '사유'], d.rejected.map(function (h) { return [h.batch_date, h.raw_company + ' · ' + h.raw_project, h.reason]; }), [0]) : msgBox('최근 거절이 없습니다', '')
-        ]));
-      }),
-      read('adm_ingest_cfg_get').then(function (r) {
-        var box = $('ig-cfg'); if (!box) return;
-        if (!r || !r.ok) { box.appendChild(msgBox(errText(r), 'err')); return; }
-        var keys = r.data.keys;
-        var mk = function (key, label, hint) {
-          var cur = keys[key].value;
-          return el('div', {}, [
-            el('h3', { text: label }), el('p', { 'class': 'adm-muted', text: hint }),
-            keys[key].errors.length ? msgBox('지금 값의 문제: ' + keys[key].errors.join(' / '), 'warn') : null,
-            el('textarea', { id: 'cfg-' + key }, [cur.split('|').join('\n')]),
-            el('div', { 'class': 'adm-actions' }, [btn(label + ' 저장', function () {
-              var next = String($('cfg-' + key).value || '').split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean).join('|');
-              confirmWrite({ action: 'adm_ingest_cfg_set', target: key, title: label + ' 저장', okLabel: '저장',
-                body: [diff([['이전', cur || '(비어 있음)'], ['이후', next || '(비어 있음)']])],
-                payload: { key: key, value: next, expect: { value: cur } } });
-            })])
-          ]);
-        };
-        box.appendChild(card('자동등록 설정', [
-          mk('INGEST_SKIP_PROJECTS', '점검 대상 아닌 공사', '한 줄에 공사명 하나. 이미 만들어진 계획은 건드리지 않습니다.'),
-          mk('INGEST_TEAM_ALIAS', '팀 별칭', '한 줄에 「표기=명부 팀」 하나.'),
-          el('p', { 'class': 'adm-muted', text: '편집기에서만 바꾸는 값: ' + kv(r.data.readonly) })
-        ]));
-      })
-    ]);
+  /* ---------- ② 협력회사 등록/삭제 ---------- */
+  function viewCompany(main) {
+    return read('adm_comp_list').then(function (c) {
+      if (!c || !c.ok) return failInto(main, c);
+      main.appendChild(card('협력회사 등록', [
+        el('div', { 'class': 'adm-row' }, [input('cm-name', '회사 이름'), input('cm-alias', '별칭(선택, 쉼표 구분)'),
+          btn('협력회사 등록', function () {
+            var nm = val('cm-name'), al = val('cm-alias');
+            confirmWrite({ action: 'adm_comp_add', target: 'new:' + nm, title: '협력회사 등록', okLabel: nm + ' 등록',
+              body: [diff([['이름', nm], ['별칭', al || '-']]), el('p', { 'class': 'adm-muted', text: '회사 번호는 서버가 정합니다. 별칭은 자동등록 메일의 시공사 표기와 맞추는 데 씁니다.' })],
+              payload: { name: nm, alias: al } });
+          })])
+      ]));
+      var items = c.data.items || [];
+      var on = items.filter(function (o) { return o.active; }), off = items.filter(function (o) { return !o.active; });
+      var row = function (o) {
+        var ex = { name: o.name, alias: o.alias.join(','), active: o.active ? 'true' : 'false' };
+        var b = o.active
+          ? sbtn('삭제', function () {
+              confirmWrite({ action: 'adm_comp_edit', target: o.company_id, title: o.name + ' 삭제', okLabel: o.name + ' 삭제', danger: true,
+                body: [diff([['회사', o.name + ' (' + o.company_id + ')'], ['진행 공사 / 예정 계획', o.active_projects + ' / ' + o.planned]]),
+                       el('p', { text: '비활성으로 바꿔 목록·자동등록 매칭에서 뺍니다. 과거 기록은 지우지 않고, 아래 「삭제한 협력회사」에서 되돌릴 수 있습니다.' })],
+                payload: { company_id: o.company_id, active: false, expect: ex } });
+            }, 'danger-ghost')
+          : sbtn('되돌리기', function () {
+              confirmWrite({ action: 'adm_comp_edit', target: o.company_id, title: o.name + ' 되돌리기', okLabel: o.name + ' 다시 사용',
+                payload: { company_id: o.company_id, active: true, expect: ex } });
+            });
+        return [o.company_id, o.name, o.alias.join(', ') || '-', o.active_projects, acts([b])];
+      };
+      main.appendChild(card('협력회사 ' + on.length + '곳', [
+        on.length ? table(['번호', '이름', '별칭', '진행 공사', ''], on.map(row), [0]) : msgBox('등록된 협력회사가 없습니다', ''),
+        off.length ? el('h3', { text: '삭제한 협력회사 ' + off.length + '곳' }) : null,
+        off.length ? table(['번호', '이름', '별칭', '진행 공사', ''], off.map(row), [0]) : null
+      ]));
+    });
   }
-  function revertRow(it) {
-    confirmWrite({ action: 'adm_ingest_revert_row', target: it.ingest_id, title: '이 자동등록 취소', okLabel: '계획 취소', danger: true,
-      body: [diff([['원문', it.raw_company + ' · ' + it.raw_project + ' · ' + it.raw_owner], ['계획', it.plan_id + ' (' + it.planned_date + ')']]),
-             el('p', { text: '계획을 취소합니다. 같은 메일이 다시 처리되지는 않습니다(종결).' })],
-      payload: { ingest_id: it.ingest_id, expect: { g: it.revert.g } } });
+
+  /* ---------- ④ 등록된 공사 수정/삭제 ---------- */
+  function viewProject(main) {
+    return read('adm_proj_list').then(function (p) {
+      if (!p || !p.ok) return failInto(main, p);
+      var showDeleted = state.showDeleted;
+      var items = p.data.items.filter(function (o) { return showDeleted || o.status !== '삭제'; });
+      main.appendChild(card('공사 ' + items.length + '건', [
+        el('label', { 'class': 'adm-check' }, [el('input', { type: 'checkbox', id: 'pj-show-del', checked: showDeleted,
+          onchange: function (e) { state.showDeleted = !!e.target.checked; refresh(); } }), '삭제한 공사도 보기(되돌리기)']),
+        table(['번호', '공사명', '회사', '상태', '예정 계획', ''], items.map(function (o) {
+          var list = [];
+          if (o.status === '삭제') {
+            list.push(sbtn('복원', function () {
+              confirmWrite({ action: 'adm_proj_restore', target: o.project_id, title: '공사 복원', okLabel: o.name + ' 복원',
+                body: [diff([['공사', o.name + ' (' + o.project_id + ')']])],
+                collect: function () { return { project_id: o.project_id, expect: { status: o.status } }; } });
+            }));
+          } else {
+            list.push(sbtn('수정', function () {
+              confirmWrite({ action: 'adm_proj_edit', target: o.project_id, title: '공사명 수정', okLabel: '저장',
+                body: [input('pj-name', '새 공사명(60자 이내)', { value: o.name }), el('p', { 'class': 'adm-muted', text: '과거 기록에 남은 이름은 바뀌지 않습니다.' })],
+                collect: function () { return { project_id: o.project_id, name: val('pj-name'), expect: { name: o.name } }; } });
+            }));
+            list.push(sbtn('삭제', function () {
+              confirmWrite({ action: 'adm_proj_delete', target: o.project_id, title: '공사 삭제', okLabel: o.name + ' 삭제', danger: true,
+                body: [diff([['공사', o.name + ' (' + o.project_id + ')'], ['예정 계획', String(o.plans.planned)]]), input('pj-reason', '삭제 사유(10자 이상)'),
+                       el('p', { 'class': 'adm-muted', text: '행은 지우지 않고 숨깁니다. 과거 기록은 그대로 남고, 「삭제한 공사도 보기」에서 복원할 수 있습니다.' })],
+                collect: function () { return { project_id: o.project_id, expect: { status: o.status }, reason: val('pj-reason') }; } });
+            }, 'danger-ghost'));
+          }
+          return [o.project_id, o.name, o.company_name, o.status, o.plans.planned, acts(list)];
+        }), [0, 3])
+      ]));
+    });
+  }
+
+  /* ---------- ③ 자동등록 보류 정리 ---------- */
+  function viewIngest(main) {
+    return read('adm_ingest_status').then(function (r) {
+      if (!r || !r.ok) return failInto(main, r);
+      var d = r.data;
+      main.appendChild(card('보류 ' + d.held.length + '건' + (d.running ? ' — 자동등록 지금 실행 중' : ''), [
+        d.held.length ? el('p', { 'class': 'adm-muted', text: '보류가 남은 메일은 실행할 때마다 통째로 다시 처리되어, 요약 메일의 건너뜀·멱등·보류 건수가 매일 같은 숫자로 다시 나옵니다. ' +
+          '담당자를 명부에 넣으면 다음 실행에 자동 등록되고, 등록하지 않을 행은 「보류 종결」하면 그 메일이 더는 처리되지 않아 다음 요약부터 빠집니다.' }) : null,
+        d.held.length ? table(['처리일', '원문(회사 · 공사 · 담당)', '사유', ''], d.held.map(function (h) {
+          if (/#0$/.test(h.ingest_id)) return [h.batch_date, h.raw_company + ' · ' + h.raw_project + ' · ' + h.raw_owner, h.reason,
+                  acts([el('span', { 'class': 'adm-muted', text: '메일 단위 보류 — 다음 실행에 자동 재시도' })])];
+          return [h.batch_date, h.raw_company + ' · ' + h.raw_project + ' · ' + h.raw_owner, h.reason,
+                  acts([sbtn('보류 종결', function () { dismissHeld({ ingest_id: h.ingest_id, raw_company: h.raw_company, raw_project: h.raw_project, raw_owner: h.raw_owner, reason: h.reason, dismiss: { ok: true, g: h.g } }); }, 'danger-ghost')])];
+        }), [0]) : msgBox('보류된 행이 없습니다 — 요약 메일에 반복 집계되는 건수가 없습니다', 'ok'),
+        (d.dismissed || []).length ? el('h3', { text: '종결한 보류 ' + d.dismissed.length + '건(최근 순)' }) : null,
+        (d.dismissed || []).length ? table(['종결 시각', '원문(회사 · 공사 · 담당)', ''], d.dismissed.map(function (h) {
+          return [h.at, h.raw_company + ' · ' + h.raw_project + ' · ' + h.raw_owner,
+                  acts([sbtn('되돌리기', function () { reprocessRow({ ingest_id: h.ingest_id }); })])];
+        }), [0]) : null
+      ], null, d.held.length > 0));
+    });
   }
   function dismissHeld(it) {
     confirmWrite({ action: 'adm_ingest_dismiss_held', target: it.ingest_id, title: '보류 종결', okLabel: '보류 종결', danger: true,
       body: [diff([['원문', it.raw_company + ' · ' + it.raw_project + ' · ' + it.raw_owner], ['보류 사유', it.reason || it.why || '-']]),
              el('p', { text: '이 행을 더 기다리지 않고 거절로 닫습니다. 계획은 만들지 않고, 협력회사로 메일을 보내지 않습니다. 이 메일에 다른 보류가 없으면 다음 실행부터 다시 처리하지 않습니다.' }),
-             el('p', { 'class': 'adm-muted', text: '되돌리려면 결과 표에서 이 행을 「재처리 요청」하세요(다음 정기 실행에 다시 처리).' }),
+             el('p', { 'class': 'adm-muted', text: '되돌리려면 아래 「종결한 보류」에서 「되돌리기」를 누르세요(다음 정기 실행에 다시 처리).' }),
              input('dh-reason', '사유(10자 이상)')],
       collect: function () { return { ingest_id: it.ingest_id, reason: val('dh-reason'), expect: { g: it.dismiss.g } }; } });
-  }
-  function reviveRow(it) {
-    confirmWrite({ action: 'adm_ingest_revive_row', target: it.ingest_id, title: '취소된 계획 되살리기', okLabel: '되살리기',
-      body: [diff([['원문', it.raw_company + ' · ' + it.raw_project], ['계획', it.plan_id + ' (' + it.planned_date + ')']]), input('rv-reason', '사유(10자 이상)')],
-      collect: function () { return { ingest_id: it.ingest_id, reason: val('rv-reason'), expect: { state: it.state } }; } });
   }
   function reprocessRow(it) {
     read('adm_ingest_reprocess_preview', { ingest_ids: [it.ingest_id] }).then(function (pv) {
       if (!pv || !pv.ok) { flash(errText(pv), 'err'); return; }
       if (!pv.data.count) {
         var why = (pv.data.skipped[0] || {}).why || '';
-        flash(/processing|ALREADY_REQUESTED_TODAY/.test(why) ? '재처리 대기 중(이미 요청됨)' : (/NOT_TERMINAL/.test(why) ? '보류 중 — 자동 재시도됩니다' : '재처리 대상이 아닙니다: ' + why), 'warn');
+        flash(/processing|ALREADY_REQUESTED_TODAY/.test(why) ? '재처리 대기 중(이미 요청됨)' : (/NOT_TERMINAL/.test(why) ? '보류 중 — 자동 재시도됩니다' : '되돌릴 수 없습니다: ' + why), 'warn');
         return;
       }
-      confirmWrite({ action: 'adm_ingest_reprocess', target: it.ingest_id, title: '재처리 요청', okLabel: '재처리 요청',
-        body: [el('p', { text: '다음 정기 실행(매일 10시대)에 다시 처리됩니다 — 이 버튼은 등록을 바로 하지 않습니다.' })],
+      confirmWrite({ action: 'adm_ingest_reprocess', target: it.ingest_id, title: '보류 종결 되돌리기', okLabel: '되돌리기',
+        body: [el('p', { text: '다음 정기 실행(매일 10시대)에 이 행을 다시 처리합니다 — 담당자가 여전히 명부에 없으면 다시 보류됩니다.' })],
         payload: { ingest_ids: [it.ingest_id] } });
-    });
-  }
-
-  /* ---------- 탭: 공사/협력회사 ---------- */
-  function viewMaster(main) {
-    return Promise.all([read('adm_comp_list'), read('adm_proj_list')]).then(function (rs) {
-      var c = rs[0], p = rs[1];
-      if (!c || !c.ok) return failInto(main, c);
-      if (!p || !p.ok) return failInto(main, p);
-      main.appendChild(card('협력회사 ' + c.data.items.length + '곳', [
-        el('div', { 'class': 'adm-row' }, [input('cm-name', '새 회사 이름'), input('cm-alias', '별칭(쉼표 구분)'),
-          btn('협력회사 추가', function () {
-            var nm = val('cm-name'), al = val('cm-alias');
-            confirmWrite({ action: 'adm_comp_add', target: 'new:' + nm, title: '협력회사 추가', okLabel: nm + ' 추가',
-              body: [diff([['이름', nm], ['별칭', al || '-']]), el('p', { 'class': 'adm-muted', text: '회사 번호는 서버가 정합니다.' })],
-              payload: { name: nm, alias: al } });
-          })]),
-        table(['ID', '이름', '별칭', '상태', '진행 공사', '예정 계획', ''], c.data.items.map(function (o) {
-          var ex = { name: o.name, alias: o.alias.join(','), active: o.active ? 'true' : 'false' };
-          return [o.company_id, o.name, o.alias.join(', '), o.active ? '활성' : '비활성', o.active_projects, o.planned, acts([
-            sbtn('이름 변경', function () {
-              confirmWrite({ action: 'adm_comp_edit', target: o.company_id, title: o.name + ' 이름 변경', okLabel: '변경',
-                body: [input('ce-name', '새 이름', { value: o.name }), el('p', { 'class': 'adm-muted', text: '옛 이름은 별칭으로 남습니다(보류 메일이 같은 회사로 매칭되게).' })],
-                collect: function () { return { company_id: o.company_id, name: val('ce-name'), expect: ex }; } });
-            }),
-            sbtn('별칭 추가', function () {
-              confirmWrite({ action: 'adm_comp_edit', target: o.company_id, title: o.name + ' 별칭 추가', okLabel: '추가',
-                body: [input('ce-alias', '추가할 별칭(쉼표 구분)'), el('p', { 'class': 'adm-muted', text: '별칭은 추가만 됩니다.' })],
-                collect: function () { return { company_id: o.company_id, alias_add: val('ce-alias'), expect: ex }; } });
-            }),
-            sbtn(o.active ? '비활성' : '활성', function () {
-              confirmWrite({ action: 'adm_comp_edit', target: o.company_id, title: o.name + (o.active ? ' 비활성' : ' 활성'), okLabel: o.active ? '비활성으로' : '활성으로',
-                danger: o.active, payload: { company_id: o.company_id, active: !o.active, expect: ex } });
-            }, o.active ? 'danger-ghost' : 'ghost')
-          ])];
-        }), [0, 3])
-      ]));
-      var showDeleted = state.showDeleted;
-      var items = p.data.items.filter(function (o) { return showDeleted || o.status !== '삭제'; });
-      main.appendChild(card('공사 ' + items.length + '건', [
-        el('label', { 'class': 'adm-check' }, [el('input', { type: 'checkbox', id: 'pj-show-del', checked: showDeleted,
-          onchange: function (e) { state.showDeleted = !!e.target.checked; refresh(); } }), '삭제(숨김) 공사도 보기']),
-        table(['번호', '공사명', '회사', '상태', '계획 예정/완료/취소/미점검', '제출', '부적합', ''], items.map(function (o) {
-          var pl = o.plans;
-          var list = [];
-          var tr = function (action, label, extra, danger) {
-            list.push(sbtn(label, function () {
-              var body = [diff([['공사', o.name + ' (' + o.project_id + ')'], ['상태', o.status + ' → ' + label]])];
-              if (action === 'adm_proj_delete') body.push(input('pj-reason', '삭제 사유(10자 이상)'), el('p', { 'class': 'adm-muted', text: '행은 지우지 않고 숨깁니다. 과거 기록은 그대로 남습니다.' }));
-              confirmWrite({ action: action, target: o.project_id, title: '공사 ' + label, okLabel: o.name + ' ' + label, danger: danger, body: body,
-                collect: function () { var q = { project_id: o.project_id, expect: { status: o.status } }; if (action === 'adm_proj_delete') q.reason = val('pj-reason'); return q; } });
-            }, danger ? 'danger-ghost' : 'ghost'));
-          };
-          if (o.status === '진행') { tr('adm_proj_close', '완료'); tr('adm_proj_delete', '삭제', null, true); }
-          else if (o.status === '완료') { tr('adm_proj_reopen', '재개'); tr('adm_proj_delete', '삭제', null, true); }
-          else if (o.status === '삭제') tr('adm_proj_restore', '복원');
-          list.push(sbtn('이름 수정', function () {
-            confirmWrite({ action: 'adm_proj_edit', target: o.project_id, title: '공사명 수정', okLabel: '저장',
-              body: [input('pj-name', '새 공사명(60자 이내)', { value: o.name }), el('p', { 'class': 'adm-muted', text: '과거 기록에 남은 이름은 바뀌지 않습니다.' })],
-              collect: function () { return { project_id: o.project_id, name: val('pj-name'), expect: { name: o.name } }; } });
-          }));
-          return [o.project_id, o.name, o.company_name, o.status, pl.planned + ' / ' + pl.done + ' / ' + pl.canceled + ' / ' + pl.unchecked, o.submissions, o.findings, acts(list)];
-        }), [0, 3, 4])
-      ]));
-    });
-  }
-
-  /* ---------- 탭: 기록 정정 ---------- */
-  function viewRecord(main) {
-    main.appendChild(card('제출 조회·취소', [
-      el('div', { 'class': 'adm-row' }, [input('rc-id', '제출 ID(submission_id)'), btn('조회', function () {
-        var id = val('rc-id');
-        read('adm_sub_lookup', { submission_id: id }).then(function (r) {
-          var box = $('rc-out'); box.textContent = '';
-          if (!r || !r.ok) { box.appendChild(msgBox(errText(r), 'err')); return; }
-          var d = r.data;
-          box.appendChild(diff([['점검일', d.inspect_date], ['공사', d.company_name + ' · ' + d.project_name], ['점검자', d.inspector_name],
-            ['상태', d.status], ['부적합', d.findings_open + ' / ' + d.findings_total + '(미취소/전체)'],
-            ['PDF 발송', d.pull_count + '회' + (d.pull_to.length ? ' — ' + d.pull_to.join(', ') : '')]]));
-          if (d.pull_count) box.appendChild(msgBox('이미 ' + d.pull_count + '곳으로 발송됨 — 회수 불가, 정정 연락이 필요합니다', 'warn'));
-          if (d.status !== 'voided' || d.findings_open > 0) {
-            box.appendChild(btn('이 제출 취소', function () {
-              confirmWrite({ action: 'adm_sub_void', target: d.submission_id, title: '제출 취소', okLabel: '제출 취소', danger: true,
-                body: [diff([['제출', d.submission_id], ['공사', d.project_name + ' ' + d.inspect_date]]), input('rc-reason', '사유(10자 이상)')],
-                collect: function () { return { submission_id: d.submission_id, reason: val('rc-reason'), expect: { status: d.status, findings_sig: d.findings_sig } }; } });
-            }, 'danger'));
-          }
-        });
-      })]),
-      el('div', { id: 'rc-out' })
-    ]));
-    return Promise.resolve();
-  }
-
-  /* ---------- 탭: 상태/이력 ---------- */
-  var auditCursor = null;
-  function viewOps(main) {
-    return read('adm_status').then(function (r) {
-      if (!r || !r.ok) return failInto(main, r);
-      var d = r.data;
-      var unk = function (v) { return v == null ? '확인 불가' : v; };
-      main.appendChild(card('상태', [
-        diff([['코드 지문', d.code_rev], ['시간대', d.tz + ' (오늘 ' + d.server_today + ')'], ['트리거', d.triggers == null ? '확인 불가' : kv(d.triggers)],
-          ['자동등록 마지막 실행', d.ingest_last ? d.ingest_last.date + ' ' + d.ingest_last.phase : '확인 불가'],
-          ['최근 백업 / 월간 보관', unk(d.backup_latest) + ' / ' + unk(d.archive_latest)], ['앱 오류(7일)', unk(d.app_errors_7d)],
-          ['PIN 저장', d.pin_storage ? '해시 ' + d.pin_storage.hashed + ' · 평문 ' + d.pin_storage.plain : '확인 불가'],
-          ['확인 필요 요청', d.unknown_requests]])
-      ], [btn('복원 점검', function () {
-          flash('복원 점검 중… (수십 초 걸림, 10분에 1회)', '');
-          read('adm_restore_check').then(function (x) { flash(x && x.ok ? '복원 점검: ' + kv(x.data) : errText(x), x && x.ok ? 'ok' : 'err'); });
-        }, 'ghost')]));
-      var auditBox = el('div', {});
-      main.appendChild(card('관리 이력', [
-        el('div', { 'class': 'adm-row' }, [input('au-target', '대상'), input('au-actor', '행위자(사번)'), btn('조회', function () { auditCursor = null; loadAudit(auditBox, false); })]),
-        auditBox
-      ]));
-      return loadAudit(auditBox, false);
-    });
-  }
-  function loadAudit(box, more) {
-    var q = { days: 90, target: val('au-target'), actor: val('au-actor') };
-    if (more && auditCursor) q.cursor = auditCursor;
-    return read('adm_audit_list', q).then(function (r) {
-      if (!more) box.textContent = '';
-      if (!r || !r.ok) { box.appendChild(msgBox(errText(r), 'err')); return; }
-      auditCursor = r.data.cursor;
-      if (!r.data.items.length && !more) box.appendChild(msgBox('이력이 없습니다', ''));
-      box.appendChild(table(['시각', '행위자', '대상', '동작', '필드', '이전', '이후'], r.data.items.map(function (o) {
-        return [o.changed_at, o.actor, o.target_name || o.target_id, o.action, o.field, o.before.slice(0, 80), o.after.slice(0, 120)];
-      }), [0, 1]));
-      if (auditCursor) box.appendChild(el('div', { 'class': 'adm-actions', style: 'justify-content:center' }, [btn('더 보기', function () { loadAudit(box, true); }, 'ghost')]));
     });
   }
 
@@ -869,7 +702,7 @@
     });
   }
 
-  var VIEWS = { roster: viewRoster, ingest: viewIngest, master: viewMaster, record: viewRecord, ops: viewOps, reqs: viewReqs };
+  var VIEWS = { roster: viewRoster, company: viewCompany, project: viewProject, ingest: viewIngest, reqs: viewReqs };
 
   /* ---------- 서비스워커 확인 문턱(설계 §9 4단계, Codex P6-R2-01) ----------
      불변식(Codex P6-R7-01): 「이 페이지 묶음의 버전(config.js 의 APP_VER — admin.html 이 ?v= 로 고정해 부른다)」 ==

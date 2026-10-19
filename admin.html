@@ -4,11 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<meta id="adm-build" name="adm-build" content="0.5.5-c79aeb8b">
-<meta name="description" content="안전점검 관리자 페이지 — 점검자·자동등록·공사·기록·상태 관리">
+<meta id="adm-build" name="adm-build" content="0.5.5-24e4d1f3">
+<meta name="description" content="안전점검 관리자 페이지 — 점검자·협력회사·공사·자동등록 보류 관리">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-c79aeb8b">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-c79aeb8b">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-24e4d1f3">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-24e4d1f3">
 <title>안전점검 관리자</title>
 <style>
 /* 관리자 페이지 전용 — 색은 tokens.css 변수만 쓴다(원값 금지, 대시보드와 같은 규칙). */
@@ -63,18 +63,11 @@ table.adm-table { border-collapse: collapse; width: 100%; font-size: 14px; }
 .adm-table td.adm-td-acts .adm-acts .adm-muted { white-space: normal; min-width: 180px; }
 .adm-table td.adm-td-nowrap { white-space: nowrap; }
 .adm-muted { color: var(--muted); font-size: 13px; }
-.adm-summary { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
-.adm-stat { display: inline-flex; gap: 6px; align-items: baseline; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; }
-.adm-stat b { font-size: 15px; }
-.adm-stat.warn { border-color: var(--warn); }
 .adm-msg { margin: 8px 0; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); }
 .adm-msg.err { border-color: var(--danger); color: var(--danger); }
 .adm-msg.ok { border-color: var(--ok); color: var(--ok); }
 .adm-msg.warn { border-color: var(--warn); color: var(--warn); }
 .adm-chip { display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; margin: 1px; }
-.adm-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
-label.adm-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; font-size: 13px; color: var(--text); cursor: pointer; margin: 0; }
-label.adm-chip:has(input:checked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
 .adm-check { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; margin: 4px 0 10px; cursor: pointer; }
 .adm-sheet-back { position: fixed; inset: 0; background: color-mix(in srgb, var(--text) 45%, transparent); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
 .adm-sheet { background: var(--surface); border-radius: 12px; max-width: 520px; width: 100%; padding: 18px; max-height: 90vh; overflow: auto; }
@@ -101,6 +94,7 @@ label.adm-chip:has(input:checked) { border-color: var(--accent); background: col
   .adm-table td.adm-td-nowrap { white-space: normal; }
   .adm-table td.adm-td-acts .adm-acts { flex-wrap: wrap; }
   .adm-acts { justify-content: flex-start; }
+  .adm-acts .adm-btn.danger-ghost { margin-left: auto; }   /* 위험 버튼은 오른쪽 끝 — 옆 버튼과 잘못 누르지 않게 */
   .adm-top h1 { flex-basis: 100%; }
   .adm-who { flex: 1 1 auto; }
   .adm-acts .adm-muted { text-align: left; }
@@ -154,7 +148,7 @@ label.adm-chip:has(input:checked) { border-color: var(--accent); background: col
   </div>
 </div>
 
-<script src="./config.js?v=0.5.5-c79aeb8b"></script>
-<script src="./admin.js?v=0.5.5-c79aeb8b"></script>
+<script src="./config.js?v=0.5.5-24e4d1f3"></script>
+<script src="./admin.js?v=0.5.5-24e4d1f3"></script>
 </body>
 </html>
