@@ -895,6 +895,31 @@
   function updatePlanOnServer(payload) {
     return CONFIG.MOCK ? mockPlanUpdate(payload) : realPlanUpdate(payload);
   }
+  /* 공사명 수정(2026-10-20) — plan_update 와 같은 문턱(점검자 PIN), 오프라인 큐에 넣지 않는다. */
+  function realPlanRename(payload) {
+    return requestJson(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'plan_rename', k: CONFIG.SHARED_KEY, payload: payload }),
+      redirect: 'follow'
+    });
+  }
+  function mockPlanRename(payload) {
+    // eslint-disable-next-line no-console
+    console.log('[MOCK plan_rename]', payload);
+    return new Promise(function (resolve) {
+      setTimeout(function () {
+        var hit = ensureMockPlans().filter(function (p) { return p.plan_id === payload.plan_id; })[0];
+        if (!hit) { resolve({ ok: false, error: { code: 'VALIDATION', message: 'PLAN_NOT_FOUND' } }); return; }
+        var key = hit.project_key, same = hit.project_name === payload.project_name;
+        ensureMockPlans().forEach(function (p) { if (p.plan_id === hit.plan_id || (key && !/^TMP-/.test(key) && p.project_key === key)) p.project_name = payload.project_name; });
+        resolve({ ok: true, data: { updated: !same, scope: key && !/^TMP-/.test(key) ? 'project' : 'plan', project_key: key, project_name: payload.project_name } });
+      }, 200);
+    });
+  }
+  function renamePlanOnServer(payload) {
+    return CONFIG.MOCK ? mockPlanRename(payload) : realPlanRename(payload);
+  }
   function voidSubmissionOnServer(payload) {
     return CONFIG.MOCK ? mockSubmissionVoid(payload) : realSubmissionVoid(payload);
   }
@@ -1989,6 +2014,7 @@
       setPlanTeam(node, p, true);
 
       var editBtn = node.querySelector('.plan-btn-edit');
+      var renameBtn = node.querySelector('.plan-btn-rename');
       var cancelBtn = node.querySelector('.plan-btn-cancel');
       var noteEl = node.querySelector('.plan-note');
       /* 어떤 상태에서도 버튼을 막지 않는다. tombstone(consumedPlanIds)은 "서버가 완료했다"가
@@ -1999,6 +2025,7 @@
          대신 무슨 일이 벌어질지는 미리 알린다. */
       var isConsumed = !!(state.consumedPlanIds && state.consumedPlanIds[p.plan_id]);
       editBtn.addEventListener('click', function () { openPlanManagePanel(p, 'edit'); });
+      if (renameBtn) renameBtn.addEventListener('click', function () { openPlanManagePanel(p, 'rename'); });
       /* 미전송 제출이 있는 계획의 **취소만** 막는다(2차 검증 #7). 취소하면 계획은 canceled 인데
          나중에 그 제출이 전송돼 점검 기록이 생긴다 — 서버 linkPlanDone_ 은 bestEffort 라
          canceled 를 done 으로 되돌리지 않으므로 "취소된 계획인데 실제 점검 기록이 있는" 모순이
@@ -2031,6 +2058,9 @@
       if (!fresh) {
         closePlanManagePanel();
         showBanner('warn', '편집 중이던 계획이 목록에서 사라졌습니다 — 다른 기기에서 처리되었을 수 있습니다.');
+      } else if (state.managingMode === 'rename' && fresh.project_name !== cur.project_name) {
+        openPlanManagePanel(fresh, 'rename');
+        showBanner('warn', '이 계획의 공사명이 「' + fresh.project_name + '」 로 바뀌었습니다 — 확인 후 진행하세요.');
       } else if (fresh.planned_date !== cur.planned_date) {
         /* 값이 실제로 달라졌을 때만 다시 연다 — 무조건 다시 열면 입력 중이던 PIN·점검자가
            재조회 한 번에 지워진다. 날짜가 바뀌었으면 보고 있는 값이 거짓이므로 다시 여는 게 맞다. */
@@ -2055,15 +2085,19 @@
     state.managingPlan = plan;
     state.managingMode = mode;
     var isEdit = mode === 'edit';
+    var isRename = mode === 'rename';
     /* H7(취소에만 해당): 이 계획으로 작성 중인 임시저장이 있으면 취소와 함께 사라진다는 걸
        미리 알린다 — 계획이 목록에서 빠지면 '이어서 작성' 진입점 자체가 없어지기 때문이다.
        예정일 변경은 계획이 남으므로 임시저장도 그대로 살아 있다. */
     var hasDraft = !!(state.drafts && state.drafts[plan.plan_id]);
     $('plan-manage-target').textContent = plan.planned_date + ' · ' + plan.company_name + ' · ' + plan.project_name
-      + (isEdit ? ' 계획의 예정일을 변경합니다. 점검자 인증 후 확정됩니다.'
+      + (isRename ? ' 계획의 공사명을 수정합니다. 같은 공사의 다른 예정 계획에도 함께 반영되고, 이미 제출된 기록의 공사명은 바뀌지 않습니다. 점검자 인증 후 확정됩니다.'
+        : isEdit ? ' 계획의 예정일을 변경합니다. 점검자 인증 후 확정됩니다.'
                 : ' 계획을 취소합니다. 점검자 인증 후 확정됩니다.')
-      + (!isEdit && hasDraft ? ' 이 계획에 작성 중인 내용이 있으며 취소하면 함께 삭제됩니다.' : '');
+      + (!isEdit && !isRename && hasDraft ? ' 이 계획에 작성 중인 내용이 있으며 취소하면 함께 삭제됩니다.' : '');
     $('pm-date-field').hidden = !isEdit;
+    $('pm-name-field').hidden = !isRename;
+    $('pm-name').value = isRename ? String(plan.project_name || '') : '';
     /* 서버와 같은 ±365일을 입력칸에도 건다 — 서버가 최종 판정이지만, 오프라인·느린 회선에서
        왕복 한 번을 기다린 뒤에야 "범위 밖"을 아는 것은 막다른 길처럼 느껴진다. */
     $('pm-date').min = shiftDateStr(-365);
@@ -2073,7 +2107,7 @@
     $('pm-team').value = '';
     populateInspectorSelect('', 'pm-inspector');
     $('pm-pin').value = '';
-    $('btn-plan-manage-confirm').textContent = isEdit ? '변경 확정' : '취소 확정';
+    $('btn-plan-manage-confirm').textContent = isRename ? '수정 확정' : (isEdit ? '변경 확정' : '취소 확정');
     $('plan-manage-panel').hidden = false;
     $('plan-manage-panel').scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
   }
@@ -2090,6 +2124,10 @@
       : /PLAN_NOT_FOUND/.test(message) ? '이미 처리되었거나 없는 계획입니다. 목록을 새로고침하세요.'
       : /PLAN_DATE_INVALID/.test(message) ? '예정일이 허용 범위(오늘 기준 ±1년)를 벗어났습니다.'
       : /PIN_MISMATCH/.test(message) ? 'PIN이 일치하지 않습니다.'
+      : /PROJECT_NAME_INVALID/.test(message) ? '공사명은 1~60자로 적어 주세요(작은따옴표로 시작할 수 없습니다).'
+      : /PROJECT_NAME_DUP/.test(message) ? '같은 협력회사에 같은 이름(또는 예전 이름)의 공사가 있습니다 — 다른 이름을 적어 주세요.'
+      : /PROJECT_DELETED/.test(message) ? '삭제(숨김)된 공사입니다 — 관리자에게 알리세요.'
+      : /PLAN_ALREADY_UNCHECKED/.test(message) ? '이미 미점검으로 확정된 계획입니다. 목록을 새로고침하세요.'
       /* CONFLICT 계열 — 요청도 설정도 잘못되지 않았다. 그 사이 누가(사람이 시트에서) 먼저
          손댔을 뿐이다. 자동 재시도는 하지 않는다: 바뀐 값을 보지도 않고 덮어쓰게 된다. */
       : /PLAN_ROW_MOVED/.test(message) ? '그 사이 이 계획이 옮겨졌거나 사라졌습니다. 목록을 새로 받았으니 다시 확인하세요.'
@@ -2103,11 +2141,14 @@
     if (state.managingPlanBusy || !state.managingPlan) return;
     var plan = state.managingPlan;
     var isEdit = state.managingMode === 'edit';
+    var isRename = state.managingMode === 'rename';
     var newDate = $('pm-date').value;
+    var newName = isRename ? String($('pm-name').value || '').replace(/\s+/g, ' ').trim() : '';
     var inspectorId = $('pm-inspector').value;
     var pin = $('pm-pin').value;
     var missing = [], focusId = null;
     if (isEdit && !newDate) { missing.push('새 점검예정일'); focusId = focusId || 'pm-date'; }
+    if (isRename && (!newName || newName.length > 60)) { missing.push('새 공사명(1~60자)'); focusId = focusId || 'pm-name'; }
     if (!inspectorId) { missing.push('점검자'); focusId = focusId || 'pm-inspector'; }
     if (!/^\d{4}$/.test(pin || '')) { missing.push('PIN(4자리)'); focusId = focusId || 'pm-pin'; }
     if (missing.length) {
@@ -2133,25 +2174,28 @@
     var btn = $('btn-plan-manage-confirm');
     var label = btn.textContent;
     btn.disabled = true;
-    btn.textContent = isEdit ? '변경 처리 중...' : '취소 처리 중...';
-    var req = isEdit
+    btn.textContent = isRename ? '수정 처리 중...' : (isEdit ? '변경 처리 중...' : '취소 처리 중...');
+    var req = isRename
+      ? renamePlanOnServer({ plan_id: plan.plan_id, project_name: newName, expect_name: String(plan.project_name || ''), inspector_id: inspectorId, pin: pin })
+      : isEdit
       ? updatePlanOnServer({ plan_id: plan.plan_id, planned_date: newDate, inspector_id: inspectorId, pin: pin })
       : cancelPlanOnServer({ plan_id: plan.plan_id, inspector_id: inspectorId, pin: pin });
     req.then(function (result) {
       if (result.ok) {
-        if (isEdit) applyPlanUpdated(plan, newDate);
+        if (isRename) applyPlanRenamed(plan, newName, result.data || {});
+        else if (isEdit) applyPlanUpdated(plan, newDate);
         else applyPlanCanceled(plan);
         return;
       }
       var err = normalizeError(result.error);
-      showBanner('error', (isEdit ? '예정일 변경에 실패했습니다: ' : '취소에 실패했습니다: ')
+      showBanner('error', (isRename ? '공사명 수정에 실패했습니다: ' : isEdit ? '예정일 변경에 실패했습니다: ' : '취소에 실패했습니다: ')
         + friendlyPlanError(err.message) + ' (' + err.code + ')');
       window.scrollTo(0, 0);
       /* 충돌은 "내가 보고 있는 목록이 낡았다" 는 뜻이다 — 사용자가 같은 낡은 값으로 다시
          누르지 않도록 서버 진실을 즉시 다시 받는다(패널은 renderManage 가 재결합한다). */
       if (String(err.code) === 'CONFLICT') refreshPlans();
     }).catch(function (e) {
-      showBanner('error', (isEdit ? '예정일 변경 중 오류가 발생했습니다: ' : '취소 처리 중 오류가 발생했습니다: ')
+      showBanner('error', (isRename ? '공사명 수정 중 오류가 발생했습니다: ' : isEdit ? '예정일 변경 중 오류가 발생했습니다: ' : '취소 처리 중 오류가 발생했습니다: ')
         + ((e && e.message) || e));
       window.scrollTo(0, 0);
     }).finally(function () {
@@ -2170,6 +2214,20 @@
     showBanner('success', '예정일을 ' + newDate + ' 로 변경했습니다.');
     renderManage();
     refreshPlans();   /* 서버 진실로 최종 정합(성공해도 실패해도 위에서 이미 로컬은 맞다) */
+  }
+  /* 공사명 수정 반영 — 정식 공사면 같은 공사의 예정 계획 이름을 모두, 임시 공사면 그 계획만. */
+  function applyPlanRenamed(plan, newName, data) {
+    var key = String(plan.project_key || '');
+    var whole = data.scope === 'project' && key && !/^TMP-/.test(key);
+    (state.plans || []).forEach(function (p) {
+      if (p.plan_id === plan.plan_id || (whole && p.project_key === key)) p.project_name = newName;
+    });
+    bumpPlansGeneration();
+    persistPlansCache();
+    closePlanManagePanel();
+    showBanner('success', '공사명을 「' + newName + '」 로 수정했습니다.' + (whole ? ' 같은 공사의 다른 예정 계획에도 반영됩니다.' : ''));
+    renderManage();
+    refreshPlans();
   }
   function applyPlanCanceled(plan) {
     state.plans = (state.plans || []).filter(function (p) { return p.plan_id !== plan.plan_id; });

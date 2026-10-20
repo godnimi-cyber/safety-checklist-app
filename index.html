@@ -8,7 +8,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-24e4d1f3">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-c1415bd2">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <!-- 데이터 API 오리진 2곳 — 첫 요청의 DNS+TLS 를 선행한다(대시보드와 같은 처방).
      GAS 는 script.google.com 에서 302 로 googleusercontent 로 넘어가므로 둘 다 필요하다.
@@ -19,7 +19,7 @@
 <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-24e4d1f3">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-c1415bd2">
 <title>협력회사 SHE 점검</title>
 </head>
 <body>
@@ -387,7 +387,7 @@
     <!-- ⑤ 예정 점검 관리(예정일 변경 · 취소). 탭 바가 없는 앱이라 화면 하나를 더한다 -->
     <section class="screen" id="screen-manage" data-screen="manage" hidden>
       <div class="screen-body">
-        <p class="muted">예정일을 미루거나 잘못 등록한 계획을 취소합니다. 명부에 있는 점검자면 자기 PIN 으로 처리할 수 있습니다.</p>
+        <p class="muted">예정일을 미루거나 공사명을 고치거나 잘못 등록한 계획을 취소합니다. 명부에 있는 점검자면 자기 PIN 으로 처리할 수 있습니다.</p>
         <!-- 동기화 실패를 이 화면에서도 보여준다 — 홈의 #home-plans-banner 와 같은 자리·같은 규칙 -->
         <div id="manage-banner" class="banner" hidden></div>
         <p class="muted" id="manage-empty">예정된 점검이 없습니다.</p>
@@ -398,6 +398,11 @@
           <div class="field" id="pm-date-field" hidden>
             <label class="field-label" for="pm-date">새 점검예정일</label>
             <input class="input" type="date" id="pm-date">
+          </div>
+          <!-- 공사명 수정(2026-10-20) — 같은 공사의 다른 예정 계획에도 반영된다. 제출된 기록의 이름은 그대로. -->
+          <div class="field" id="pm-name-field" hidden>
+            <label class="field-label" for="pm-name">새 공사명 (60자 이내)</label>
+            <input class="input" type="text" id="pm-name" maxlength="60" autocomplete="off">
           </div>
           <div class="field">
             <label class="field-label" for="pm-team">점검자 · 소속팀</label>
@@ -571,6 +576,7 @@
     </div>
     <div class="plan-actions">
       <button type="button" class="btn btn-outline plan-btn-edit">예정일 변경</button>
+      <button type="button" class="btn btn-outline plan-btn-rename">공사명 수정</button>
       <button type="button" class="btn btn-outline plan-btn-cancel">취소</button>
     </div>
   </div>
@@ -591,9 +597,9 @@
   </div>
 </template>
 
-<script src="./config.js?v=0.5.5-24e4d1f3"></script>
-<script src="./lib.js?v=0.5.5-24e4d1f3"></script>
-<script src="./logic.js?v=0.5.5-24e4d1f3"></script>
-<script src="./app.js?v=0.5.5-24e4d1f3"></script>
+<script src="./config.js?v=0.5.5-c1415bd2"></script>
+<script src="./lib.js?v=0.5.5-c1415bd2"></script>
+<script src="./logic.js?v=0.5.5-c1415bd2"></script>
+<script src="./app.js?v=0.5.5-c1415bd2"></script>
 </body>
 </html>
