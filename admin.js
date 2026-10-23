@@ -21,16 +21,15 @@
   var REQUEST_TIMEOUT_MS = 12000;
   var ADMIN_BUILD = '0.5.5-c1415bd2';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
 
-  var state = { key: '', sid: '', who: null, roles: [], tab: '', gen: 0, viewGen: 0, showDeleted: false };
+  var state = { key: '', sid: '', who: null, roles: [], tab: '', gen: 0, viewGen: 0, showDeleted: false, tplOff: false };
   var NEVER = function () { return new Promise(function () { /* 버린 응답 — 콜백을 부르지 않는다 */ }); };
 
-  /* 2026-10-19 사용자 지시 — 관리자 페이지는 네 가지만: ①점검자 등록/삭제 ②협력회사 등록/삭제
-     ③자동등록 보류 정리(보류 종결) ④등록된 공사 수정/삭제. 「확인 필요」는 결과를 모르는 요청이 대상을 잠그는
-     안전장치라 남긴다(없애면 잠긴 대상을 풀 길이 없다). 서버의 다른 관리 동작은 그대로 두고 화면에서만 뺐다. */
+  /* 서버가 기능을 알릴 때 점검 양식 탭(10-23 지시). 「확인 필요」는 미결 요청을 닫는 안전장치다. */
   var TABS = [
     { id: 'roster', label: '점검자', role: 'roster' },
     { id: 'company', label: '협력회사', role: 'master' },
     { id: 'project', label: '공사', role: 'master' },
+    { id: 'tpl', label: '점검 양식', role: 'master' },
     { id: 'ingest', label: '자동등록 보류', role: 'ingest' },
     { id: 'reqs', label: '확인 필요', role: '' }
   ];
@@ -56,6 +55,10 @@
     LOCAL_STORE: '이 브라우저에 요청 기록을 남기지 못해 보내지 않았습니다 — 사생활 보호 모드·저장 공간을 확인하세요'
   };
   var VMSG = {
+    ITEMS_INVALID: '항목은 1~300개입니다', ITEM_INVALID: '항목 형식이 맞지 않습니다', ITEM_TYPE_INVALID: '유형을 고르세요',
+    ITEM_TEXT_INVALID: '문구는 1~200자입니다', ITEM_CATEGORY_INVALID: '분류는 40자 이내입니다', ITEM_CRITERIA_INVALID: '기준은 200자 이내입니다',
+    ITEM_ID_UNKNOWN: '현재 판의 항목이 아닙니다', ITEM_ID_DUP: '같은 항목을 두 번 쓸 수 없습니다', ITEMS_NO_CHECKABLE: '그룹 또는 점검 항목이 하나 이상 필요합니다',
+    LABEL_INVALID: '원본 판 표기는 1~40자입니다', VER_NOT_FOUND: '그 판의 항목을 찾지 못했습니다',
     EXPECT_REQUIRED: '화면이 오래됐습니다 — 다시 불러오세요', STALE_TARGET: '그사이 값이 바뀌었습니다 — 다시 불러오세요',
     REASON_REQUIRED: '사유를 10자 이상 적어 주세요', NOT_HELD: '이미 보류가 아닙니다 — 다시 불러오세요', MAIL_LEVEL_HOLD: '메일 단위 보류는 종결할 수 없습니다 — 자동 재시도됩니다', PIN_FORMAT: '새 PIN 은 숫자 4자리입니다',
     ID_DUP: '이미 있는 사번입니다', ID_INVALID: '사번은 영문·숫자·-·_ 20자 이내', EMAIL_DUP: '다른 활성 점검자와 이메일이 겹칩니다',
@@ -182,9 +185,11 @@
   }
   /** 조회. 보낸 뒤 로그아웃·계정 변경·탭 전환이 있었으면 응답을 버린다(Codex P6-R1-05). */
   function read(action, payload) {
+    if (tplAction_(action) && !tplAllowed_()) return Promise.resolve(tplBlocked_());
     var g = state.gen, v = state.viewGen;
     return request({ action: action, k: state.key, sid: state.sid, payload: payload || {} }).then(function (r) {
       if (g !== state.gen || v !== state.viewGen) return NEVER();
+      if (tplAction_(action) && tplGate_(r)) return NEVER();
       if (r && !r.ok && r.error && r.error.code === 'ADM_SESSION') logout('로그인이 만료됐습니다 — 다시 로그인하세요');
       if (r && !r.ok && r.error && r.error.code === 'AUTH') { sset('local', KEY_STORE, ''); state.key = ''; route(); }
       return r;
@@ -320,6 +325,7 @@
       } });
   }
   function sendWrite(action, payload, pin, target, reuseReq) {
+    if (tplAction_(action) && !tplAllowed_()) return Promise.resolve(tplBlocked_());
     var reqId = reuseReq || newReqId();
     var clean = {};
     Object.keys(payload || {}).forEach(function (k) { if (!/pin/i.test(k)) clean[k] = payload[k]; });
@@ -331,6 +337,7 @@
     var full = {}; Object.keys(payload || {}).forEach(function (k) { full[k] = payload[k]; });
     full.pin = pin;
     return request({ action: action, k: state.key, sid: state.sid, req_id: reqId, payload: full }).then(function (r) {
+      if (tplAction_(action) && tplGate_(r)) { pendingDrop(reqId); return r; }
       var code = r && r.error && r.error.code;
       if (code === 'NETWORK') return r;                                     // 미결 유지 — 결과 확인으로
       if (code === 'OUTCOME_UNKNOWN') { pendingMark(reqId, 'unknown'); return r; }
@@ -383,7 +390,9 @@
     COMPANY_NAME_CONFLICT: ['ce-name', 'ce-alias', 'cm-name', 'cm-alias'], NAME_IN_EXCLUDE_LIST: ['ce-name', 'cm-name'],
     PIN_FORMAT: ['pi-new', 'rs-newpin', 'ri-pin'], REASON_REQUIRED: ['rc-reason', 'pj-reason', 'rv-reason', 'dh-reason'], NOTE_REQUIRED: ['rq-note'],
     PROJECT_NAME_INVALID: ['pj-name'], PROJECT_NAME_DUP: ['pj-name'], EMAIL_INVALID: ['ei-email'], EMAIL_DUP: ['ei-email'],
-    CONFIRM_REQUIRED: ['rt-confirm'], PIN_MISMATCH: ['adm-sheet-pin'], ADM_DENIED: ['adm-sheet-pin']
+    CONFIRM_REQUIRED: ['tpl-confirm', 'rt-confirm'], LABEL_INVALID: ['tpl-label'], ITEMS_INVALID: ['tpl-editor'], ITEMS_NO_CHECKABLE: ['tpl-editor'],
+    ITEM_TYPE_INVALID: ['ti-0-type'], ITEM_TEXT_INVALID: ['ti-0-text'], ITEM_CATEGORY_INVALID: ['ti-0-category'], ITEM_CRITERIA_INVALID: ['ti-0-criteria'],
+    PIN_MISMATCH: ['adm-sheet-pin'], ADM_DENIED: ['adm-sheet-pin']
   };
   function clearMarks() {
     var list = Array.prototype.slice.call($('adm-sheet-body').querySelectorAll('input, textarea')).concat([$('adm-sheet-pin')]);
@@ -398,9 +407,11 @@
     if (key === 'VALIDATION') key = String(e.message || '').split(' · ')[0].split(',')[0];
     clearMarks();
     var ids = (FIELD_OF[key] || []).concat(['adm-sheet-pin']);
+    var pos = / · (\d+)번째 항목/.exec(String(e.message || ''));
+    if (pos && /^ITEM_/.test(key)) ids = ids.map(function (id) { return id.replace('ti-0-', 'ti-' + (Number(pos[1]) - 1) + '-'); });
     for (var i = 0; i < ids.length; i++) {
       var n = $(ids[i]);
-      if (n && ($('adm-sheet-body').contains(n) || n === $('adm-sheet-pin'))) {
+      if (n && ($('adm-sheet-body').contains(n) || n === $('adm-sheet-pin') || (/^(ITEM|LABEL)/.test(key) && $('adm-main').contains(n)))) {
         n.setAttribute('aria-invalid', 'true'); n.setAttribute('aria-describedby', 'adm-sheet-err');
         try { n.focus(); } catch (x) { /* 포커스 실패 무시 */ }
         return;
@@ -423,7 +434,7 @@
 
   /* ---------- 로그인 흐름 ---------- */
   function route() {
-    state.gen++; state.who = null; state.roles = [];
+    state.gen++; state.who = null; state.roles = []; state.tplOff = false;
     state.key = sget('local', KEY_STORE);
     state.sid = sget('session', SID_STORE);
     $('adm-key-view').hidden = !!state.key;
@@ -444,6 +455,15 @@
     }
   }
   function hasRole(role) { return !role || state.roles.indexOf('*') >= 0 || state.roles.indexOf(role) >= 0; }
+  var TPL_HIDDEN = '서버가 아직 이 기능을 모릅니다 — 서버 갱신 뒤 쓸 수 있습니다';
+  function tplAction_(a) { return ['adm_tpl_list','adm_item_list','adm_tpl_publish'].indexOf(a) >= 0; }
+  function tplAllowed_() { return !state.tplOff && hasRole('master') && state.who && (state.who.features || []).indexOf('tpl') >= 0; }
+  function tplBlocked_() { flash(TPL_HIDDEN, 'warn'); return { ok: false, error: { code: 'TPL_OFF', message: TPL_HIDDEN } }; }
+  function tplGate_(r) {
+    var e = r && r.error;
+    if (!e || !(e.code === 'NOT_MIGRATED' || (e.code === 'VALIDATION' && e.message === '알 수 없는 action'))) return false;
+    state.tplOff = true; sheetBusy = false; sheetSeq++; closeSheet(); renderTabs(); flash(TPL_HIDDEN, 'warn'); return true;
+  }
   function logout(msg) {
     var sid = state.sid;
     sset('session', SID_STORE, '');
@@ -477,7 +497,7 @@
 
   function renderTabs() {
     var nav = $('adm-tabs'); nav.textContent = '';
-    var vis = TABS.filter(function (t) { return hasRole(t.role); });
+    var vis = TABS.filter(function (t) { return hasRole(t.role) && (t.id !== 'tpl' || tplAllowed_()); });
     vis.forEach(function (t) {
       nav.appendChild(el('button', { role: 'tab', type: 'button', 'aria-selected': 'false', 'data-tab': t.id, text: t.label,
         onclick: function () { selectTab(t.id); } }));
@@ -702,7 +722,64 @@
     });
   }
 
-  var VIEWS = { roster: viewRoster, company: viewCompany, project: viewProject, ingest: viewIngest, reqs: viewReqs };
+  function viewTpl(main) {
+    return read('adm_tpl_list').then(function (r) {
+      if (!r || !r.ok) return failInto(main, r);
+      var detail = el('div');
+      (r.data.items || []).forEach(function (t) {
+        main.appendChild(card(t.template_id + ' · ' + t.name + ' · ' + (t.active ? '사용 중' : '사용 안 함'), [
+          el('p', { text: '현재 판 ' + t.current_ver + ' · ' + t.n_items + '항목 · 예정 ' + t.planned + '건' }),
+          (t.versions || []).some(function (v) { return v.state === 'unpublished'; }) ? msgBox('미발행 판이 남아 있습니다 — 다음 발행은 그보다 큰 판 번호를 씁니다', 'warn') : null,
+          acts((t.versions || []).map(function (v) { return sbtn('판 ' + v.ver + ' 보기', function () {
+            read('adm_item_list', { template_id: t.template_id, ver: v.ver }).then(function (ir) {
+              if (!ir || !ir.ok) return failInto(detail, ir);
+              detail.textContent = ''; detail.appendChild(card(t.template_id + ' 판 ' + ir.data.ver + ' · ' + ir.data.state, [
+                table(['유형','분류','문구','기준'], ir.data.items.map(function (it) { return [it.type,it.category,it.text,it.criteria]; }))]));
+            });
+          }); }).concat([btn('새 판 편집', function () {
+            read('adm_item_list', { template_id: t.template_id }).then(function (ir) { if (!ir || !ir.ok) return failInto(detail, ir); editTpl_(detail, t, ir.data); });
+          })]))
+        ]));
+      });
+      main.appendChild(detail);
+    });
+  }
+  function editTpl_(main, t, source) {
+    var fields = ['item_id','type','category','text','criteria'];
+    var original = source.items.map(function (it) { var o = {}; fields.forEach(function (k) { o[k] = it[k]; }); return o; });
+    var rows = original.map(function (it) { return Object.assign({}, it); });
+    main.textContent = '';
+    var editor = el('div', { id: 'tpl-editor', 'class': 'adm-tpl-editor' });
+    main.appendChild(card(t.template_id + ' 새 판 편집', [input('tpl-label', '원본 판 표기(선택)', { ph: t.origin_ver_label }), editor,
+      acts([btn('항목 더하기', function () { collect(); rows.push({ item_id: '', type: 'item', category: '', text: '', criteria: '' }); draw(); }), btn('발행', function () {
+        collect();
+        var added = rows.filter(function (it) { return !it.item_id; }).length, removed = original.filter(function (it) { return !rows.some(function (r) { return r.item_id === it.item_id; }); }).length;
+        var changed = rows.filter(function (it) { var old = original.filter(function (r) { return r.item_id === it.item_id; })[0]; return old && fields.some(function (k) { return it[k] !== old[k]; }); }).length;
+        var moved = rows.some(function (it, i) { return it.item_id && original.map(function (r) { return r.item_id; }).indexOf(it.item_id) !== i; });
+        var to = Math.max.apply(null, [t.current_ver].concat(t.versions.map(function (v) { return v.ver; }))) + 1;
+        var p = { template_id: t.template_id, expect: { current_ver: source.ver, items_sha: source.items_sha }, items: rows.map(function (it) { return Object.assign({}, it); }), confirm_planned: t.planned };
+        if (val('tpl-label')) p.origin_ver_label = val('tpl-label');
+        var cb = el('input', { id: 'tpl-confirm', type: 'checkbox' });
+        confirmWrite({ action: 'adm_tpl_publish', target: t.template_id, title: '점검 양식 발행', okLabel: '발행',
+          body: [el('p', { text: t.template_id + ' 판 ' + source.ver + ' → 판 ' + to + ': 더함 ' + added + ' · 뺌 ' + removed + ' · 고침 ' + changed + ' · 순서 바뀜 ' + (moved ? '있음' : '없음') }),
+            !t.active ? msgBox('사용 안 함 양식 — 앱에는 사용으로 바뀔 때 보입니다', 'warn') : null,
+            t.planned > 0 ? el('label', { 'class': 'adm-check' }, [cb, '이 양식(판 ' + source.ver + ')으로 잡힌 예정 계획 ' + t.planned + '건은 발행 뒤 앱에서 시작이 잠깁니다']) : null].filter(Boolean),
+          collect: function () { if (t.planned > 0 && !cb.checked) { showSheetErr('예정 계획을 확인했다고 체크해 주세요'); return null; } return p; } });
+      })])
+    ]));
+    function collect() { rows.forEach(function (it, i) { ['type','category','text','criteria'].forEach(function (k) { it[k] = $('ti-' + i + '-' + k).value; }); }); }
+    function draw() {
+      editor.textContent = '';
+      rows.forEach(function (it, i) {
+        var prefix = 'ti-' + i + '-', select = el('select', { id: prefix + 'type', 'aria-label': '유형' }, ['note','group','item'].map(function (type) { return el('option', { value: type, text: type }); })); select.value = it.type;
+        function action(label, suffix, run) { return el('button', { type: 'button', 'class': 'adm-btn sm ghost', id: prefix + suffix, text: label, onclick: function () { collect(); run(); draw(); } }); }
+        editor.appendChild(el('div', { 'class': 'adm-tpl-row' }, [select, input(prefix + 'category', '분류', { value: it.category }), input(prefix + 'text', '문구', { value: it.text }), input(prefix + 'criteria', '기준', { value: it.criteria }),
+          acts([action('위로', 'up', function () { if (i > 0) { var prev = rows[i - 1]; rows[i - 1] = rows[i]; rows[i] = prev; } }), action('아래로', 'down', function () { if (i + 1 < rows.length) { var next = rows[i + 1]; rows[i + 1] = rows[i]; rows[i] = next; } }), action('빼기', 'remove', function () { rows.splice(i, 1); })])]));
+      });
+    }
+    draw();
+  }
+  var VIEWS = { roster: viewRoster, company: viewCompany, project: viewProject, tpl: viewTpl, ingest: viewIngest, reqs: viewReqs };
 
   /* ---------- 서비스워커 확인 문턱(설계 §9 4단계, Codex P6-R2-01) ----------
      불변식(Codex P6-R7-01): 「이 페이지 묶음의 버전(config.js 의 APP_VER — admin.html 이 ?v= 로 고정해 부른다)」 ==
