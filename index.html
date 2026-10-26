@@ -8,18 +8,17 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-002b0f68">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-677413d3">
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-<!-- 데이터 API 오리진 2곳 — 첫 요청의 DNS+TLS 를 선행한다(대시보드와 같은 처방).
-     GAS 는 script.google.com 에서 302 로 googleusercontent 로 넘어가므로 둘 다 필요하다.
+<!-- 데이터 API 오리진(config.js API_URL) — 첫 요청의 DNS+TLS 를 선행한다(대시보드와 같은 처방).
+     2026-10-26 4단계 전환으로 GAS(script.google.com→googleusercontent 302) 대신 Worker 한 곳.
      **crossorigin 필수**(적대 리뷰 B1): 이 앱의 fetch 는 교차출처 무자격(anonymous) 연결을
      쓰는데, crossorigin 없는 preconnect 는 자격 있는(credentialed) 연결을 미리 여는 것이라
      fetch 가 재사용하지 못한다(HTML preconnect·Fetch 연결 획득 스펙의 자격 매칭 규칙). -->
-<link rel="preconnect" href="https://script.google.com" crossorigin>
-<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
+<link rel="preconnect" href="https://api.ynes.app" crossorigin>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/wan2land/d2coding/d2coding-subset.css">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-002b0f68">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-677413d3">
 <title>협력회사 SHE 점검</title>
 </head>
 <body>
@@ -597,10 +596,10 @@
   </div>
 </template>
 
-<script src="./config.js?v=0.5.5-002b0f68"></script>
-<script src="./lib.js?v=0.5.5-002b0f68"></script>
-<script src="./logic.js?v=0.5.5-002b0f68"></script>
-<script src="./move.js?v=0.5.5-002b0f68"></script>
-<script src="./app.js?v=0.5.5-002b0f68"></script>
+<script src="./config.js?v=0.5.5-677413d3"></script>
+<script src="./lib.js?v=0.5.5-677413d3"></script>
+<script src="./logic.js?v=0.5.5-677413d3"></script>
+<script src="./move.js?v=0.5.5-677413d3"></script>
+<script src="./app.js?v=0.5.5-677413d3"></script>
 </body>
 </html>

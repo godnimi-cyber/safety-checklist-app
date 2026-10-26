@@ -2089,7 +2089,7 @@
    *  사용자는 원인을 모른 채 키부터 다시 찾아야 한다 — 조회는 멀쩡히 되는데도. */
   function odAuthFail_(errBox) {
     if (state.serverOk) {
-      errBox.textContent = '서버가 이 기능을 아직 모릅니다 — Apps Script 새 버전 배포가 ' +
+      errBox.textContent = '서버가 이 기능을 아직 모릅니다 — 서버 갱신(배포)이 ' +
         '필요합니다(키 문제가 아닙니다). 조회는 그대로 됩니다.';
       return;
     }

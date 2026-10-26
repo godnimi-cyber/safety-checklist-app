@@ -19,7 +19,7 @@
   var SID_STORE = 'safety_admin_sid';
   var PENDING_STORE = 'safety_admin_pending';
   var REQUEST_TIMEOUT_MS = 12000;
-  var ADMIN_BUILD = '0.5.5-002b0f68';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
+  var ADMIN_BUILD = '0.5.5-677413d3';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
 
   var state = { key: '', sid: '', who: null, roles: [], tab: '', gen: 0, viewGen: 0, showDeleted: false, tplOff: false };
   var NEVER = function () { return new Promise(function () { /* 버린 응답 — 콜백을 부르지 않는다 */ }); };
@@ -565,7 +565,7 @@
       var act = items.filter(function (o) { return o.active; });
       main.appendChild(card('점검자 ' + act.length + '명', [
         act.length ? table(['사번', '이름', '팀', ''], act.map(function (o) {
-          var a = o.is_admin ? acts([el('span', { 'class': 'adm-chip', style: 'white-space:nowrap', title: '관리자 계정은 Apps Script 편집기(ADMIN_ACL)에서만 바꿉니다', text: '관리자' })])
+          var a = o.is_admin ? acts([el('span', { 'class': 'adm-chip', style: 'white-space:nowrap', title: '관리자 계정은 소유자가 서버 설정(ADMIN_ACL)에서만 바꿉니다', text: '관리자' })])
                              : acts([sbtn('삭제', function () { retireInsp(o); }, 'danger-ghost')]);
           return [o.inspector_id, o.name + (o.display && o.display !== o.name ? ' / ' + o.display : ''), o.team, a];
         }), [0, 2]) : msgBox('등록된 점검자가 없습니다', ''),
