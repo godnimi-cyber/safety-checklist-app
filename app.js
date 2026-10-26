@@ -1128,7 +1128,8 @@
      초안 제출·항목 삭제 뒤 renderHome) 다시 판단한다. 보내는 중이거나 다른 화면이면 기다린다.
      부팅 중에는 판단하지 않는다(moveArmed_) — 손상 안내가 먼저 떠야 한다(init 끝에서 처음 판단).
      대기열·초안을 손상·읽기 실패로 빈 값으로 받았거나(moveDamaged_, 부팅 때 정함) 손상 백업이 남아
-     있으면 건수 0 을 믿을 수 없다 — 자동으로 옮기지 않는다. */
+     있으면 건수 0 을 믿을 수 없다 — 자동으로 옮기지 않는다. 저장소를 처음부터 못 열어 메모리로
+     대신 쓰는 중(state.storage.available === false)이면 디스크의 기록을 아예 볼 수 없다 — 역시 옮기지 않는다. */
   var moveArmed_ = false;
   var moveDamaged_ = false;
   function checkMoved_() {
@@ -1136,7 +1137,8 @@
     SafetyMove.applyApp(window, CONFIG.MOVED_TO, {
       queue: state.queue.length,
       drafts: SafetyMove.countDrafts(state.drafts, state.storage.hasLegacyDraft()),
-      damaged: moveDamaged_ || state.storage.hasCorruptBackup()
+      damaged: moveDamaged_ || state.storage.hasCorruptBackup(),
+      unreadable: state.storage.available === false
     });
   }
   /* 옛 주소 빌드: 연결이 돌아오면 대기열을 먼저 보내고 이동을 다시 판단한다 */

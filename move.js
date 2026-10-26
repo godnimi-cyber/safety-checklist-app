@@ -9,12 +9,28 @@ var SafetyMove = (function () {
   var REPO_PREFIX = '/safety-checklist-app';
   var NOTICE_KEY_PREFIX = 'sc_moved_notice_';
   var ORIGIN_RE = /^https:\/\/[^\/?#]+/i;
+  var HOST_PORT_RE = /^(\[[^\]]*\]|[^:]*)(?::(.*))?$/;
 
-  /** MOVED_TO 를 끝 슬래시 없는 https 기준 주소로. 쓸 수 없는 값이면 '' (= 이동 안 함). */
+  /** MOVED_TO 를 끝 슬래시 없는 https 기준 주소로. 쓸 수 없는 값이면 '' (= 이동 안 함).
+      따옴표·역슬래시·공백·제어문자, 빈 호스트, 숫자 아닌 포트는 거절한다. URL 이 있으면 그것으로도 파싱해 본다. */
   function normalizeTarget(movedTo) {
     var s = String(movedTo || '').trim();
-    if (!ORIGIN_RE.test(s) || /[?#]/.test(s)) return '';
+    if (!ORIGIN_RE.test(s) || /[?#'"\\\s\u0000-\u001f\u007f]/.test(s)) return '';
+    var auth = ORIGIN_RE.exec(s)[0].slice('https://'.length);
+    var hp = HOST_PORT_RE.exec(auth.slice(auth.lastIndexOf('@') + 1));
+    if (!hp || !hp[1] || (hp[2] !== undefined && (!/^[0-9]*$/.test(hp[2]) || +hp[2] > 65535))) return '';
+    if (typeof URL === 'function') {
+      try {
+        var u = new URL(s);
+        if (u.protocol !== 'https:' || !u.hostname) return '';
+      } catch (e) { return ''; }
+    }
     return s.replace(/\/+$/, '');
+  }
+
+  /** location.replace — 실패하면(던지면) false. 호출자는 이동 없이 초기화를 계속한다. */
+  function replaceTo(win, to) {
+    try { win.location.replace(to); return true; } catch (e) { return false; }
   }
 
   function hasFromOld(search) {
@@ -42,10 +58,11 @@ var SafetyMove = (function () {
   }
 
   /** 'stay'(오프라인 — 새 주소는 이 기기에 오프라인 캐시가 없다) / 'hold'(보낼 것·초안이 남음, 또는
-      저장 기록이 손상·읽기 실패라 건수를 믿을 수 없음 — o.damaged) / 'move'. */
+      저장 기록이 손상·읽기 실패라 건수를 믿을 수 없음 — o.damaged, 저장소 자체를 못 열어 기록을
+      확인할 수 없음 — o.unreadable) / 'move'. */
   function decide(o) {
     if (!o || !o.online) return 'stay';
-    if (o.damaged || (o.queue || 0) > 0 || (o.drafts || 0) > 0) return 'hold';
+    if (o.damaged || o.unreadable || (o.queue || 0) > 0 || (o.drafts || 0) > 0) return 'hold';
     return 'move';
   }
 
@@ -86,14 +103,16 @@ var SafetyMove = (function () {
     if (bannerEl) { bannerEl.remove(); bannerEl = null; }
   }
 
-  /** 옛 주소 점검 앱 — 남은 기록(또는 손상된 저장 기록, counts.damaged) 때문에 자동 이동을 미룰 때. */
+  /** 옛 주소 점검 앱 — 남은 기록(또는 손상된 저장 기록 counts.damaged, 확인할 수 없는 저장 기록
+      counts.unreadable) 때문에 자동 이동을 미룰 때. */
   var offlineWatched = false;
   function showHold(win, counts, to) {
     var doc = win.document;
     var el = banner(doc, 'warn');
     var text = '앱 주소가 바뀌었습니다. ';
+    if (counts.unreadable) text += '이 기기의 저장 기록을 확인할 수 없어 자동 이동하지 않습니다. ';
     if (counts.damaged) text += '이 기기에 손상된 저장 기록이 있어 자동 이동하지 않습니다. ';
-    if (counts.queue > 0 || counts.drafts > 0 || !counts.damaged) {
+    if (counts.queue > 0 || counts.drafts > 0 || !(counts.damaged || counts.unreadable)) {
       text += '이 기기에 보내지 않은 제출 ' + counts.queue + '건 · 작성 중 초안 ' + counts.drafts + '건이 남아 있어, ' +
         '제출을 마친 뒤 새 주소로 이동합니다. ';
     }
@@ -106,21 +125,22 @@ var SafetyMove = (function () {
     var hint = null;
     go.addEventListener('click', function () {
       if (!isOnline(win)) { if (!hint) hint = addText(doc, el, '인터넷 연결 후 다시 누르세요.'); return; }
-      win.location.replace(to);
+      replaceTo(win, to);
     });
     el.appendChild(go);
     /* 오프라인이 되면 배너를 내린다. online 때는 app.js(watchMoved_)가 다시 판단해 필요하면 다시 띄운다 */
     if (!offlineWatched) { offlineWatched = true; win.addEventListener('offline', removeBanner); }
   }
 
-  /** 옛 주소 점검 앱의 이동 판단·실행. counts = { queue, drafts, damaged }. 옛 주소 빌드가 아니면 아무것도 안 한다. */
+  /** 옛 주소 점검 앱의 이동 판단·실행. counts = { queue, drafts, damaged, unreadable }. 옛 주소 빌드가 아니면 아무것도 안 한다. */
   var leaving = false;   /* 이미 replace 를 불렀다 — 같은 판단이 잇달아 와도 한 번만 옮긴다 */
   function applyApp(win, movedTo, counts) {
     var to = targetUrl(movedTo, win.location);
     if (!to) return 'none';
     if (leaving) return 'move';
-    var d = decide({ online: isOnline(win), queue: counts.queue, drafts: counts.drafts, damaged: counts.damaged });
-    if (d === 'move') { leaving = true; win.location.replace(to); }
+    var d = decide({ online: isOnline(win), queue: counts.queue, drafts: counts.drafts, damaged: counts.damaged,
+      unreadable: counts.unreadable });
+    if (d === 'move') leaving = replaceTo(win, to);
     else if (d === 'hold') showHold(win, counts, to);
     else removeBanner();   /* 오프라인 — [지금 이동] 을 누르면 빈 화면이 되므로 내린다 */
     return d;
@@ -130,8 +150,8 @@ var SafetyMove = (function () {
   function leavePage(win, movedTo) {
     var to = targetUrl(movedTo, win.location);
     if (!to) return false;
-    if (isOnline(win)) { win.location.replace(to); return true; }
-    win.addEventListener('online', function () { win.location.replace(to); });
+    if (isOnline(win)) return replaceTo(win, to);
+    win.addEventListener('online', function () { replaceTo(win, to); });
     return false;
   }
 
