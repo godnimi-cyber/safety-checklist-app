@@ -1133,6 +1133,7 @@
   var moveArmed_ = false;
   var moveDamaged_ = false;
   function checkMoved_() {
+    if (typeof SafetyMove === 'undefined') return;   /* move.js 를 못 불러와도 앱은 이동 없이 계속 */
     if (!moveArmed_ || !CONFIG.MOVED_TO || state.syncing || state.currentScreen !== 'home') return;
     SafetyMove.applyApp(window, CONFIG.MOVED_TO, {
       queue: state.queue.length,
@@ -1143,7 +1144,7 @@
   }
   /* 옛 주소 빌드: 연결이 돌아오면 대기열을 먼저 보내고 이동을 다시 판단한다 */
   function watchMoved_() {
-    if (!CONFIG.MOVED_TO) return;
+    if (typeof SafetyMove === 'undefined' || !CONFIG.MOVED_TO) return;
     window.addEventListener('online', function () {
       if (state.currentScreen === 'home') flushQueue().then(checkMoved_);
     });
@@ -4212,7 +4213,7 @@
     wireEvents();
     show('home');
     watchMoved_();
-    SafetyMove.noticeNewAddress(window, CONFIG.MOVED_TO, 'app');
+    if (typeof SafetyMove !== 'undefined') SafetyMove.noticeNewAddress(window, CONFIG.MOVED_TO, 'app');
     var notices = [];
     if (queueErr && isCorruptOp(queueErr.op)) notices.push(corruptNotice('미전송 목록이', queueErr));
     /* migrateLegacyDraft() 결과 5종(logic.js 실측, 'none'·'migrated' 는 정상 무통보) — 계약 K4:
