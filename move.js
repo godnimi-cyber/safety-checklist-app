@@ -41,10 +41,11 @@ var SafetyMove = (function () {
     return n + (hasLegacy ? 1 : 0);
   }
 
-  /** 'stay'(오프라인 — 새 주소는 이 기기에 오프라인 캐시가 없다) / 'hold'(보낼 것·초안이 남음) / 'move'. */
+  /** 'stay'(오프라인 — 새 주소는 이 기기에 오프라인 캐시가 없다) / 'hold'(보낼 것·초안이 남음, 또는
+      저장 기록이 손상·읽기 실패라 건수를 믿을 수 없음 — o.damaged) / 'move'. */
   function decide(o) {
     if (!o || !o.online) return 'stay';
-    if ((o.queue || 0) > 0 || (o.drafts || 0) > 0) return 'hold';
+    if (o.damaged || (o.queue || 0) > 0 || (o.drafts || 0) > 0) return 'hold';
     return 'move';
   }
 
@@ -85,28 +86,40 @@ var SafetyMove = (function () {
     if (bannerEl) { bannerEl.remove(); bannerEl = null; }
   }
 
-  /** 옛 주소 점검 앱 — 남은 기록 때문에 자동 이동을 미룰 때. */
+  /** 옛 주소 점검 앱 — 남은 기록(또는 손상된 저장 기록, counts.damaged) 때문에 자동 이동을 미룰 때. */
+  var offlineWatched = false;
   function showHold(win, counts, to) {
     var doc = win.document;
     var el = banner(doc, 'warn');
-    addText(doc, el, '앱 주소가 바뀌었습니다. 이 기기에 보내지 않은 제출 ' + counts.queue + '건 · 작성 중 초안 ' +
-      counts.drafts + '건이 남아 있어, 제출을 마친 뒤 새 주소로 이동합니다. ' +
-      '지금 이동하면 이 기기의 보내지 않은 기록은 옛 주소에 남습니다.');
+    var text = '앱 주소가 바뀌었습니다. ';
+    if (counts.damaged) text += '이 기기에 손상된 저장 기록이 있어 자동 이동하지 않습니다. ';
+    if (counts.queue > 0 || counts.drafts > 0 || !counts.damaged) {
+      text += '이 기기에 보내지 않은 제출 ' + counts.queue + '건 · 작성 중 초안 ' + counts.drafts + '건이 남아 있어, ' +
+        '제출을 마친 뒤 새 주소로 이동합니다. ';
+    }
+    addText(doc, el, text + '지금 이동하면 이 기기의 보내지 않은 기록은 옛 주소에 남습니다.');
     var go = doc.createElement('button');
     go.type = 'button';
     go.className = 'btn btn-outline';
     go.textContent = '지금 이동';
-    go.addEventListener('click', function () { win.location.replace(to); });
+    /* 온라인일 때 띄운 배너라도 누르는 순간 오프라인일 수 있다 — 새 주소는 이 기기에 캐시가 없어 빈 화면이 된다 */
+    var hint = null;
+    go.addEventListener('click', function () {
+      if (!isOnline(win)) { if (!hint) hint = addText(doc, el, '인터넷 연결 후 다시 누르세요.'); return; }
+      win.location.replace(to);
+    });
     el.appendChild(go);
+    /* 오프라인이 되면 배너를 내린다. online 때는 app.js(watchMoved_)가 다시 판단해 필요하면 다시 띄운다 */
+    if (!offlineWatched) { offlineWatched = true; win.addEventListener('offline', removeBanner); }
   }
 
-  /** 옛 주소 점검 앱의 이동 판단·실행. counts = { queue, drafts }. 옛 주소 빌드가 아니면 아무것도 안 한다. */
+  /** 옛 주소 점검 앱의 이동 판단·실행. counts = { queue, drafts, damaged }. 옛 주소 빌드가 아니면 아무것도 안 한다. */
   var leaving = false;   /* 이미 replace 를 불렀다 — 같은 판단이 잇달아 와도 한 번만 옮긴다 */
   function applyApp(win, movedTo, counts) {
     var to = targetUrl(movedTo, win.location);
     if (!to) return 'none';
     if (leaving) return 'move';
-    var d = decide({ online: isOnline(win), queue: counts.queue, drafts: counts.drafts });
+    var d = decide({ online: isOnline(win), queue: counts.queue, drafts: counts.drafts, damaged: counts.damaged });
     if (d === 'move') { leaving = true; win.location.replace(to); }
     else if (d === 'hold') showHold(win, counts, to);
     else removeBanner();   /* 오프라인 — [지금 이동] 을 누르면 빈 화면이 되므로 내린다 */

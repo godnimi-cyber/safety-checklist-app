@@ -439,6 +439,22 @@ var SafetyLogic = (function () {
       api.lastError = prev;
       return !r.ok || (r.value !== null && r.value !== undefined);
     };
+    /* 대기열·초안 키(sc_queue·sc_drafts·sc_draft)의 손상 백업(backupCorrupt 가 만든 '<key>_corrupt_backup',
+       '..._2', '..._3')이 남아 있는가 — 주소 이전 판단용(web/move.js). 그 백업은 주소(origin)를 따라가지
+       않는다. hasLegacyDraft 와 같은 이유로 읽기만 하고 lastError 를 건드리지 않으며, 못 읽으면 남은 것으로 본다. */
+    api.hasCorruptBackup = function () {
+      var prev = api.lastError;
+      var keys = [QUEUE_KEY, DRAFTS_KEY, DRAFT_KEY];
+      var found = false;
+      for (var k = 0; k < keys.length && !found; k++) {
+        for (var i = 1; i <= MAX_CORRUPT_BACKUPS && !found; i++) {
+          var r = rawGet(keys[k] + CORRUPT_SUFFIX + (i === 1 ? '' : '_' + i));
+          found = !r.ok || (r.value !== null && r.value !== undefined);
+        }
+      }
+      api.lastError = prev;
+      return found;
+    };
     api.saveQueue = function (queue) { api.lastError = null; return saveJSON(QUEUE_KEY, queue); };
     api.loadQueue = function () {
       api.lastError = null;   /* R4 */

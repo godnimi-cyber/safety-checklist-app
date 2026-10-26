@@ -1125,12 +1125,18 @@
     checkMoved_();
   }
   /* 주소 이전(옛 주소 빌드만 — CONFIG.MOVED_TO, web/move.js). 홈의 상태가 바뀔 때마다(전송 완료·
-     초안 제출·항목 삭제 뒤 renderHome) 다시 판단한다. 보내는 중이거나 다른 화면이면 기다린다. */
+     초안 제출·항목 삭제 뒤 renderHome) 다시 판단한다. 보내는 중이거나 다른 화면이면 기다린다.
+     부팅 중에는 판단하지 않는다(moveArmed_) — 손상 안내가 먼저 떠야 한다(init 끝에서 처음 판단).
+     대기열·초안을 손상·읽기 실패로 빈 값으로 받았거나(moveDamaged_, 부팅 때 정함) 손상 백업이 남아
+     있으면 건수 0 을 믿을 수 없다 — 자동으로 옮기지 않는다. */
+  var moveArmed_ = false;
+  var moveDamaged_ = false;
   function checkMoved_() {
-    if (!CONFIG.MOVED_TO || state.syncing || state.currentScreen !== 'home') return;
+    if (!moveArmed_ || !CONFIG.MOVED_TO || state.syncing || state.currentScreen !== 'home') return;
     SafetyMove.applyApp(window, CONFIG.MOVED_TO, {
       queue: state.queue.length,
-      drafts: SafetyMove.countDrafts(state.drafts, state.storage.hasLegacyDraft())
+      drafts: SafetyMove.countDrafts(state.drafts, state.storage.hasLegacyDraft()),
+      damaged: moveDamaged_ || state.storage.hasCorruptBackup()
     });
   }
   /* 옛 주소 빌드: 연결이 돌아오면 대기열을 먼저 보내고 이동을 다시 판단한다 */
@@ -4197,6 +4203,7 @@
     var migrateErr = state.storage.lastError;
     state.drafts = state.storage.loadAllDrafts();
     var draftsErr = state.storage.lastError;
+    moveDamaged_ = !!queueErr || migrated === 'failed' || !!draftsErr;
     loadCachedMasters();
     loadCachedPlans();
     state.sent = state.storage.loadSent(todayStr());
@@ -4226,6 +4233,8 @@
     }
     if (draftsErr && isCorruptOp(draftsErr.op)) notices.push(corruptNotice('작성 중이던 점검이', draftsErr));
     if (notices.length) showBanner('error', notices.join(' / '));
+    moveArmed_ = true;
+    checkMoved_();   /* 손상 안내를 띄운 뒤에 처음 판단한다 */
     bootstrapOnce();   /* 부팅은 1회 왕복 — 실패하면 그 안에서 옛 두 경로로 되돌아간다 */
   }
 
