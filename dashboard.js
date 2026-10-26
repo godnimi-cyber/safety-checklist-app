@@ -1,6 +1,6 @@
 /* dashboard.js — 웹 대시보드 (스펙 docs/superpowers/specs/2026-08-07-web-dashboard-design.md rev.3)
  * ES5 · 제로 의존성 · app.js 를 로드하지 않는 독립 페이지.
- * CONFIG 는 API_URL 만 쓴다 — SHARED_KEY 는 절대 읽지 않는다(스펙 §7). */
+ * CONFIG 는 API_URL·MOVED_TO(주소 이전, move.js) 만 쓴다 — SHARED_KEY 는 절대 읽지 않는다(스펙 §7). */
 (function () {
   'use strict';
 
@@ -3368,6 +3368,11 @@
   }
 
   function init_() {
+    /* 주소 이전(web/move.js) — 옛 주소 빌드면 온라인일 때 곧바로 새 주소로, 새 주소면 ?from=old 안내 */
+    if (typeof SafetyMove !== 'undefined') {
+      if (SafetyMove.leavePage(window, CONFIG.MOVED_TO)) return;
+      SafetyMove.noticeNewAddress(window, CONFIG.MOVED_TO, 'dashboard');
+    }
     var saved = '';
     try { saved = localStorage.getItem(KEY_STORE) || ''; } catch (e) { saved = ''; }
     el_('btn-dash-keysave').addEventListener('click', onKeySave_);

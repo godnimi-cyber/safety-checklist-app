@@ -429,6 +429,16 @@ var SafetyLogic = (function () {
       if (!rawRemove(DRAFT_KEY)) return 'copied';  /* 사본은 만들었으나 옛 키가 남았다 */
       return 'migrated';
     };
+    /* 옛 단일 슬롯(sc_draft)이 아직 남아 있는가 — 주소 이전 판단용(web/move.js). 이전이 'collision' 이면
+       그 초안은 sc_drafts 에 없고 여기에만 있다. 읽기만 한다(손상 백업 같은 부수효과 없음).
+       읽지 못하면 남은 것으로 본다 — 모르는 채로 옮기면 그 초안을 옛 주소에 버리게 된다.
+       renderHome 마다 불리므로 lastError 를 건드리지 않는다(다른 호출이 남긴 오류를 지우거나 덮지 않는다). */
+    api.hasLegacyDraft = function () {
+      var prev = api.lastError;
+      var r = rawGet(DRAFT_KEY);
+      api.lastError = prev;
+      return !r.ok || (r.value !== null && r.value !== undefined);
+    };
     api.saveQueue = function (queue) { api.lastError = null; return saveJSON(QUEUE_KEY, queue); };
     api.loadQueue = function () {
       api.lastError = null;   /* R4 */

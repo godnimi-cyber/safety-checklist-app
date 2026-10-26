@@ -1122,6 +1122,23 @@
     }
     renderQueueList();
     renderHomeSummary();
+    checkMoved_();
+  }
+  /* 주소 이전(옛 주소 빌드만 — CONFIG.MOVED_TO, web/move.js). 홈의 상태가 바뀔 때마다(전송 완료·
+     초안 제출·항목 삭제 뒤 renderHome) 다시 판단한다. 보내는 중이거나 다른 화면이면 기다린다. */
+  function checkMoved_() {
+    if (!CONFIG.MOVED_TO || state.syncing || state.currentScreen !== 'home') return;
+    SafetyMove.applyApp(window, CONFIG.MOVED_TO, {
+      queue: state.queue.length,
+      drafts: SafetyMove.countDrafts(state.drafts, state.storage.hasLegacyDraft())
+    });
+  }
+  /* 옛 주소 빌드: 연결이 돌아오면 대기열을 먼저 보내고 이동을 다시 판단한다 */
+  function watchMoved_() {
+    if (!CONFIG.MOVED_TO) return;
+    window.addEventListener('online', function () {
+      if (state.currentScreen === 'home') flushQueue().then(checkMoved_);
+    });
   }
   /* T2: 요약줄 — 새 조회 없이 이미 이 함수 위에서 그린 값을 그대로 다시 읽어 쓴다.
      「작성 중」은 「예정」의 부분집합이라(사용자 지시) 따로 더하지 않는다 — 계획별 임시저장 +
@@ -4185,6 +4202,8 @@
     state.sent = state.storage.loadSent(todayStr());
     wireEvents();
     show('home');
+    watchMoved_();
+    SafetyMove.noticeNewAddress(window, CONFIG.MOVED_TO, 'app');
     var notices = [];
     if (queueErr && isCorruptOp(queueErr.op)) notices.push(corruptNotice('미전송 목록이', queueErr));
     /* migrateLegacyDraft() 결과 5종(logic.js 실측, 'none'·'migrated' 는 정상 무통보) — 계약 K4:

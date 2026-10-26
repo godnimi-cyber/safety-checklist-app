@@ -5,7 +5,7 @@
  *   읽기 → { ok, data } / 쓰기 → { ok, code:'DONE', target, changed, data } / 실패 → { ok:false, error:{code,message} }
  *
  * 규칙
- *  - CONFIG 는 API_URL 만 쓴다. SHARED_KEY 는 읽지 않는다(관리 문턱은 DASH_KEY).
+ *  - CONFIG 는 API_URL·MOVED_TO(주소 이전, move.js) 만 쓴다. SHARED_KEY 는 읽지 않는다(관리 문턱은 DASH_KEY).
  *  - 쓰기는 반드시 확인 시트(대상·바뀌는 값·PIN)를 거친다. 자동 재시도는 하지 않는다(설계 R1-18).
  *  - 쓰기 전에 '미결 요청'({req_id, action, target, payload(PIN 제외), at})을 localStorage 에 적고,
  *    응답(done·rejected)을 받으면 지운다. 응답 유실이면 「결과 확인」(adm_req_status, PIN 불필요).
@@ -19,7 +19,7 @@
   var SID_STORE = 'safety_admin_sid';
   var PENDING_STORE = 'safety_admin_pending';
   var REQUEST_TIMEOUT_MS = 12000;
-  var ADMIN_BUILD = '0.5.5-39e153a8';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
+  var ADMIN_BUILD = '0.5.5-84c16f3c';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
 
   var state = { key: '', sid: '', who: null, roles: [], tab: '', gen: 0, viewGen: 0, showDeleted: false, tplOff: false };
   var NEVER = function () { return new Promise(function () { /* 버린 응답 — 콜백을 부르지 않는다 */ }); };
@@ -885,6 +885,11 @@
     return !!cfg && html === cfg && ADMIN_BUILD === cfg;
   }
   function boot() {
+    /* 주소 이전(web/move.js) — 옛 주소 빌드면 온라인일 때 곧바로 새 주소로, 새 주소면 ?from=old 안내 */
+    if (typeof SafetyMove !== 'undefined') {
+      if (SafetyMove.leavePage(window, CONFIG.MOVED_TO)) return;
+      SafetyMove.noticeNewAddress(window, CONFIG.MOVED_TO, 'admin');
+    }
     ['adm-key-view', 'adm-login-view', 'adm-tabs', 'adm-logout'].forEach(function (id) { $(id).hidden = true; });
     flash('화면 갱신 중…', '');
     if (!bundleOk()) {
