@@ -19,7 +19,7 @@
   var SID_STORE = 'safety_admin_sid';
   var PENDING_STORE = 'safety_admin_pending';
   var REQUEST_TIMEOUT_MS = 12000;
-  var ADMIN_BUILD = '0.5.5-677413d3';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
+  var ADMIN_BUILD = '0.5.5-2cbad5de';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
 
   var state = { key: '', sid: '', who: null, roles: [], tab: '', gen: 0, viewGen: 0, showDeleted: false, tplOff: false };
   var NEVER = function () { return new Promise(function () { /* 버린 응답 — 콜백을 부르지 않는다 */ }); };
@@ -31,6 +31,7 @@
     { id: 'project', label: '공사', role: 'master' },
     { id: 'tpl', label: '점검 양식', role: 'master' },
     { id: 'ingest', label: '자동등록 보류', role: 'ingest' },
+    { id: 'record', label: '기록 정정', role: 'record' },          // 대시보드 「확인이 필요한 기록」의 중복 점검 정정(10-26 지시)
     { id: 'reqs', label: '확인 필요', role: '' }
   ];
 
@@ -170,6 +171,10 @@
 
   /* ---------- 통신 ---------- */
   function request(body) {
+    return fetchJson(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body), redirect: 'follow' });
+  }
+  function fetchJson(url, init) {
     return new Promise(function (resolve) {
       var done = false, ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
       var timer = setTimeout(function () {
@@ -177,8 +182,8 @@
         finish({ ok: false, error: { code: 'NETWORK', message: '응답 대기 시간 초과' } });
       }, REQUEST_TIMEOUT_MS);
       function finish(v) { if (done) return; done = true; clearTimeout(timer); resolve(v); }
-      fetch(CONFIG.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(body), redirect: 'follow', signal: ctrl ? ctrl.signal : undefined })
+      init.signal = ctrl ? ctrl.signal : undefined;
+      fetch(url, init)
         .then(function (res) { return res.json().then(finish, function () { finish({ ok: false, error: { code: 'NETWORK', message: '응답 해석 실패' } }); }); },
               function () { finish({ ok: false, error: { code: 'NETWORK', message: '네트워크 오류' } }); });
     });
@@ -191,6 +196,15 @@
       if (g !== state.gen || v !== state.viewGen) return NEVER();
       if (tplAction_(action) && tplGate_(r)) return NEVER();
       if (r && !r.ok && r.error && r.error.code === 'ADM_SESSION') logout('로그인이 만료됐습니다 — 다시 로그인하세요');
+      if (r && !r.ok && r.error && r.error.code === 'AUTH') { sset('local', KEY_STORE, ''); state.key = ''; route(); }
+      return r;
+    });
+  }
+  /** 대시보드 조회(GET, 관리 키만) — 기록 정정 탭이 「확인이 필요한 기록」을 읽는다. 버림·AUTH 처리는 read 와 같다. */
+  function readDash() {
+    var g = state.gen, v = state.viewGen;
+    return fetchJson(CONFIG.API_URL + '?action=dashboard&k=' + encodeURIComponent(state.key), { method: 'GET', redirect: 'follow' }).then(function (r) {
+      if (g !== state.gen || v !== state.viewGen) return NEVER();
       if (r && !r.ok && r.error && r.error.code === 'AUTH') { sset('local', KEY_STORE, ''); state.key = ''; route(); }
       return r;
     });
@@ -504,7 +518,9 @@
         onclick: function () { selectTab(t.id); } }));
     });
     if (!vis.length) { $('adm-main').appendChild(msgBox('맡은 역할이 없습니다', 'warn')); return; }
-    selectTab(state.tab && vis.some(function (t) { return t.id === state.tab; }) ? state.tab : vis[0].id);
+    /* 처음 열 때는 주소 해시(#record — 대시보드 「기록 정정에서 처리」 링크)의 탭을, 보이지 않는 탭이면 첫 탭 */
+    var want = state.tab || String((window.location && window.location.hash) || '').slice(1);
+    selectTab(want && vis.some(function (t) { return t.id === want; }) ? want : vis[0].id);
   }
   function selectTab(id) {
     state.tab = id;
@@ -736,6 +752,84 @@
     });
   }
 
+  /* ---------- 탭: 기록 정정 ----------
+     대시보드 「확인이 필요한 기록」(gas/main.gs buildIntegrityBlock_)을 읽는다. 행 = [문제, 언제, 협력회사 · 공사, 내용, 식별자, 어떻게 고치나].
+     '같은 공사 중복 점검' 은 (점검일, 협력회사 · 공사)로 묶어 제출마다 adm_sub_lookup 으로 조회하고, 하나를 취소(adm_sub_void)할 수 있다 —
+     앱의 취소는 본인·당일만이라 지난 날짜 중복은 여기서만 고친다. 다른 종류는 읽기 전용.
+     유효 제출이 하나뿐이면 취소 버튼을 두지 않는다(둘 다 취소하는 실수 차단). 조회 실패가 섞인 묶음은 취소를 막는다. */
+  var DUP_LABEL = '같은 공사 중복 점검';
+  function viewRecord(main) {
+    return readDash().then(function (r) {
+      if (!r || !r.ok) return failInto(main, r);
+      var blk = r.data && r.data.integrity && r.data.integrity.block;
+      if (!blk) { main.appendChild(card('기록 정정', [msgBox('확인이 필요한 기록이 없습니다', 'ok')])); return; }
+      var groups = [], byKey = {}, other = [];
+      (blk.rows || []).forEach(function (row) {
+        if (row[0] !== DUP_LABEL) { other.push(row); return; }
+        var k = row[1] + '\n' + row[2];
+        if (!byKey[k]) { byKey[k] = { date: row[1], who: row[2], ids: [] }; groups.push(byKey[k]); }
+        if (row[4] && byKey[k].ids.indexOf(row[4]) < 0) byKey[k].ids.push(row[4]);
+      });
+      main.appendChild(el('p', { 'class': 'adm-muted', text: blk.title + (blk.note ? ' — ' + blk.note : '') }));
+      /* 묶음마다 차례로 조회한다(동시에 던지면 서버 락 경합) — 다 모이면 그 묶음 카드를 그린다. */
+      var chain = Promise.resolve();
+      groups.forEach(function (gr) {
+        var subs = [];
+        gr.ids.forEach(function (id) {
+          chain = chain.then(function () {
+            return read('adm_sub_lookup', { submission_id: id }).then(function (lr) {
+              subs.push(lr && lr.ok ? lr.data : { submission_id: id, failed: errText(lr) });
+            });
+          });
+        });
+        chain = chain.then(function () { main.appendChild(dupCard(gr, subs)); });
+      });
+      return chain.then(function () {
+        if (!other.length) return;
+        main.appendChild(card('그 밖의 확인 필요 ' + other.length + '건(읽기 전용)', [
+          table(['문제', '언제', '대상', '내용', '어떻게 고치나'], other.map(function (row) { return [row[0], row[1], row[2], row[3], row[5]]; }), [0, 1])
+        ]));
+      });
+    });
+  }
+  function pullWarn(n) { return '이미 ' + n + '곳으로 발송됨 — 취소해도 회수되지 않으니 정정 연락 필요'; }
+  var SUB_STATUS = { valid: '유효', voided: '취소됨' };
+  function subRows(s) {
+    return [['식별자', s.submission_id], ['점검자', s.inspector_name || '-'], ['제출 시각', s.submitted_at || '-'],
+            ['부적합', s.findings_total + '건(미취소 ' + s.findings_open + ')'],
+            ['발송', s.pull_count + '곳' + ((s.pull_to || []).length ? ' — ' + s.pull_to.join(', ') : '')],
+            ['상태', SUB_STATUS[s.status] || s.status]];
+  }
+  function dupCard(gr, subs) {
+    var failed = subs.filter(function (s) { return s.failed; });
+    var valid = subs.filter(function (s) { return !s.failed && s.status === 'valid'; });
+    var canVoid = !failed.length && valid.length > 1;
+    var kids = subs.map(function (s) {
+      if (s.failed) return el('div', { 'class': 'adm-sub' }, [diff([['식별자', s.submission_id]]), msgBox('조회 실패 — ' + s.failed, 'err')]);
+      var keep = valid.filter(function (o) { return o !== s; });
+      return el('div', { 'class': 'adm-sub' }, [diff(subRows(s)),
+        s.pull_count > 0 ? msgBox(pullWarn(s.pull_count), 'warn') : null,
+        canVoid && s.status === 'valid' ? acts([sbtn('이 제출 취소', function () { voidSub(s, keep); }, 'danger-ghost')]) : null]);
+    });
+    if (failed.length) kids.push(el('div', { 'class': 'adm-acts' }, [el('span', { 'class': 'adm-muted', text: '조회하지 못한 제출이 있어 취소할 수 없습니다 — 다시 불러오세요' }), sbtn('다시 불러오기', refresh)]));
+    else if (!canVoid) kids.push(el('p', { 'class': 'adm-muted', text: '유효한 제출이 ' + valid.length + '건이라 취소할 수 없습니다(마지막 제출 보호) — 다시 불러오면 목록에서 빠질 수 있습니다' }));
+    return card(DUP_LABEL + ' · ' + gr.date + ' · ' + gr.who, kids, null, canVoid);
+  }
+  function voidSub(s, keep) {
+    var def = '같은 공사 중복 점검 정정 — ' + keep.map(function (o) { return String(o.submission_id).slice(0, 8); }).join(', ') + ' 유지';
+    confirmWrite({ action: 'adm_sub_void', target: s.submission_id, title: '제출 취소', okLabel: '이 제출 취소', danger: true,
+      body: [diff(subRows(s)),
+             s.pull_count > 0 ? msgBox(pullWarn(s.pull_count), 'warn') : null,
+             el('p', { text: '이 제출을 취소(voided)하고 그 부적합도 함께 취소합니다. 집계·월간보고에서 빠집니다.' }),
+             input('rv-reason', '사유(10자 이상)', { value: def })].filter(Boolean),
+      run: function (pin) {
+        var reason = val('rv-reason').replace(/\s+/g, ' ');
+        if (reason.length < 10) return Promise.resolve({ ok: false, error: { code: 'VALIDATION', message: 'REASON_REQUIRED' } });   // 보내지 않는다
+        return sendWrite('adm_sub_void', { submission_id: s.submission_id, reason: reason, expect: { status: s.status, findings_sig: s.findings_sig } },
+                         pin, s.submission_id, null);
+      } });
+  }
+
   /* ---------- 탭: 확인 필요 ---------- */
   function viewReqs(main) {
     return read('adm_req_list').then(function (r) {
@@ -824,7 +918,7 @@
     }
     draw();
   }
-  var VIEWS = { roster: viewRoster, company: viewCompany, project: viewProject, tpl: viewTpl, ingest: viewIngest, reqs: viewReqs };
+  var VIEWS = { roster: viewRoster, company: viewCompany, project: viewProject, tpl: viewTpl, ingest: viewIngest, record: viewRecord, reqs: viewReqs };
 
   /* ---------- 서비스워커 확인 문턱(설계 §9 4단계, Codex P6-R2-01) ----------
      불변식(Codex P6-R7-01): 「이 페이지 묶음의 버전(config.js 의 APP_VER — admin.html 이 ?v= 로 고정해 부른다)」 ==

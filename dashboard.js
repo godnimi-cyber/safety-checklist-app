@@ -3258,6 +3258,14 @@
     if (data.integrity && data.integrity.block) {
       var ig = renderBlock_(data.integrity.block);
       ig.className += ' dash-integrity';        // 경고 액센트(왼쪽 보더·제목색) — 배경은 그대로
+      /* 중복 점검은 관리자 페이지 「기록 정정」 탭에서 고친다(10-26 지시). 상대 경로 + 해시라 GitHub Pages 와
+         확장자 없는 주소로 307 하는 호스트 둘 다 같은 디렉터리의 admin 으로 간다(해시는 리다이렉트 뒤에도 남는다). */
+      var igp = document.createElement('p');
+      var iga = document.createElement('a');
+      iga.setAttribute('href', './admin.html#record');
+      iga.textContent = '관리자 페이지 › 기록 정정에서 처리';
+      igp.appendChild(iga);
+      ig.appendChild(igp);
       root.appendChild(ig);
     }
     scheduleScrollHints_();                      // B2 — 방금 붙인 표들의 넘침을 실측해 힌트를 켠다
