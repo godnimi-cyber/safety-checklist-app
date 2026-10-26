@@ -19,7 +19,7 @@
   var SID_STORE = 'safety_admin_sid';
   var PENDING_STORE = 'safety_admin_pending';
   var REQUEST_TIMEOUT_MS = 12000;
-  var ADMIN_BUILD = '0.5.5-ac44a6af';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
+  var ADMIN_BUILD = '0.5.5-b2676d89';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
 
   var state = { key: '', sid: '', who: null, roles: [], tab: '', gen: 0, viewGen: 0, showDeleted: false, tplOff: false };
   var NEVER = function () { return new Promise(function () { /* 버린 응답 — 콜백을 부르지 않는다 */ }); };
@@ -61,7 +61,7 @@
     LABEL_INVALID: '원본 판 표기는 1~40자입니다', VER_NOT_FOUND: '그 판의 항목을 찾지 못했습니다',
     EXPECT_REQUIRED: '화면이 오래됐습니다 — 다시 불러오세요', STALE_TARGET: '그사이 값이 바뀌었습니다 — 다시 불러오세요',
     REASON_REQUIRED: '사유를 10자 이상 적어 주세요', NOT_HELD: '이미 보류가 아닙니다 — 다시 불러오세요', MAIL_LEVEL_HOLD: '메일 단위 보류는 종결할 수 없습니다 — 자동 재시도됩니다', PIN_FORMAT: '새 PIN 은 숫자 4자리입니다',
-    ID_DUP: '이미 있는 사번입니다', ID_INVALID: '사번은 영문·숫자·-·_ 20자 이내', EMAIL_DUP: '다른 활성 점검자와 이메일이 겹칩니다',
+    ID_DUP: '이미 있는 사번입니다 — 삭제(퇴사 처리)된 점검자일 수 있습니다. 화면을 새로 고친 뒤 다시 등록하세요', ID_INVALID: '사번은 영문·숫자·-·_ 20자 이내', EMAIL_DUP: '다른 활성 점검자와 이메일이 겹칩니다',
     EMAIL_INVALID: '이메일 형식이 맞지 않습니다', NO_CHANGE: '바뀐 내용이 없습니다', SELF_RETIRE: '본인은 퇴사 처리할 수 없습니다',
     CONFIRM_REQUIRED: '미전송 기록이 없는지 확인했다고 체크해 주세요', ALREADY_RETIRED: '이미 퇴사 처리된 점검자입니다',
     NOT_RETIRED: '퇴사 상태가 아닙니다', PROJECT_HAS_PLANS: '예정된 점검 계획이 남아 있어 삭제할 수 없습니다 — 먼저 계획을 취소하세요',
@@ -316,6 +316,7 @@
     openSheet({ title: o.title, okLabel: o.okLabel, danger: o.danger, body: o.body || [],
       run: function (pin) {
         if (pendingFor(o.target)) return Promise.resolve({ ok: false, error: { code: 'LOCAL_BUSY' } });   // 다른 탭이 먼저 보냈다(P6-R1-04)
+        if (o.run) return o.run(pin);                                     // 여러 단계 쓰기(점검자 다시 등록) — 단계마다 sendWrite
         var payload = o.collect ? o.collect() : o.payload;
         if (!payload) return Promise.resolve({ ok: false, error: { code: 'VALIDATION', message: '입력값을 확인하세요' } });
         return sendWrite(o.action, payload, pin, o.target, null).then(function (r) {
@@ -547,6 +548,14 @@
             flash('입력하세요: ' + miss.map(function (f) { return f[1] + (f[0] === 'ri-pin' ? '(숫자 4자리)' : ''); }).join(', '), 'err');
             return;
           }
+          /* 목록에 안 보이는 퇴사 처리 행도 사번을 차지한다 — 새 행 추가(ID_DUP 거절) 대신 그 행을 다시 등록한다(10-26 E0315). */
+          var prev = items.filter(function (o) { return String(o.inspector_id) === p.inspector_id; })[0];
+          if (prev && prev.active) {
+            $('ri-id').setAttribute('aria-invalid', 'true'); if ($('ri-id').focus) $('ri-id').focus();
+            flash(p.inspector_id + ' 은 이미 등록된 점검자입니다(아래 목록)', 'err');
+            return;
+          }
+          if (prev) { reRegisterInsp(prev, p, np); return; }
           confirmWrite({ action: 'adm_insp_add', target: p.inspector_id, title: '점검자 등록', okLabel: p.name + '(' + p.inspector_id + ') 등록',
             body: [diff([['사번', p.inspector_id], ['팀', p.team], ['이름', p.name], ['표시', p.display || '-'], ['이메일', p.email || '-']]),
                    el('p', { 'class': 'adm-muted', text: '처음 PIN 은 본인에게 직접 전달하세요. 점검자 앱은 다시 실행해야 새 명부를 받습니다.' })],
@@ -560,15 +569,51 @@
                              : acts([sbtn('삭제', function () { retireInsp(o); }, 'danger-ghost')]);
           return [o.inspector_id, o.name + (o.display && o.display !== o.name ? ' / ' + o.display : ''), o.team, a];
         }), [0, 2]) : msgBox('등록된 점검자가 없습니다', ''),
-        items.length > act.length ? el('p', { 'class': 'adm-muted', text: '삭제(퇴사 처리)된 점검자 ' + (items.length - act.length) + '명은 목록에서 뺐습니다 — 과거 점검 기록은 그대로 남습니다.' }) : null
+        items.length > act.length ? el('p', { 'class': 'adm-muted', text: '삭제(퇴사 처리)된 점검자 ' + (items.length - act.length) + '명은 목록에서 뺐습니다 — 과거 점검 기록은 그대로 남습니다. 같은 사번을 위 「점검자 등록」에 넣으면 다시 등록합니다.' }) : null
       ]));
     });
+  }
+  /* 퇴사 처리된 행 다시 등록 — 입력한 팀·이름·표시·이메일이 명부와 다르면 먼저 고치고(adm_insp_edit) 활성화한다
+     (adm_insp_reactivate: 새 토큰·처음 PIN). 활성화가 거절돼 다시 누르면 이미 고친 정보는 다시 보내지 않는다. */
+  var INSP_LABEL = { team: '팀', name: '이름', display: '표시', email: '이메일' };
+  function reRegisterInsp(o, p, np) {
+    var id = String(o.inspector_id);
+    if (o.is_admin) { flash(ERR.ADM_TARGET_PROTECTED, 'err'); return; }
+    if (o.has_token) { flash(id + ' 은 시트에서 비활성으로만 바뀐 행이라(앱 토큰이 남아 있음) 이 화면에서 다시 등록할 수 없습니다 — 시스템 담당에게 정비를 요청하세요', 'err'); return; }
+    var want = { team: p.team, name: p.name, display: p.display || p.name, email: p.email };
+    var set = {}, ex = {};
+    Object.keys(INSP_LABEL).forEach(function (k) {
+      var cur = String(o[k] == null ? '' : o[k]);
+      if (want[k] !== cur) { set[k] = want[k]; ex[k] = cur; }
+    });
+    var fixed = !Object.keys(set).length;
+    var rows = [['사번', id]].concat(Object.keys(INSP_LABEL).map(function (k) {
+      var cur = String(o[k] == null ? '' : o[k]) || '(비어 있음)';
+      return [INSP_LABEL[k], k in set ? cur + ' → ' + set[k] : cur];
+    }));
+    confirmWrite({ action: 'adm_insp_reactivate', target: id, title: '점검자 다시 등록', okLabel: (p.name || o.name) + '(' + id + ') 다시 등록',
+      body: [el('p', { text: '삭제(퇴사 처리)된 점검자의 사번입니다. 그 명부 행을 다시 활성화하고 새 앱 접속·처음 PIN 을 발급합니다. 과거 점검 기록은 그대로 이어집니다.' }),
+             diff(rows),
+             fixed ? el('p', { 'class': 'adm-muted', text: '명부 정보는 그대로 둡니다.' }) : el('p', { text: '화살표(→) 항목은 입력한 값으로 먼저 고친 뒤 활성화합니다.' }),
+             el('p', { 'class': 'adm-muted', text: '처음 PIN 은 본인에게 직접 전달하세요. 점검자 앱은 다시 실행해야 새 명부를 받습니다.' })],
+      run: function (pin) {
+        var first = fixed ? Promise.resolve(null) : sendWrite('adm_insp_edit', { real_id: id, set: set, expect: ex }, pin, id, null);
+        return first.then(function (r1) {
+          if (r1 && !r1.ok) return r1;
+          var c1 = r1 ? ((r1.data && r1.data.changed) || []) : [];
+          fixed = true;
+          return sendWrite('adm_insp_reactivate', { real_id: id, expect: { cred_v: o.cred_v }, new_pin: np }, pin, id, null).then(function (r2) {
+            if (r2 && r2.ok && r2.data && c1.length) r2.data.changed = c1.concat(r2.data.changed || []);
+            return r2;
+          });
+        });
+      } });
   }
   function retireInsp(o) {
     var cb = el('input', { type: 'checkbox', id: 'rt-confirm' });
     confirmWrite({ action: 'adm_insp_retire', target: o.inspector_id, title: '점검자 삭제(퇴사 처리)', okLabel: o.name + '(' + o.inspector_id + ') 삭제', danger: true,
       body: [el('p', { text: '명부에서 비활성으로 바꾸고 앱 접속을 끊습니다. 과거 점검 기록은 지우지 않습니다. 그 폰에 아직 안 보낸 기록이 있으면 더 보낼 수 없습니다.' }),
-             el('p', { 'class': 'adm-muted', text: '이 화면에서는 되돌릴 수 없고, 같은 사번으로 다시 등록할 수도 없습니다. 실수로 삭제했으면 시스템 담당에게 재활성화(adm_insp_reactivate)를 요청하세요.' }),
+             el('p', { 'class': 'adm-muted', text: '되돌리려면 「점검자 등록」에 같은 사번을 넣어 다시 등록하세요(새 처음 PIN 을 정합니다).' }),
              el('label', { 'class': 'adm-check' }, [cb, '그 점검자 폰에 미전송 기록이 없음을 확인했습니다'])],
       collect: function () { return { real_id: o.inspector_id, confirm_queue_empty: !!$('rt-confirm').checked }; } });
   }
