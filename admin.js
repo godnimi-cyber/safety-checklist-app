@@ -19,7 +19,7 @@
   var SID_STORE = 'safety_admin_sid';
   var PENDING_STORE = 'safety_admin_pending';
   var REQUEST_TIMEOUT_MS = 12000;
-  var ADMIN_BUILD = '0.5.5-2cbad5de';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
+  var ADMIN_BUILD = '0.5.5-513f65d3';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
 
   var state = { key: '', sid: '', who: null, roles: [], tab: '', gen: 0, viewGen: 0, showDeleted: false, tplOff: false };
   var NEVER = function () { return new Promise(function () { /* 버린 응답 — 콜백을 부르지 않는다 */ }); };

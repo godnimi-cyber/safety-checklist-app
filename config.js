@@ -2,7 +2,7 @@
 var CONFIG = {
   API_URL: 'https://api.ynes.app',
   SHARED_KEY: 'B3vWj9dp3BUpOIz6OYHQ0fgS5ViBpjKT',
-  APP_VER: '0.5.5-2cbad5de',
+  APP_VER: '0.5.5-513f65d3',
   /* MOCK=true: GAS 미배포 상태에서도 화면 전체 흐름(홈→작성→검토→제출)을
      내장 목 masters/제출 응답으로 검증할 수 있게 하는 개발·데모 스위치.
      Task 6 실배포 후 API_URL·SHARED_KEY 교체와 함께 false 로 전환할 것. */
