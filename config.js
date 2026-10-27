@@ -9,5 +9,5 @@ var CONFIG = {
   MOCK: false,
   /* 주소 이전: 비어 있으면 아무 일도 없다(이 저장소·새 주소 배포는 늘 빈 값). 옛 주소(GitHub Pages)
      저장소에 올리는 사본만 tools/build_moved_site.py 가 새 주소로 채운다 — web/move.js 참고. */
-  MOVED_TO: ''
+  MOVED_TO: "https://safety.ynes.app"
 };
