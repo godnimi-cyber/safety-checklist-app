@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="협력회사 SHE 현황 — 관리자 전용 대시보드·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-513f65d3">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-513f65d3">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-6996a372">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-6996a372">
 <link rel="preconnect" href="https://api.ynes.app" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
@@ -830,6 +830,63 @@ a.dash-btn[hidden] { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .dash-btn, .dash-page, .dash-controls select, .dash-controls input, .dash-block tbody tr { transition: none; }
 }
+/* 협력회사별 도넛(2026-10-28 사용자 지시, dashboard.js renderCompChart_) — 색은 킷 차트 토큰
+   --chart-1~4 를 그대로 쓰고, 5번째·기타·빈 고리만 이 카드의 지역 변수로 둔다. 킷 tokens.css 는
+   생성물이라 손대지 않고, 이 파일은 원값을 적지 않는 계약(verify.mjs raw-color)이라 **기존
+   토큰에서 파생**한다: --dash-chart-5 = chart-1(청록)과 chart-3(산호)을 oklch 색상환의 먼 쪽으로
+   섞은 청보라 — 네 색 어느 것과도 색상이 겹치지 않는다. 기타 = muted(라이트) — 다크의 muted 는
+   chart-4 와 같은 값이라 다크에서만 border 쪽으로 섞어 어둡게 내린다. --cc 는 행·조각이 받는
+   자기 색이다(.dash-cc-N, N=0 은 기타). */
+.dash-comp { --dash-chart-5: color-mix(in oklch longer hue, var(--chart-1), var(--chart-3));
+  --dash-chart-other: var(--muted);
+  --dash-chart-track: color-mix(in srgb, var(--muted) 35%, var(--border)); }
+[data-theme="dark"] .dash-comp { --dash-chart-other: color-mix(in srgb, var(--muted) 50%, var(--border)); }
+.dash-cc-1 { --cc: var(--chart-1); }
+.dash-cc-2 { --cc: var(--chart-2); }
+.dash-cc-3 { --cc: var(--chart-3); }
+.dash-cc-4 { --cc: var(--chart-4); }
+.dash-cc-5 { --cc: var(--dash-chart-5); }
+.dash-cc-0 { --cc: var(--dash-chart-other); }
+.dash-comp-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px;
+  overflow: hidden; margin: 0 0 12px; }
+.dash-comp-segbtn { min-height: 44px; min-width: 64px; padding: 0 16px; border: 0;
+  background: var(--surface); color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
+.dash-comp-segbtn + .dash-comp-segbtn { border-left: 1px solid var(--border); }
+.dash-comp-segbtn:hover { background: var(--row-hover); }
+.dash-comp-segbtn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+.dash-comp-segbtn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -4px; }
+.dash-comp-segbtn[aria-pressed="true"]:focus-visible { outline-color: var(--on-accent); }
+.dash-comp-body { display: flex; align-items: center; gap: 24px; }
+.dash-comp-list { flex: 1.2 1 0; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.dash-comp-row { margin: 0 0 12px; }
+.dash-comp-row:last-child { margin-bottom: 0; }
+.dash-comp-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  font-size: 0.9rem; }
+.dash-comp-name { display: inline-flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.dash-comp-dot { flex: none; width: 10px; height: 10px; border-radius: 2px; background: var(--cc); }
+.dash-comp-val { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dash-comp-val b { font-size: 1rem; color: var(--text); }
+.dash-comp-val small { margin-left: 8px; font-size: 0.8rem; color: var(--muted); }
+.dash-comp-bar { height: 6px; margin-top: 6px; border-radius: 3px;
+  background: color-mix(in srgb, var(--border) 60%, transparent); }
+.dash-comp-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--cc); }
+.dash-comp-donut { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; }
+.dash-comp-svg { display: block; width: 180px; height: 180px; max-width: 100%; }
+.dash-comp-slice { stroke: var(--cc); cursor: pointer; }
+.dash-comp-track { stroke: var(--dash-chart-track); }
+.dash-comp-total { fill: var(--text); font-family: var(--font-heading); font-size: 34px; font-weight: 700; }
+.dash-comp-unit { fill: var(--muted); font-size: 12px; }
+.dash-comp-cap { margin: 4px 0 0; color: var(--muted); font-size: 0.8rem; }
+.dash-comp-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; margin: 14px 0 12px;
+  padding-top: 10px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85rem; }
+.dash-comp-summary { margin: 0; color: var(--text); }
+.dash-comp-tabletoggle { margin-left: auto; padding: 0 14px; font-size: 0.85rem; }
+/* 휴대폰(폭 480px 미만) — 도넛 위, 목록 아래(설계서). DOM 순서는 목록이 먼저라 화면 읽기 순서는 그대로다. */
+@media (max-width: 479px) {
+  .dash-comp-body { flex-direction: column; align-items: stretch; gap: 16px; }
+  .dash-comp-list, .dash-comp-donut { flex: none; }
+  .dash-comp-donut { order: -1; }
+}
 </style>
 </head>
 <body>
@@ -916,8 +973,8 @@ a.dash-btn[hidden] { display: none; }
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-513f65d3"></script>
-<script src="./move.js?v=0.5.5-513f65d3"></script>
-<script src="./dashboard.js?v=0.5.5-513f65d3"></script>
+<script src="./config.js?v=0.5.5-6996a372"></script>
+<script src="./move.js?v=0.5.5-6996a372"></script>
+<script src="./dashboard.js?v=0.5.5-6996a372"></script>
 </body>
 </html>

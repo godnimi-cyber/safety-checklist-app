@@ -1481,6 +1481,264 @@
     return host;
   }
 
+  /* ---------- 협력회사별 도넛 (2026-10-28 사용자 지시) ----------
+     "협력회사별, 조회기간 내 건수를 숫자가 아닌 … 원형 그래프를 활용하여 시각적으로 표현".
+     표 자리에 [점검][공사][부적합] 전환 + 왼쪽 순위 목록 + 오른쪽 인라인 SVG 도넛을 둔다(라이브러리
+     0개 — ICONS_ 와 같은 원칙). 기존 표는 「표로 보기」 뒤에 그대로 남는다(링크 숫자·부적합 강조·
+     엑셀과 같은 값). 블록은 rangeKpiData_ 와 같이 **header 형태**로 식별한다(제목엔 기간이 붙는다).
+     색은 표시되는 개별 회사(최대 COMP_COLORS_ 곳)를 **회사명 순**으로 1..5 에 배정한다 — 지표를
+     바꿔도 회사 집합이 같으면 같은 회사가 같은 색이다. 회사가 COMP_COLORS_ 곳보다 많으면 상위
+     COMP_COLORS_ 곳 + '기타'(회색)로 묶는다 — 색이 5개뿐이라 6조각부터는 두 회사가 한 색을 나눠
+     같은 색 조각이 이웃할 수 있어서다. 지표·표 펼침 상태는 재렌더(필터 변경) 뒤에도 남도록 세션
+     메모리(compChartUi_)에 둔다. */
+  var COMP_METRICS_ = ['점검', '공사', '부적합'];
+  var COMP_COLORS_ = 5;
+  var compChartUi_ = { metric: '점검', table: false };
+
+  /** 합계 100 이 되는 정수 % — 최대 잔여 방식(내림한 뒤 모자란 몫을 잔여가 큰 항목부터 1씩).
+   *  잔여가 같으면 앞 항목이 먼저 받는다. 합계 0 이면 전부 0 이다(0 으로 나누지 않는다). */
+  function largestRemainderPct_(values) {
+    var total = 0;
+    values.forEach(function (v) { total += v; });
+    if (!(total > 0)) return values.map(function () { return 0; });
+    var raw = values.map(function (v) { return v * 100 / total; });
+    var out = raw.map(function (r) { return Math.floor(r); });
+    var left = 100;
+    out.forEach(function (p) { left -= p; });
+    var order = raw.map(function (r, i) { return i; });
+    order.sort(function (a, b) { return ((raw[b] - out[b]) - (raw[a] - out[a])) || (a - b); });
+    for (var k = 0; k < left; k++) out[order[k]] += 1;
+    return out;
+  }
+
+  /** 도넛·목록 모형(DOM 없음). rows = 협력회사별 블록 rows([회사, 점검, 공사, 부적합]).
+   *  items 는 큰 값 순(같으면 회사명 순), '기타'는 맨 끝. slices 는 값이 있는 항목만 —
+   *  12시를 0° 로 시계방향 각도(start·end). 숫자를 못 읽거나 음수인 행이 있으면 null
+   *  (모르는 값을 0 으로 지어내지 않는다 — rangeKpiData_ 의 B1 계약과 같다). rows 는 바꾸지 않는다. */
+  function compDonutModel_(rows, metric) {
+    var col = COMP_METRICS_.indexOf(metric);
+    if (col < 0 || !rows) return null;
+    var list = [];
+    for (var i = 0; i < rows.length; i++) {
+      var v = Number(rows[i][col + 1]);
+      if (!isFinite(v) || v < 0) return null;
+      list.push({ name: String(rows[i][0]), value: v });
+    }
+    var byName = function (a, b) { return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0); };
+    list.sort(function (a, b) { return (b.value - a.value) || byName(a, b); });
+    /* 동률 1위 수는 '기타'로 묶기 전 전체 회사에서 센다(묶은 뒤 items 는 많아야 5곳이다). */
+    var topValue = list.length ? list[0].value : 0;
+    var topTies = list.filter(function (it) { return it.value === topValue; }).length;
+    var items = list;
+    if (list.length > COMP_COLORS_) {
+      var rest = list.slice(COMP_COLORS_), restSum = 0;
+      rest.forEach(function (it) { restSum += it.value; });
+      items = list.slice(0, COMP_COLORS_).concat([{ name: '기타', value: restSum, other: true, count: rest.length }]);
+    }
+    items.filter(function (it) { return !it.other; }).sort(byName)
+      .forEach(function (it, k) { it.color = k + 1; });
+    var total = 0;
+    items.forEach(function (it) { total += it.value; });
+    var pcts = largestRemainderPct_(items.map(function (it) { return it.value; }));
+    var slices = [], acc = 0;
+    items.forEach(function (it, k) {
+      if (it.other) it.color = 0;
+      it.pct = pcts[k];
+      it.share = total > 0 ? it.value * 100 / total : 0;
+      if (it.value > 0) {
+        var start = acc * 360 / total;
+        acc += it.value;
+        slices.push({ item: it, start: start, end: acc * 360 / total });
+      }
+    });
+    return { metric: metric, total: total, items: items, slices: slices, topValue: topValue, topTies: topTies };
+  }
+
+  /** 목록·조각 이름 — '기타'는 묶인 회사 수를 붙인다. */
+  function compItemName_(it) { return it.other ? '기타 (' + it.count + '곳)' : it.name; }
+
+  /** 화면 읽기용 요약 문장 — '점검 109건, 성도산업 31%로 가장 많음'. 동률 1위는 한 회사를
+   *  골라 말하지 않는다(어느 쪽을 고르든 틀린 문장이 된다). */
+  function compSummary_(model) {
+    if (!(model.total > 0)) return model.metric + ' 0건';
+    var top = model.items[0];
+    return model.metric + ' ' + model.total + '건, ' + (model.topTies > 1
+      ? top.name + ' 등 ' + model.topTies + '곳이 각 ' + model.topValue + '건으로 가장 많음'
+      : top.name + ' ' + top.pct + '%로 가장 많음');
+  }
+
+  function buildCompList_(model) {
+    var ol = document.createElement('ol');
+    ol.className = 'dash-comp-list';
+    model.items.forEach(function (it) {
+      var li = document.createElement('li');
+      li.className = 'dash-comp-row dash-cc-' + it.color;
+      var top = document.createElement('div');
+      top.className = 'dash-comp-top';
+      var name = document.createElement('span');
+      name.className = 'dash-comp-name';
+      var dot = document.createElement('span');
+      dot.className = 'dash-comp-dot';
+      dot.setAttribute('aria-hidden', 'true');
+      var nameText = document.createElement('span');
+      nameText.textContent = compItemName_(it);
+      name.appendChild(dot);
+      name.appendChild(nameText);
+      var val = document.createElement('span');
+      val.className = 'dash-comp-val';
+      var cnt = document.createElement('b');
+      cnt.textContent = String(it.value);
+      var unit = document.createElement('span');
+      unit.textContent = '건';
+      var pct = document.createElement('small');
+      pct.textContent = it.pct + '%';
+      val.appendChild(cnt);
+      val.appendChild(unit);
+      val.appendChild(pct);
+      top.appendChild(name);
+      top.appendChild(val);
+      var bar = document.createElement('div');
+      bar.className = 'dash-comp-bar';
+      bar.setAttribute('aria-hidden', 'true');
+      var fill = document.createElement('i');
+      fill.style.width = (Math.round(it.share * 100) / 100) + '%';
+      bar.appendChild(fill);
+      li.appendChild(top);
+      li.appendChild(bar);
+      ol.appendChild(li);
+    });
+    return ol;
+  }
+
+  /** 도넛 SVG — circle + stroke-dasharray. 조각이 둘 이상일 때만 조각 끝을 COMP_GAP 만큼 비워
+   *  간격을 낸다(비운 자리로 카드 바탕이 보인다 — 두 테마 모두). 1곳 100% 는 dasharray 없이 꽉 찬
+   *  고리, 합계 0 은 회색 빈 고리만. 조각을 누르면 가운데가 그 회사 값으로 바뀐다(다시 누르면 합계). */
+  function buildCompDonut_(model) {
+    var NS = 'http://www.w3.org/2000/svg';
+    var SIZE = 180, R = 60, STROKE = 26, GAP = 2;
+    var C = 2 * Math.PI * R;
+    var fmt = function (x) { return String(Math.round(x * 1000) / 1000); };
+    var mk = function (tag, attrs) {
+      var n = document.createElementNS(NS, tag);
+      Object.keys(attrs).forEach(function (k) { n.setAttribute(k, attrs[k]); });
+      return n;
+    };
+    var ring = function (cls) {
+      return mk('circle', { r: String(R), cx: String(SIZE / 2), cy: String(SIZE / 2), fill: 'none',
+        'stroke-width': String(STROKE), transform: 'rotate(-90 ' + SIZE / 2 + ' ' + SIZE / 2 + ')', 'class': cls });
+    };
+    var label = function (it) { return compItemName_(it) + ' ' + it.value + '건(' + it.pct + '%)'; };
+    var host = document.createElement('div');
+    host.className = 'dash-comp-donut';
+    var svg = mk('svg', { viewBox: '0 0 ' + SIZE + ' ' + SIZE, 'class': 'dash-comp-svg', role: 'img',
+      'aria-label': '협력회사별 ' + model.metric + ' 구성비 — ' + (model.total > 0
+        ? model.slices.map(function (s) { return label(s.item); }).join(', ')
+        : model.metric + ' 0건') });
+    if (!model.slices.length) svg.appendChild(ring('dash-comp-track'));
+    var totalText = mk('text', { x: String(SIZE / 2), y: '94', 'text-anchor': 'middle', 'class': 'dash-comp-total' });
+    var unitText = mk('text', { x: String(SIZE / 2), y: '116', 'text-anchor': 'middle', 'class': 'dash-comp-unit' });
+    var picked = null;
+    var center = function (it) {
+      picked = it;
+      totalText.textContent = String(it ? it.value : model.total);
+      unitText.textContent = it ? compItemName_(it) + ' · ' + it.pct + '%' : model.metric + ' · 건';
+    };
+    model.slices.forEach(function (s) {
+      var c = ring('dash-comp-slice dash-cc-' + s.item.color);
+      if (model.slices.length > 1) {
+        var len = (s.end - s.start) / 360 * C;
+        c.setAttribute('stroke-dasharray', fmt(Math.max(len - GAP, 0)) + ' ' + fmt(C));
+        c.setAttribute('stroke-dashoffset', fmt(-s.start / 360 * C));
+      }
+      var t = mk('title', {});
+      t.textContent = label(s.item);
+      c.appendChild(t);
+      c.addEventListener('click', function () { center(picked === s.item ? null : s.item); });
+      svg.appendChild(c);
+    });
+    center(null);
+    svg.appendChild(totalText);
+    svg.appendChild(unitText);
+    host.appendChild(svg);
+    var cap = document.createElement('p');
+    cap.className = 'dash-comp-cap';
+    cap.textContent = '협력회사별 ' + model.metric + ' 구성비';
+    host.appendChild(cap);
+    return host;
+  }
+
+  /** 협력회사별 블록의 그래프 — header 가 ['협력회사','점검','공사','부적합'] 이 아니거나, 숫자를
+   *  못 읽는 행이 있거나, SVG 를 못 만드는 실행환경(조각 테스트의 가짜 DOM)이면 null(호출부가
+   *  기존 표를 그대로 보인다). tableWrap 은 renderBlock_ 이 만든 기존 표 — 「표로 보기」는 그
+   *  hidden 만 바꾼다. */
+  function renderCompChart_(block, tableWrap) {
+    var h = block.header;
+    if (!h || h.length !== 4 || h[0] !== '협력회사' || h[1] !== '점검' ||
+        h[2] !== '공사' || h[3] !== '부적합') return null;
+    if (typeof document.createElementNS !== 'function') return null;
+    for (var mi = 0; mi < COMP_METRICS_.length; mi++) {
+      if (!compDonutModel_(block.rows, COMP_METRICS_[mi])) return null;
+    }
+    if (COMP_METRICS_.indexOf(compChartUi_.metric) < 0) compChartUi_.metric = COMP_METRICS_[0];
+    var root = document.createElement('div');
+    root.className = 'dash-comp';
+    var seg = document.createElement('div');
+    seg.className = 'dash-comp-seg';
+    seg.setAttribute('role', 'group');
+    seg.setAttribute('aria-label', '그래프 지표');
+    var body = document.createElement('div');
+    body.className = 'dash-comp-body';
+    var foot = document.createElement('div');
+    foot.className = 'dash-comp-foot';
+    var summary = document.createElement('p');
+    summary.className = 'dash-comp-summary';
+    summary.setAttribute('aria-live', 'polite');
+    var hint = document.createElement('span');
+    hint.className = 'dash-comp-hint';
+    hint.textContent = '비율 합계 100% 보정';
+    var toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'dash-btn dash-comp-tabletoggle';
+    var segBtns = COMP_METRICS_.map(function (mt) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'dash-comp-segbtn';
+      b.textContent = mt;
+      b.addEventListener('click', function () { compChartUi_.metric = mt; paint(); });
+      seg.appendChild(b);
+      return b;
+    });
+    var paint = function () {
+      var model = compDonutModel_(block.rows, compChartUi_.metric);
+      body.textContent = '';
+      body.appendChild(buildCompList_(model));
+      body.appendChild(buildCompDonut_(model));
+      summary.textContent = compSummary_(model);
+      segBtns.forEach(function (b, i) {
+        b.setAttribute('aria-pressed', String(COMP_METRICS_[i] === compChartUi_.metric));
+      });
+    };
+    var syncTable = function () {
+      tableWrap.hidden = !compChartUi_.table;
+      toggle.textContent = compChartUi_.table ? '표 접기' : '표로 보기';
+      toggle.setAttribute('aria-expanded', String(compChartUi_.table));
+    };
+    toggle.addEventListener('click', function () {
+      compChartUi_.table = !compChartUi_.table;
+      syncTable();
+      if (compChartUi_.table && typeof scheduleScrollHints_ === 'function') scheduleScrollHints_();
+    });
+    paint();
+    syncTable();
+    foot.appendChild(summary);
+    foot.appendChild(hint);
+    foot.appendChild(toggle);
+    root.appendChild(seg);
+    root.appendChild(body);
+    root.appendChild(foot);
+    return root;
+  }
+
   /** 블록 하나 렌더. textContent 만 쓴다(시트 유래 문자열의 HTML 해석 원천 차단).
    *  부적합 값은 header 의 '부적합' 열, 헤더 없는 블록(이번 주)은 타일로. */
   function renderBlock_(block, serverToday, weekCards) {
@@ -1636,6 +1894,10 @@
       vhint.setAttribute('aria-hidden', 'true');
       vhint.hidden = true;
       wrap.appendChild(vhint);
+      /* 협력회사별 도넛(2026-10-28) — 그래프를 표 자리에 두고 표는 「표로 보기」 뒤로 접는다.
+         typeof 가드는 위 아이콘과 같은 이유다(조각 테스트). null 이면 표가 그대로 보인다. */
+      var compChart = (typeof renderCompChart_ === 'function') ? renderCompChart_(block, wrap) : null;
+      if (compChart) sec.appendChild(compChart);
       sec.appendChild(wrap);
       var cards = null;
       if (block.keys) {                        // 공사별 — 좁은 화면용 카드도 함께(CSS 가 폭에 따라 하나만 보인다)

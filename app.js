@@ -781,6 +781,13 @@
         /* 서버가 "안 바뀌었다"고 했다. 캐시본을 그대로 쓰되 **준비상태(caps)는 매번 최신**이다
            — 스코프 승인·탭 생성이 끝나면 버튼이 나와야 하는데 그건 마스터 내용이 아니다. */
         state.masters.caps = d.caps;
+        /* 공사별 최근 작업일은 rev 밖이라 masters 를 생략해도 따로 온다(서버 handleBootstrap_).
+           없으면(구서버·서버 계산 실패) 캐시본 값을 그대로 둔다. */
+        if (d.project_last_work && typeof d.project_last_work === 'object') {
+          (state.masters.projects || []).forEach(function (p) {
+            if (typeof d.project_last_work[p.project_id] === 'string') p.last_work = d.project_last_work[p.project_id];
+          });
+        }
         state.mastersSyncedAt = new Date().toISOString();
         mastersLastOkAt = Date.now();
         state.storage.saveMasters({ data: state.masters, syncedAt: state.mastersSyncedAt });
@@ -2839,14 +2846,27 @@
     return tpls.filter(function (t) { return t.template_id === id; })[0] || null;
   }
   function onPlanCompanyChange(e) {
-    populateProjectSelect(e.target.value, { selectId: 'p-project', extraValue: '__NEW__', extraLabel: '새 공사 등록' });
+    populateProjectSelect(e.target.value, { selectId: 'p-project', extraValue: '__NEW__', extraLabel: '새 공사 등록',
+                                            baseDate: $('p-date').value });
     $('p-project-new-wrap').hidden = true;
     $('p-project-new').value = '';
   }
   function onPlanProjectChange(e) {
+    if (e.target.value === PROJECT_MORE) {
+      populateProjectSelect($('p-company').value, { selectId: 'p-project', extraValue: '__NEW__', extraLabel: '새 공사 등록',
+                                                    all: true, keep: projectSelectPrev['p-project'], baseDate: $('p-date').value });
+      return;
+    }
+    projectSelectPrev['p-project'] = e.target.value;
     var isNew = e.target.value === '__NEW__';
     $('p-project-new-wrap').hidden = !isNew;
     if (!isNew) $('p-project-new').value = '';
+  }
+  /* 점검예정일이 바뀌면 '최근' 기준이 바뀐다 — 고른 값과 더 보기 상태는 그대로 둔다. */
+  function onPlanDateChange() {
+    populateProjectSelect($('p-company').value, { selectId: 'p-project', extraValue: '__NEW__', extraLabel: '새 공사 등록',
+                                                  all: projectSelectAll['p-project'], keep: $('p-project').value,
+                                                  baseDate: $('p-date').value });
   }
   function onPlanTeamChange(e) {
     populateInspectorSelect(e.target.value, 'p-inspector');
@@ -3049,7 +3069,8 @@
     populateCompanySelect();
     $('f-company').value = draft.company_id || '';
     $('f-company').disabled = locked;
-    populateProjectSelect(draft.company_id);
+    populateProjectSelect(draft.company_id, { keep: /^TMP-/.test(draft.project_key || '') ? '__TMP__' : draft.project_key,
+                                              baseDate: $('f-date').value });
     if (/^TMP-/.test(draft.project_key || '')) {
       $('f-project').value = '__TMP__';
       $('f-project-tmp-wrap').hidden = false;
@@ -3101,23 +3122,61 @@
   /* opts.selectId 기본 f-project. opts.extraValue/extraLabel 로 목록 끝 특수 옵션을 바꾼다 —
      작성 화면은 '미등록 공사(직접 입력)'(TMP, 오프라인 탈출구), 사전등록 화면은
      '새 공사 등록'(정식 공사만 만든다, 설계 §5) — 값·문구가 다르므로 하드코딩하지 않는다. */
+  /* 공사 목록은 **최근 공사만** 보인다(사용자 지시 2026-10-28) — 이름에 '인입공사'(공백 무시)가
+     든 공사는 빼고, 기준일(점검일·점검예정일) 14일 전 이후에 작업일(서버 last_work)이 있는 공사만.
+     '이전 공사 더 보기'(PROJECT_MORE)를 고르면 기간 조건만 풀린다 — 오래된 공사를 못 찾아
+     직접 입력으로 같은 공사를 또 만드는 일을 막는다. opts.keep(이미 고른 값)은 걸러져도 남긴다.
+     last_work 가 없는 공사(옛 캐시·방금 만든 공사)는 판단 근거가 없으므로 거르지 않는다. */
+  var PROJECT_MORE = '__MORE__';
+  var PROJECT_RECENT_DAYS = 14;
+  var projectSelectAll = Object.create(null);    /* selectId → 더 보기를 누른 상태 */
+  var projectSelectPrev = Object.create(null);   /* selectId → 더 보기 직전 값(되돌려 놓는다) */
+  function isInletProject(name) {
+    return String(name || '').replace(/\s+/g, '').indexOf('인입공사') !== -1;
+  }
+  /* 'yyyy-MM-dd' 를 UTC 자정으로 읽어 이동한다 — 기기 시간대가 안 섞인다. 형식이 아니면 ''. */
+  function addDaysStr(dateStr, days) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr || '')) return '';
+    var d = new Date(Date.parse(dateStr + 'T00:00:00Z') + days * 86400000);
+    return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
+  }
   function populateProjectSelect(companyId, opts) {
     opts = opts || {};
-    var sel = $(opts.selectId || 'f-project');
+    var id = opts.selectId || 'f-project';
+    var sel = $(id);
+    var keep = opts.keep || '';
+    var cutoff = addDaysStr(opts.baseDate || todayStr(), -PROJECT_RECENT_DAYS);
+    var hiddenOld = 0;
+    projectSelectAll[id] = !!opts.all;
     sel.innerHTML = '';
     sel.appendChild(placeholderOption('공사 선택'));
     ((state.masters && state.masters.projects) || [])
       .filter(function (p) { return p.company_id === companyId && p.status === '진행'; })
+      .filter(function (p) {
+        if (p.project_id === keep) return true;
+        if (isInletProject(p.name)) return false;
+        if (opts.all || typeof p.last_work !== 'string' || !cutoff || p.last_work >= cutoff) return true;
+        hiddenOld++;
+        return false;
+      })
       .forEach(function (p) {
         var opt = document.createElement('option');
         opt.value = p.project_id; opt.textContent = p.name;
         sel.appendChild(opt);
       });
+    if (hiddenOld) {
+      var moreOpt = document.createElement('option');
+      moreOpt.value = PROJECT_MORE;
+      moreOpt.textContent = '이전 공사 더 보기 (' + hiddenOld + '개)';
+      sel.appendChild(moreOpt);
+    }
     var extraOpt = document.createElement('option');
     extraOpt.value = opts.extraValue || '__TMP__';
     extraOpt.textContent = opts.extraLabel || '미등록 공사(직접 입력)';
     sel.appendChild(extraOpt);
     sel.disabled = !companyId;
+    if (keep) sel.value = keep;
+    projectSelectPrev[id] = sel.value;
   }
   function populateTeamSelect(selectId) {
     var sel = $(selectId || 'f-team');
@@ -3154,13 +3213,19 @@
     state.draft.company_id = e.target.value;
     state.draft.project_key = '';
     state.draft.project_name = '';
-    populateProjectSelect(e.target.value);
+    populateProjectSelect(e.target.value, { baseDate: state.draft.inspect_date });
     $('f-project-tmp-wrap').hidden = true;
     invalidateAck();
     persistDraft();
   }
   function onProjectChange(e) {
     var v = e.target.value;
+    if (v === PROJECT_MORE) {
+      populateProjectSelect(state.draft.company_id, { all: true, keep: projectSelectPrev['f-project'],
+                                                     baseDate: state.draft.inspect_date });
+      return;
+    }
+    projectSelectPrev['f-project'] = v;
     var tmpWrap = $('f-project-tmp-wrap');
     if (v === '__TMP__') {
       tmpWrap.hidden = false;
@@ -3198,6 +3263,9 @@
   }
   function onDateChange(e) {
     state.draft.inspect_date = e.target.value;
+    /* 점검일이 '최근 공사' 기준이다 — 고른 값과 더 보기 상태는 그대로 두고 목록만 다시 거른다. */
+    populateProjectSelect(state.draft.company_id, { all: projectSelectAll['f-project'], keep: $('f-project').value,
+                                                   baseDate: e.target.value });
     invalidateAck();
     persistDraft();
   }
@@ -3882,6 +3950,7 @@
     });
     $('btn-plan-create').addEventListener('click', onCreatePlan);
     $('p-company').addEventListener('change', onPlanCompanyChange);
+    $('p-date').addEventListener('change', onPlanDateChange);
     $('p-project').addEventListener('change', onPlanProjectChange);
     $('p-team').addEventListener('change', onPlanTeamChange);
     $('p-pin').addEventListener('input', clampPinInput);

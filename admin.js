@@ -19,9 +19,9 @@
   var SID_STORE = 'safety_admin_sid';
   var PENDING_STORE = 'safety_admin_pending';
   var REQUEST_TIMEOUT_MS = 12000;
-  var ADMIN_BUILD = '0.5.5-513f65d3';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
+  var ADMIN_BUILD = '0.5.5-6996a372';                  // tools/stamp_web_version.py 가 찍는다 — 손으로 고치지 않는다
 
-  var state = { key: '', sid: '', who: null, roles: [], tab: '', gen: 0, viewGen: 0, showDeleted: false, tplOff: false };
+  var state = { key: '', sid: '', who: null, roles: [], tab: '', gen: 0, viewGen: 0, showDeleted: false, tplOff: false, auditId: null };
   var NEVER = function () { return new Promise(function () { /* 버린 응답 — 콜백을 부르지 않는다 */ }); };
 
   /* 서버가 기능을 알릴 때 점검 양식 탭(10-23 지시). 「확인 필요」는 미결 요청을 닫는 안전장치다. */
@@ -32,7 +32,8 @@
     { id: 'tpl', label: '점검 양식', role: 'master' },
     { id: 'ingest', label: '자동등록 보류', role: 'ingest' },
     { id: 'record', label: '기록 정정', role: 'record' },          // 대시보드 「확인이 필요한 기록」의 중복 점검 정정(10-26 지시)
-    { id: 'reqs', label: '확인 필요', role: '' }
+    { id: 'reqs', label: '확인 필요', role: '' },
+    { id: 'audit', label: '감사', role: 'owner' }                  // 마스터(ADMIN_OWNER) 전용 — '*' 로 보이지 않는다(10-28 지시)
   ];
 
   var ERR = {
@@ -53,7 +54,9 @@
     REQ_REUSED: '같은 요청 번호로 다른 내용을 보냈습니다 — 새로 시도하세요',
     REQ_ABANDONED: '폐기한 요청입니다',
     LOCAL_BUSY: '다른 탭에서 같은 대상에 요청을 보냈습니다 — 「결과 확인」부터 하세요',
-    LOCAL_STORE: '이 브라우저에 요청 기록을 남기지 못해 보내지 않았습니다 — 사생활 보호 모드·저장 공간을 확인하세요'
+    LOCAL_STORE: '이 브라우저에 요청 기록을 남기지 못해 보내지 않았습니다 — 사생활 보호 모드·저장 공간을 확인하세요',
+    AUDIT_RATE: '감사는 1시간에 한 번만 실행할 수 있습니다',
+    AUDIT_BUSY: '감사가 이미 실행 중입니다 — 잠시 뒤 새로 고치세요'
   };
   var VMSG = {
     ITEMS_INVALID: '항목은 1~300개입니다', ITEM_INVALID: '항목 형식이 맞지 않습니다', ITEM_TYPE_INVALID: '유형을 고르세요',
@@ -464,12 +467,15 @@
         if (!r || !r.ok) return;
         state.who = r.data; state.roles = r.data.roles || [];
         renderPending();                                    // 미결은 계정별 — whoami 뒤에 다시 그린다
-        $('adm-who').textContent = (r.data.name || '') + '(' + r.data.real_id + ') · ' + (state.roles.indexOf('*') >= 0 ? '전체 권한' : '역할 ' + state.roles.join(','));
+        $('adm-who').textContent = (r.data.name || '') + '(' + r.data.real_id + ') · ' + (state.roles.indexOf('owner') >= 0 ? '마스터' : state.roles.indexOf('*') >= 0 ? '전체 권한' : '역할 ' + state.roles.join(','));
         renderTabs();
       });
     }
   }
-  function hasRole(role) { return !role || state.roles.indexOf('*') >= 0 || state.roles.indexOf(role) >= 0; }
+  function hasRole(role) {
+    if (role === 'owner') return state.roles.indexOf('owner') >= 0;      // 마스터는 '*' 로 얻어지지 않는다
+    return !role || state.roles.indexOf('*') >= 0 || state.roles.indexOf(role) >= 0;
+  }
   var TPL_HIDDEN = '서버가 아직 이 기능을 모릅니다 — 서버 갱신 뒤 쓸 수 있습니다';
   function tplAction_(a) { return ['adm_tpl_list','adm_item_list','adm_tpl_publish'].indexOf(a) >= 0; }
   function tplAllowed_() { return !state.tplOff && hasRole('master') && state.who && (state.who.features || []).indexOf('tpl') >= 0; }
@@ -918,7 +924,86 @@
     }
     draw();
   }
-  var VIEWS = { roster: viewRoster, company: viewCompany, project: viewProject, tpl: viewTpl, ingest: viewIngest, record: viewRecord, reqs: viewReqs };
+  /* ---------- 감사(마스터 전용) ----------
+     규칙 집계(서버 원장) + Jev 판정 + Claude 문안. 실행·보관은 Worker 가 하고, 화면은 읽기만 한다. 사람은 이름으로만 보인다. */
+  var AUD_CLAUDE = { off: 'Claude 키 없음 — 규칙 집계·판정만 표시', limit: '월 한도 도달 — 이번 달 Claude 문안 중단', failed: '문안 생성 실패' };
+  var AUD_STATUS = { running: '실행 중', done: '완료', failed: '실패', aborted: '중단됨' };
+  var AUD_KIND = { n_zero: '부적합 0건', repeat: '같은 결과 반복', open_long: '장기 미조치', dup: '같은 날 중복' };
+  function usd(v) { return '$' + (Number(v) || 0).toFixed(4); }
+  function viewAudit(main) {
+    return read('adm_review_list', state.auditId ? { id: state.auditId } : {}).then(function (r) {
+      if (!r || !r.ok) return failInto(main, r);
+      var d = r.data || {}, rep = d.report, m = d.month || {};
+      var wait = d.next_run_ms && d.now_ms < d.next_run_ms ? Math.ceil((d.next_run_ms - d.now_ms) / 60000) : 0;
+      main.appendChild(card('감사 실행', [
+        el('p', { 'class': 'adm-muted', text: '매주 월요일 07:00 자동 실행 · 이번 달(' + (m.ym || '-') + ') Claude 비용 ' + usd(m.usd) + ' / 한도 ' + usd(m.limit_usd) +
+          (wait ? ' · 다음 수동 실행 ' + wait + '분 뒤' : '') }),
+        el('div', { 'class': 'adm-actions' }, [btn('지금 실행', function () {
+          read('adm_review_run').then(function (x) {
+            if (!x || !x.ok) { flash(errText(x), 'err'); return; }
+            if (!x.data || !x.data.started) { flash('이 서버는 감사 보고를 보관하지 않습니다(Worker 전용)', 'warn'); return; }
+            state.auditId = null; flash('감사를 시작했습니다 — 1~3분 뒤 새로 고치세요', 'ok'); refresh();
+          });
+        }), btn('새로 고침', function () { refresh(); }, 'ghost')])
+      ]));
+      if (!rep) main.appendChild(msgBox('아직 감사 보고가 없습니다', ''));
+      else audReport(main, rep);
+      if ((d.reports || []).length) main.appendChild(card('지난 보고', [table(['실행 시각', '방식', '실행자', '상태', '소요', '비용', '신호', ''],
+        d.reports.map(function (x) {
+          return [x.started_at, x.trigger === 'cron' ? '정기' : '수동', x.actor || '-', AUD_STATUS[x.status] || x.status,
+            x.elapsed_ms == null ? '-' : Math.round(x.elapsed_ms / 1000) + '초', usd(x.cost_usd), x.flags + '건',
+            sbtn(rep && rep.id === x.id ? '보는 중' : '보기', function () { state.auditId = x.id; refresh(); })];
+        }), [0])]));
+    });
+  }
+  function audReport(main, rep) {
+    var c = rep.claude || {}, x = rep.rules, jev = rep.jev || { state: 'off' };
+    main.appendChild(card('감사 보고 — ' + rep.started_at + ' (' + (AUD_STATUS[rep.status] || rep.status) + ')', [
+      el('p', { 'class': 'adm-muted', text: (rep.trigger === 'cron' ? '정기 실행' : '수동 실행 · ' + (rep.actor || '')) +
+        (rep.elapsed_ms == null ? '' : ' · 소요 ' + Math.round(rep.elapsed_ms / 1000) + '초') + ' · 비용 ' + usd(rep.cost_usd) + (c.model ? ' · ' + c.model : '') }),
+      c.state === 'ok' ? el('div', { 'class': 'adm-audit-text', style: 'white-space:pre-wrap', text: c.text + (c.truncated ? '\n(길이 한도로 잘림)' : '') })
+        : msgBox(rep.status === 'running' ? '실행 중입니다 — 잠시 뒤 새로 고치세요'
+          : (AUD_CLAUDE[c.state] || '문안 없음') + (c.reason ? ' (' + c.reason + ')' : ''), c.state === 'failed' ? 'err' : 'warn')
+    ], null, true));
+    if (!x) { main.appendChild(msgBox('규칙 집계를 읽지 못했습니다', 'err')); return; }
+    var checks = {};
+    (jev.checks || []).forEach(function (k) { checks[k.kind + '\n' + k.subject] = k; });
+    function judge(s) {
+      if (jev.state === 'off') return '-';
+      var k = checks[s.kind + '\n' + s.subject];
+      if (!k || k.failed) return '판정 실패';
+      return (k.need ? '확인 필요' : '낮음') + '(' + k.p.toFixed(2) + ')';
+    }
+    var t = x.totals || {}, f = x.findings || {}, p = x.plans || {}, g = x.ingest || {}, rs = g.resend || {}, dp = x.dups || {};
+    main.appendChild(card('신호 ' + (x.flags || []).length + '건', [(x.flags || []).length
+      ? table(['종류', '대상', '내용', 'Jev'], x.flags.map(function (s) { return [AUD_KIND[s.kind] || s.kind, s.subject, s.text, judge(s)]; }), [0, 3])
+      : msgBox('걸린 신호가 없습니다', 'ok')]));
+    main.appendChild(card('규칙 집계 (' + x.from7 + ' ~ ' + x.today + ' · 누적)', [table(['항목', '값'], [
+      ['유효 점검(누적 / 최근 7일)', t.valid + ' / ' + t.valid7], ['부적합(N) 기록 점검', t.with_n + '건'],
+      ['점검자 / N 0건 점검자', t.inspectors + '명 / ' + t.inspectors_n_zero + '명'],
+      ['부적합 미조치(open) / 최장', f.open + '건 / ' + (f.oldest_open_days == null ? '-' : f.oldest_open_days + '일')],
+      ['미점검 확정(누적 / 최근 7일)', p.unchecked + ' / ' + p.unchecked7], ['예정일 지난 미점검 계획', p.stale_planned + '건'],
+      ['자동등록 보류(7일)', (g.holds || []).map(function (h) { return h.key + ' ' + h.n; }).join(', ') || '없음'],
+      ['자동등록 거절(7일)', g.rejected + '건'],
+      ['재송부(취소·담당 변경·되살림)', rs.resend_canceled + ' · ' + rs.resend_owner_changed + ' · ' + rs.resend_revived],
+      ['미등록 이름', (g.unknown_names || []).join(', ') || '없음'], ['미등록 회사', (g.unknown_companies || []).join(', ') || '없음'],
+      ['같은 공사·같은 날 중복(누적 / 7일)', dp.total + ' / ' + dp.recent7]
+    ], [0])]));
+    main.appendChild(card('점검자별', [table(['이름', '팀', '유효', 'N 기록', 'N 비율', '같은 결과 최대', 'NA 평균', '최근 7일(N)'],
+      (x.inspectors || []).map(function (o) {
+        return [o.name, o.team, o.n, o.n_with_n, Math.round(o.n_rate * 100) + '%', o.repeat_max, o.na_avg, o.n7 + '(' + o.n7_with_n + ')'];
+      }), [0])]));
+    if (jev.state !== 'off') main.appendChild(card('부적합 메모 구체성(Jev 0 모호 ~ 2 구체)', [table(['점검일', '공사', '항목', '메모', '구체성'],
+      (jev.scores || []).map(function (s) { return [s.date, s.project, s.item, s.note, s.failed ? '판정 실패' : String(s.score)]; }), [0, 4])]));
+    if ((f.open_list || []).length) main.appendChild(card('미조치 부적합', [table(['점검일', '경과', '공사', '항목', '점검자'],
+      f.open_list.map(function (o) { return [o.date, o.days == null ? '-' : o.days + '일', o.project, o.item, o.inspector]; }), [0, 1])]));
+    if ((p.stale_list || []).length) main.appendChild(card('예정일 지난 계획', [table(['예정일', '회사', '공사'],
+      p.stale_list.map(function (o) { return [o.date, o.company, o.project]; }), [0])]));
+    if ((dp.list || []).length) main.appendChild(card('같은 날 중복 유효 제출', [table(['점검일', '공사', '건수', '점검자'],
+      dp.list.map(function (o) { return [o.date, o.project, o.n, o.names.join(', ')]; }), [0])]));
+  }
+
+  var VIEWS = { roster: viewRoster, company: viewCompany, project: viewProject, tpl: viewTpl, ingest: viewIngest, record: viewRecord, reqs: viewReqs, audit: viewAudit };
 
   /* ---------- 서비스워커 확인 문턱(설계 §9 4단계, Codex P6-R2-01) ----------
      불변식(Codex P6-R7-01): 「이 페이지 묶음의 버전(config.js 의 APP_VER — admin.html 이 ?v= 로 고정해 부른다)」 ==
