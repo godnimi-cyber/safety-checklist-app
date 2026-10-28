@@ -1489,12 +1489,16 @@
      색은 표시되는 개별 회사(최대 COMP_COLORS_ 곳)를 **회사명 순**으로 1..5 에 배정한다 — 지표를
      바꿔도 회사 집합이 같으면 같은 회사가 같은 색이다. 회사가 COMP_COLORS_ 곳보다 많으면 상위
      COMP_COLORS_ 곳 + '기타'(회색)로 묶는다 — 색이 5개뿐이라 6조각부터는 두 회사가 한 색을 나눠
-     같은 색 조각이 이웃할 수 있어서다. 지표·표 펼침·고정 선택(pick = 회사명) 상태는 재렌더(필터
-     변경) 뒤에도 남도록 세션 메모리(compChartUi_)에 둔다.
+     같은 색 조각이 이웃할 수 있어서다. 지표·표 펼침 상태는 재렌더(필터 변경) 뒤에도 남도록 세션
+     메모리(compChartUi_)에 둔다. 고정 선택(pick = 회사명)도 여기 두지만 지표 전환에만 유지되고 새
+     renderCompChart_ 호출에서는 풀린다(v4).
      v2(2026-10-28 사용자 지시 "숫자카드와 도넛 정보가 중복되니 그래프를 앞쪽으로 빼고 숫자 카드는
      삭제 … 데스크탑에서 너무 작아 … 좀 더 인터랙티브하게") — 지표 전환 버튼이 합계 숫자를 품은
      **숫자 탭**이 되어 상단 KPI 카드 줄을 대신하고(renderView_ 가 이 카드를 맨 앞에 둔다), 조각·목록
-     행 hover/포커스 강조(양방향)·클릭 고정 선택·선택 회사 상세 패널(3지표 + 부적합률)이 붙었다. */
+     행 hover/포커스 강조(양방향)·클릭 고정 선택·선택 회사 상세 패널(3지표 + 부적합률)이 붙었다.
+     v4(2026-10-28 사용자 지시 "마우스 커서가 없어도 전체가 안보이고 특정 업체 정보만 보여") — 커서·
+     선택이 없으면 늘 전체. 마우스 클릭은 고정하지 않고(올린 동안만 강조), 고정은 터치·펜 탭과
+     키보드 Enter·Space 만 한다. 상세 패널은 강조 중인 회사(없으면 전체)를 따라간다. */
   var COMP_METRICS_ = ['점검', '공사', '부적합'];
   var COMP_COLORS_ = 5;
   var compChartUi_ = { metric: '점검', table: false, pick: '' };
@@ -1734,13 +1738,16 @@
   /** 협력회사별 블록의 그래프 — compChartable_ 이 아니면 null(호출부가 기존 표를 그대로 보인다).
    *  tableWrap 은 renderBlock_ 이 만든 기존 표 — 「표로 보기」는 그 hidden 만 바꾼다.
    *  숫자 탭 = [점검 111][공사 69][부적합 5] — 라벨 + 합계(= rangeKpiData_), 누르면 그 지표로.
-   *  강조(hover·포커스)는 조각과 목록 행 양방향이고 일시적이다. 고정 선택(클릭·Enter·Space)은 회사명으로
-   *  compChartUi_.pick 에 남아 지표 전환·재렌더 뒤에도 유지되고, 그 회사가 이 지표에서 '기타'로 묶이거나
-   *  rows 에 없으면 풀린다. 다시 누르기·빈 곳 클릭·Esc 로 해제. 상세 패널은 고정 선택(없으면 전체)의
-   *  점검·공사·부적합·부적합률을 한 줄로 보인다. */
+   *  강조는 조각과 목록 행 양방향이고 일시적이다 — 마우스는 올린 동안만, 키보드는 :focus-visible 포커스
+   *  동안만(마우스 클릭으로 생긴 포커스는 치지 않는다). 고정 선택은 터치·펜 탭(pointerType 을 모르는 클릭
+   *  포함)·Enter·Space 로 회사명을 compChartUi_.pick 에 남긴다 — 마우스 클릭은 고정하지 않는다. 지표
+   *  전환에는 유지되고 그 회사가 이 지표에서 '기타'로 묶이면 풀리며, 새 호출(필터·조회·새로고침 재렌더)은
+   *  늘 전체에서 시작한다. 다시 누르기·빈 곳 클릭·Esc 로 해제. 상세 패널은 강조 중인 회사(hover 또는
+   *  고정, 없거나 '기타'면 전체)의 점검·공사·부적합·부적합률을 한 줄로 보인다. */
   function renderCompChart_(block, tableWrap) {
     if (!compChartable_(block)) return null;
     if (COMP_METRICS_.indexOf(compChartUi_.metric) < 0) compChartUi_.metric = COMP_METRICS_[0];
+    compChartUi_.pick = '';                    // v4 — 새로 그리면 기본 = 전체(지표·표 펼침만 유지)
     var root = document.createElement('div');
     root.className = 'dash-comp';
     var seg = document.createElement('div');
@@ -1751,8 +1758,8 @@
     body.className = 'dash-comp-body';
     var side = document.createElement('div');
     side.className = 'dash-comp-side';
+    /* 상세 패널은 hover 마다 바뀌므로 aria-live 를 두지 않는다(낭독 폭주 — 조각·행 aria-label 이 같은 정보를 준다) */
     var detail = document.createElement('div');
-    detail.setAttribute('aria-live', 'polite');
     var foot = document.createElement('div');
     foot.className = 'dash-comp-foot';
     var summary = document.createElement('p');
@@ -1782,15 +1789,16 @@
       seg.appendChild(b);
       return b;
     });
-    var ui = null, hover = null, detailFor = null;
+    var ui = null, hover = null, lastPointer = '';
     var picked = function () {
       var hit = null;
       ui.model.items.forEach(function (it) { if (!it.other && it.name === compChartUi_.pick) hit = it; });
       return hit;
     };
-    var fillDetail = function () {
-      var d = compDetailModel_(block.rows, compChartUi_.pick);
-      var it = picked();
+    /* active = 강조 중인 항목(hover || 고정) — '기타'·없음이면 전체 */
+    var fillDetail = function (active) {
+      var it = active && !active.other ? active : null;
+      var d = compDetailModel_(block.rows, it ? it.name : '');
       detail.className = 'dash-comp-detail' + (it ? ' dash-cc-' + it.color : '');
       detail.textContent = '';
       var nm = document.createElement('span');
@@ -1817,7 +1825,6 @@
         cell.appendChild(val);
         detail.appendChild(cell);
       });
-      detailFor = compChartUi_.pick;
     };
     /* 강조·선택을 지금 DOM 에 반영한다(다시 만들지 않는다 — 초점을 잃지 않게). */
     var sync = function () {
@@ -1829,11 +1836,11 @@
         if (!e.item.other) e.el.setAttribute(e.pinAttr, String(e.item === pin));
       });
       ui.center(active);
-      if (detailFor !== compChartUi_.pick) fillDetail();   // hover 로는 바꾸지 않는다(aria-live 낭독 폭주 방지)
+      fillDetail(active);
     };
     var pick = function (it) {
-      if (it.other) return;                    // '기타'는 지표마다 묶이는 회사가 달라 고정하지 않는다
-      compChartUi_.pick = compChartUi_.pick === it.name ? '' : it.name;
+      /* '기타'는 지표마다 묶이는 회사가 달라 고정하지 않는다 */
+      if (!it.other) compChartUi_.pick = compChartUi_.pick === it.name ? '' : it.name;
       sync();
     };
     var unpick = function () {
@@ -1848,11 +1855,30 @@
         reg.els.push({ el: el, item: it, pinAttr: pinAttr });
         var enter = function () { hover = it; sync(); };
         var leave = function () { if (hover === it) { hover = null; sync(); } };
-        el.addEventListener('mouseenter', enter);
-        el.addEventListener('mouseleave', leave);
-        el.addEventListener('focus', enter);
+        /* 마우스만 hover — 터치 뒤 브라우저가 흉내 내는 mouse 이벤트는 PointerEvent 경로에선 듣지 않는다 */
+        if (typeof PointerEvent !== 'undefined') {
+          el.addEventListener('pointerenter', function (e) { if (e && e.pointerType === 'mouse') enter(); });
+          el.addEventListener('pointerleave', function (e) { if (e && e.pointerType === 'mouse') leave(); });
+        } else {
+          el.addEventListener('mouseenter', enter);
+          el.addEventListener('mouseleave', leave);
+        }
+        /* 키보드 포커스(:focus-visible)만 강조 — 마우스 클릭으로 생긴 포커스는 커서가 떠난 뒤 남지 않게.
+           matches 가 없거나 :focus-visible 을 모르면(예외) 키보드로 간주한다 */
+        el.addEventListener('focus', function () {
+          var key = true;
+          try { key = typeof el.matches !== 'function' || el.matches(':focus-visible'); } catch (x) { key = true; }
+          if (key) enter();
+        });
         el.addEventListener('blur', leave);
-        el.addEventListener('click', function (e) { stop(e); pick(it); });
+        el.addEventListener('click', function (e) {
+          stop(e);
+          var pt = lastPointer;
+          lastPointer = '';
+          if (pt === 'mouse') return;            // 마우스 클릭은 고정하지 않는다 — 올린 동안만 보인다
+          hover = null;                          // 터치 뒤 흉내 mouseenter·포커스 강조가 고정 해제 뒤 남지 않게
+          pick(it);                              // 터치·펜·모르는 클릭 = 고정 토글
+        });
         el.addEventListener('keydown', function (e) {
           if (!e || (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar')) return;
           if (typeof e.preventDefault === 'function') e.preventDefault();   // Space 가 쪽을 내리지 않게
@@ -1894,6 +1920,8 @@
     body.addEventListener('click', unpick);    // 빈 곳 — 조각·행·상세 패널은 stop 으로 막는다
     detail.addEventListener('click', stop);
     root.addEventListener('keydown', function (e) { if (e && e.key === 'Escape') unpick(); });
+    /* 조각·행 click 이 마우스인지 터치·펜인지 — 마지막 pointerdown 의 pointerType(없으면 '' = 모름) */
+    root.addEventListener('pointerdown', function (e) { lastPointer = (e && e.pointerType) || ''; });
     var syncTable = function () {
       tableWrap.hidden = !compChartUi_.table;
       toggle.textContent = compChartUi_.table ? '표 접기' : '표로 보기';
