@@ -1489,27 +1489,21 @@
      색은 표시되는 개별 회사(최대 COMP_COLORS_ 곳)를 **회사명 순**으로 1..5 에 배정한다 — 지표를
      바꿔도 회사 집합이 같으면 같은 회사가 같은 색이다. 회사가 COMP_COLORS_ 곳보다 많으면 상위
      COMP_COLORS_ 곳 + '기타'(회색)로 묶는다 — 색이 5개뿐이라 6조각부터는 두 회사가 한 색을 나눠
-     같은 색 조각이 이웃할 수 있어서다. 지표·표 펼침 상태는 재렌더(필터 변경) 뒤에도 남도록 세션
-     메모리(compChartUi_)에 둔다. */
+     같은 색 조각이 이웃할 수 있어서다. 지표·표 펼침·고정 선택(pick = 회사명) 상태는 재렌더(필터
+     변경) 뒤에도 남도록 세션 메모리(compChartUi_)에 둔다.
+     v2(2026-10-28 사용자 지시 "숫자카드와 도넛 정보가 중복되니 그래프를 앞쪽으로 빼고 숫자 카드는
+     삭제 … 데스크탑에서 너무 작아 … 좀 더 인터랙티브하게") — 지표 전환 버튼이 합계 숫자를 품은
+     **숫자 탭**이 되어 상단 KPI 카드 줄을 대신하고(renderView_ 가 이 카드를 맨 앞에 둔다), 조각·목록
+     행 hover/포커스 강조(양방향)·클릭 고정 선택·선택 회사 상세 패널(3지표 + 부적합률)이 붙었다. */
   var COMP_METRICS_ = ['점검', '공사', '부적합'];
   var COMP_COLORS_ = 5;
-  var compChartUi_ = { metric: '점검', table: false };
+  var compChartUi_ = { metric: '점검', table: false, pick: '' };
 
-  /** 합계 100 이 되는 정수 % — 최대 잔여 방식(내림한 뒤 모자란 몫을 잔여가 큰 항목부터 1씩).
-   *  잔여가 같으면 앞 항목이 먼저 받는다. 합계 0 이면 전부 0 이다(0 으로 나누지 않는다). */
-  function largestRemainderPct_(values) {
-    var total = 0;
-    values.forEach(function (v) { total += v; });
-    if (!(total > 0)) return values.map(function () { return 0; });
-    var raw = values.map(function (v) { return v * 100 / total; });
-    var out = raw.map(function (r) { return Math.floor(r); });
-    var left = 100;
-    out.forEach(function (p) { left -= p; });
-    var order = raw.map(function (r, i) { return i; });
-    order.sort(function (a, b) { return ((raw[b] - out[b]) - (raw[a] - out[a])) || (a - b); });
-    for (var k = 0; k < left; k++) out[order[k]] += 1;
-    return out;
-  }
+  /** 비율 글자 — 소수 1자리(30.6%), 0 은 '0%'·100 은 '100%'. p 는 이미 소수 1자리로 반올림한 수다.
+   *  v3(2026-10-28 사용자 지시) — 예전 정수 % 최대 잔여 보정(합계 100)은 24건(21.6%)·23건(20.7%)을
+   *  둘 다 21% 로 보여 건수가 큰 쪽이 같거나 작아 보였다. 이제 회사마다 일반 반올림이라 건수 순서와
+   *  % 순서가 어긋나지 않고, 대신 합계가 99.9·100.1% 일 수 있다. */
+  function compPctText_(p) { return (p === 0 || p === 100 ? String(p) : p.toFixed(1)) + '%'; }
 
   /** 도넛·목록 모형(DOM 없음). rows = 협력회사별 블록 rows([회사, 점검, 공사, 부적합]).
    *  items 는 큰 값 순(같으면 회사명 순), '기타'는 맨 끝. slices 는 값이 있는 항목만 —
@@ -1539,11 +1533,10 @@
       .forEach(function (it, k) { it.color = k + 1; });
     var total = 0;
     items.forEach(function (it) { total += it.value; });
-    var pcts = largestRemainderPct_(items.map(function (it) { return it.value; }));
     var slices = [], acc = 0;
-    items.forEach(function (it, k) {
+    items.forEach(function (it) {
       if (it.other) it.color = 0;
-      it.pct = pcts[k];
+      it.pct = total > 0 ? Math.round(it.value * 1000 / total) / 10 : 0;
       it.share = total > 0 ? it.value * 100 / total : 0;
       if (it.value > 0) {
         var start = acc * 360 / total;
@@ -1551,28 +1544,65 @@
         slices.push({ item: it, start: start, end: acc * 360 / total });
       }
     });
-    return { metric: metric, total: total, items: items, slices: slices, topValue: topValue, topTies: topTies };
+    return { metric: metric, total: total, items: items, slices: slices, topValue: topValue, topTies: topTies,
+      companies: list.length };
   }
 
   /** 목록·조각 이름 — '기타'는 묶인 회사 수를 붙인다. */
   function compItemName_(it) { return it.other ? '기타 (' + it.count + '곳)' : it.name; }
 
-  /** 화면 읽기용 요약 문장 — '점검 109건, 성도산업 31%로 가장 많음'. 동률 1위는 한 회사를
+  /** 조각·목록 행의 접근성 이름 — '성도산업 34건 30.6%'. */
+  function compItemLabel_(it) { return compItemName_(it) + ' ' + it.value + '건 ' + compPctText_(it.pct); }
+
+  /** 부적합률 = 부적합 ÷ 점검, 소수 1자리 %(compPctText_ — 0·100 은 정수). 점검 0 이면 '—'(0 으로 나누지 않는다). */
+  function compRate_(inspections, findings) {
+    if (!(inspections > 0)) return '—';
+    return compPctText_(Math.round(findings * 1000 / inspections) / 10);
+  }
+
+  /** 상세 패널 모형 — name 이 '' 이면 전체 합계(= rangeKpiData_ 의 점검·공사·부적합), 아니면 그
+   *  회사 행. 그 회사가 rows 에 없으면 null. rows 는 compChartable_ 이 숫자를 이미 확인한 것이다. */
+  function compDetailModel_(rows, name) {
+    var d = { name: name || '전체', inspections: 0, projects: 0, findings: 0 };
+    var found = !name;
+    rows.forEach(function (r) {
+      if (name && String(r[0]) !== name) return;
+      found = true;
+      d.inspections += Number(r[1]);
+      d.projects += Number(r[2]);
+      d.findings += Number(r[3]);
+    });
+    if (!found) return null;
+    d.rate = compRate_(d.inspections, d.findings);
+    return d;
+  }
+
+  /** 화면 읽기용 요약 문장 — '점검 111건, 성도산업 30.6%로 가장 많음'. 동률 1위는 한 회사를
    *  골라 말하지 않는다(어느 쪽을 고르든 틀린 문장이 된다). */
   function compSummary_(model) {
     if (!(model.total > 0)) return model.metric + ' 0건';
     var top = model.items[0];
     return model.metric + ' ' + model.total + '건, ' + (model.topTies > 1
       ? top.name + ' 등 ' + model.topTies + '곳이 각 ' + model.topValue + '건으로 가장 많음'
-      : top.name + ' ' + top.pct + '%로 가장 많음');
+      : top.name + ' ' + compPctText_(top.pct) + '로 가장 많음');
   }
 
-  function buildCompList_(model) {
+  /** 순위 목록. ui(renderCompChart_ 의 등록부)가 있으면 행마다 ui.add 로 강조·선택을 배선한다 —
+   *  행은 키보드로 갈 수 있는 option(tabindex=0, 고정 선택 = aria-selected), '기타'는 고정 선택이
+   *  없어 aria-disabled 다. */
+  function buildCompList_(model, ui) {
     var ol = document.createElement('ol');
     ol.className = 'dash-comp-list';
+    ol.setAttribute('role', 'listbox');
+    ol.setAttribute('aria-label', '협력회사별 ' + model.metric + ' 순위');
     model.items.forEach(function (it) {
       var li = document.createElement('li');
       li.className = 'dash-comp-row dash-cc-' + it.color;
+      li.setAttribute('role', 'option');
+      li.setAttribute('tabindex', '0');
+      li.setAttribute('aria-label', compItemLabel_(it));
+      if (it.other) li.setAttribute('aria-disabled', 'true');
+      else li.setAttribute('aria-selected', 'false');
       var top = document.createElement('div');
       top.className = 'dash-comp-top';
       var name = document.createElement('span');
@@ -1591,7 +1621,7 @@
       var unit = document.createElement('span');
       unit.textContent = '건';
       var pct = document.createElement('small');
-      pct.textContent = it.pct + '%';
+      pct.textContent = compPctText_(it.pct);
       val.appendChild(cnt);
       val.appendChild(unit);
       val.appendChild(pct);
@@ -1605,6 +1635,7 @@
       bar.appendChild(fill);
       li.appendChild(top);
       li.appendChild(bar);
+      if (ui) ui.add(li, it, 'aria-selected');
       ol.appendChild(li);
     });
     return ol;
@@ -1612,8 +1643,12 @@
 
   /** 도넛 SVG — circle + stroke-dasharray. 조각이 둘 이상일 때만 조각 끝을 COMP_GAP 만큼 비워
    *  간격을 낸다(비운 자리로 카드 바탕이 보인다 — 두 테마 모두). 1곳 100% 는 dasharray 없이 꽉 찬
-   *  고리, 합계 0 은 회색 빈 고리만. 조각을 누르면 가운데가 그 회사 값으로 바뀐다(다시 누르면 합계). */
-  function buildCompDonut_(model) {
+   *  고리, 합계 0 은 회색 빈 고리만. ui(renderCompChart_ 의 등록부)가 있으면 조각마다 ui.add 로
+   *  강조·선택을 배선하고(조각 = 키보드로 갈 수 있는 button, 고정 선택 = aria-pressed), 가운데 글자
+   *  갱신 함수를 ui.center 에 건넨다. svg 는 role=group 이다 — role=img 면 안의 조각 버튼이 보조기술에서
+   *  사라진다. 펼침 애니메이션: 조각을 길이 0·12시 자리(인라인 style)로 시작시키고 ui.anim 에 넣는다 —
+   *  호출부가 인라인 style 을 지우면 CSS transition 이 속성값(제자리)까지 펼친다. */
+  function buildCompDonut_(model, ui) {
     var NS = 'http://www.w3.org/2000/svg';
     var SIZE = 180, R = 60, STROKE = 26, GAP = 2;
     var C = 2 * Math.PI * R;
@@ -1627,21 +1662,24 @@
       return mk('circle', { r: String(R), cx: String(SIZE / 2), cy: String(SIZE / 2), fill: 'none',
         'stroke-width': String(STROKE), transform: 'rotate(-90 ' + SIZE / 2 + ' ' + SIZE / 2 + ')', 'class': cls });
     };
-    var label = function (it) { return compItemName_(it) + ' ' + it.value + '건(' + it.pct + '%)'; };
+    var label = function (it) { return compItemName_(it) + ' ' + it.value + '건(' + compPctText_(it.pct) + ')'; };
     var host = document.createElement('div');
     host.className = 'dash-comp-donut';
-    var svg = mk('svg', { viewBox: '0 0 ' + SIZE + ' ' + SIZE, 'class': 'dash-comp-svg', role: 'img',
+    var svg = mk('svg', { viewBox: '0 0 ' + SIZE + ' ' + SIZE, 'class': 'dash-comp-svg', role: 'group',
       'aria-label': '협력회사별 ' + model.metric + ' 구성비 — ' + (model.total > 0
         ? model.slices.map(function (s) { return label(s.item); }).join(', ')
         : model.metric + ' 0건') });
     if (!model.slices.length) svg.appendChild(ring('dash-comp-track'));
     var totalText = mk('text', { x: String(SIZE / 2), y: '94', 'text-anchor': 'middle', 'class': 'dash-comp-total' });
     var unitText = mk('text', { x: String(SIZE / 2), y: '116', 'text-anchor': 'middle', 'class': 'dash-comp-unit' });
-    var picked = null;
+    var pctText = mk('text', { x: String(SIZE / 2), y: '124', 'text-anchor': 'middle', 'class': 'dash-comp-unit' });
+    /* 가운데 — 강조한 회사가 있으면 값·이름·% 세 줄, 없으면 합계·'지표 · 건' 두 줄 */
     var center = function (it) {
-      picked = it;
       totalText.textContent = String(it ? it.value : model.total);
-      unitText.textContent = it ? compItemName_(it) + ' · ' + it.pct + '%' : model.metric + ' · 건';
+      unitText.textContent = it ? compItemName_(it) : model.metric + ' · 건';
+      pctText.textContent = it ? compPctText_(it.pct) : '';
+      totalText.setAttribute('y', it ? '86' : '94');
+      unitText.setAttribute('y', it ? '106' : '116');
     };
     model.slices.forEach(function (s) {
       var c = ring('dash-comp-slice dash-cc-' + s.item.color);
@@ -1649,36 +1687,59 @@
         var len = (s.end - s.start) / 360 * C;
         c.setAttribute('stroke-dasharray', fmt(Math.max(len - GAP, 0)) + ' ' + fmt(C));
         c.setAttribute('stroke-dashoffset', fmt(-s.start / 360 * C));
+        if (ui) {
+          c.style.strokeDasharray = '0 ' + fmt(C);
+          c.style.strokeDashoffset = '0';
+          ui.anim.push(c);
+        }
       }
+      c.setAttribute('tabindex', '0');
+      c.setAttribute('role', 'button');
+      c.setAttribute('aria-label', compItemLabel_(s.item));
+      if (s.item.other) c.setAttribute('aria-disabled', 'true');
+      else c.setAttribute('aria-pressed', 'false');
       var t = mk('title', {});
       t.textContent = label(s.item);
       c.appendChild(t);
-      c.addEventListener('click', function () { center(picked === s.item ? null : s.item); });
+      if (ui) ui.add(c, s.item, 'aria-pressed');
       svg.appendChild(c);
     });
     center(null);
+    if (ui) ui.center = center;
     svg.appendChild(totalText);
     svg.appendChild(unitText);
+    svg.appendChild(pctText);
     host.appendChild(svg);
     var cap = document.createElement('p');
     cap.className = 'dash-comp-cap';
-    cap.textContent = '협력회사별 ' + model.metric + ' 구성비';
+    cap.textContent = '협력회사 ' + model.companies + '곳 · ' + model.metric + ' 구성비';
     host.appendChild(cap);
     return host;
   }
 
-  /** 협력회사별 블록의 그래프 — header 가 ['협력회사','점검','공사','부적합'] 이 아니거나, 숫자를
-   *  못 읽는 행이 있거나, SVG 를 못 만드는 실행환경(조각 테스트의 가짜 DOM)이면 null(호출부가
-   *  기존 표를 그대로 보인다). tableWrap 은 renderBlock_ 이 만든 기존 표 — 「표로 보기」는 그
-   *  hidden 만 바꾼다. */
-  function renderCompChart_(block, tableWrap) {
+  /** 협력회사별 블록이 그래프로 그려지는가 — header 가 ['협력회사','점검','공사','부적합'] 이고, 숫자를
+   *  못 읽는 행이 없고, SVG 를 만들 수 있는 실행환경(조각 테스트의 가짜 DOM 은 아닐 수 있다)일 때만.
+   *  renderView_ 도 이것으로 카드를 맨 앞에 둘지·KPI 카드 줄로 떨어뜨릴지(D1/B1) 정한다. */
+  function compChartable_(block) {
     var h = block.header;
     if (!h || h.length !== 4 || h[0] !== '협력회사' || h[1] !== '점검' ||
-        h[2] !== '공사' || h[3] !== '부적합') return null;
-    if (typeof document.createElementNS !== 'function') return null;
+        h[2] !== '공사' || h[3] !== '부적합') return false;
+    if (typeof document.createElementNS !== 'function') return false;
     for (var mi = 0; mi < COMP_METRICS_.length; mi++) {
-      if (!compDonutModel_(block.rows, COMP_METRICS_[mi])) return null;
+      if (!compDonutModel_(block.rows, COMP_METRICS_[mi])) return false;
     }
+    return true;
+  }
+
+  /** 협력회사별 블록의 그래프 — compChartable_ 이 아니면 null(호출부가 기존 표를 그대로 보인다).
+   *  tableWrap 은 renderBlock_ 이 만든 기존 표 — 「표로 보기」는 그 hidden 만 바꾼다.
+   *  숫자 탭 = [점검 111][공사 69][부적합 5] — 라벨 + 합계(= rangeKpiData_), 누르면 그 지표로.
+   *  강조(hover·포커스)는 조각과 목록 행 양방향이고 일시적이다. 고정 선택(클릭·Enter·Space)은 회사명으로
+   *  compChartUi_.pick 에 남아 지표 전환·재렌더 뒤에도 유지되고, 그 회사가 이 지표에서 '기타'로 묶이거나
+   *  rows 에 없으면 풀린다. 다시 누르기·빈 곳 클릭·Esc 로 해제. 상세 패널은 고정 선택(없으면 전체)의
+   *  점검·공사·부적합·부적합률을 한 줄로 보인다. */
+  function renderCompChart_(block, tableWrap) {
+    if (!compChartable_(block)) return null;
     if (COMP_METRICS_.indexOf(compChartUi_.metric) < 0) compChartUi_.metric = COMP_METRICS_[0];
     var root = document.createElement('div');
     root.className = 'dash-comp';
@@ -1688,6 +1749,10 @@
     seg.setAttribute('aria-label', '그래프 지표');
     var body = document.createElement('div');
     body.className = 'dash-comp-body';
+    var side = document.createElement('div');
+    side.className = 'dash-comp-side';
+    var detail = document.createElement('div');
+    detail.setAttribute('aria-live', 'polite');
     var foot = document.createElement('div');
     foot.className = 'dash-comp-foot';
     var summary = document.createElement('p');
@@ -1695,29 +1760,140 @@
     summary.setAttribute('aria-live', 'polite');
     var hint = document.createElement('span');
     hint.className = 'dash-comp-hint';
-    hint.textContent = '비율 합계 100% 보정';
+    hint.textContent = '비율은 반올림';
     var toggle = document.createElement('button');
     toggle.type = 'button';
     toggle.className = 'dash-btn dash-comp-tabletoggle';
     var segBtns = COMP_METRICS_.map(function (mt) {
+      var total = compDonutModel_(block.rows, mt).total;
       var b = document.createElement('button');
       b.type = 'button';
       b.className = 'dash-comp-segbtn';
-      b.textContent = mt;
+      b.setAttribute('aria-label', mt + ' ' + total + '건');
+      var k = document.createElement('span');
+      k.className = 'dash-comp-segk';
+      k.textContent = mt;
+      var v = document.createElement('b');
+      v.className = 'dash-comp-segv' + (mt === '부적합' && total > 0 ? ' dash-danger' : '');
+      v.textContent = String(total);
+      b.appendChild(k);
+      b.appendChild(v);
       b.addEventListener('click', function () { compChartUi_.metric = mt; paint(); });
       seg.appendChild(b);
       return b;
     });
+    var ui = null, hover = null, detailFor = null;
+    var picked = function () {
+      var hit = null;
+      ui.model.items.forEach(function (it) { if (!it.other && it.name === compChartUi_.pick) hit = it; });
+      return hit;
+    };
+    var fillDetail = function () {
+      var d = compDetailModel_(block.rows, compChartUi_.pick);
+      var it = picked();
+      detail.className = 'dash-comp-detail' + (it ? ' dash-cc-' + it.color : '');
+      detail.textContent = '';
+      var nm = document.createElement('span');
+      nm.className = 'dash-comp-detail-name';
+      if (it) {
+        var dot = document.createElement('span');
+        dot.className = 'dash-comp-dot';
+        dot.setAttribute('aria-hidden', 'true');
+        nm.appendChild(dot);
+      }
+      var nmText = document.createElement('span');
+      nmText.textContent = d.name;
+      nm.appendChild(nmText);
+      detail.appendChild(nm);
+      [['점검', d.inspections], ['공사', d.projects], ['부적합', d.findings], ['부적합률', d.rate]].forEach(function (kv) {
+        var cell = document.createElement('span');
+        cell.className = 'dash-comp-detail-kv';
+        var key = document.createElement('span');
+        key.textContent = kv[0] + ' ';
+        var val = document.createElement('b');
+        if (kv[0] === '부적합' && kv[1] > 0) val.className = 'dash-danger';
+        val.textContent = String(kv[1]);
+        cell.appendChild(key);
+        cell.appendChild(val);
+        detail.appendChild(cell);
+      });
+      detailFor = compChartUi_.pick;
+    };
+    /* 강조·선택을 지금 DOM 에 반영한다(다시 만들지 않는다 — 초점을 잃지 않게). */
+    var sync = function () {
+      var pin = picked();
+      var active = hover || pin;
+      root.setAttribute('data-hl', String(!!active));
+      ui.els.forEach(function (e) {
+        e.el.setAttribute('data-on', String(e.item === active));
+        if (!e.item.other) e.el.setAttribute(e.pinAttr, String(e.item === pin));
+      });
+      ui.center(active);
+      if (detailFor !== compChartUi_.pick) fillDetail();   // hover 로는 바꾸지 않는다(aria-live 낭독 폭주 방지)
+    };
+    var pick = function (it) {
+      if (it.other) return;                    // '기타'는 지표마다 묶이는 회사가 달라 고정하지 않는다
+      compChartUi_.pick = compChartUi_.pick === it.name ? '' : it.name;
+      sync();
+    };
+    var unpick = function () {
+      if (!compChartUi_.pick) return;
+      compChartUi_.pick = '';
+      sync();
+    };
+    var stop = function (e) { if (e && typeof e.stopPropagation === 'function') e.stopPropagation(); };
+    var register = function (model) {
+      var reg = { model: model, els: [], anim: [], center: function () {} };
+      reg.add = function (el, it, pinAttr) {
+        reg.els.push({ el: el, item: it, pinAttr: pinAttr });
+        var enter = function () { hover = it; sync(); };
+        var leave = function () { if (hover === it) { hover = null; sync(); } };
+        el.addEventListener('mouseenter', enter);
+        el.addEventListener('mouseleave', leave);
+        el.addEventListener('focus', enter);
+        el.addEventListener('blur', leave);
+        el.addEventListener('click', function (e) { stop(e); pick(it); });
+        el.addEventListener('keydown', function (e) {
+          if (!e || (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar')) return;
+          if (typeof e.preventDefault === 'function') e.preventDefault();   // Space 가 쪽을 내리지 않게
+          pick(it);
+        });
+      };
+      return reg;
+    };
+    /* 펼침 — 붙은 뒤 한 프레임 그려진 다음(이중 rAF) 인라인 style 을 지워 transition 을 일으킨다.
+       rAF 가 없는 환경(조각 테스트)은 바로 제자리. reduced-motion 은 CSS 가 transition 을 끈다. */
+    var reveal = function (list) {
+      var done = function () {
+        list.forEach(function (c) { c.style.strokeDasharray = ''; c.style.strokeDashoffset = ''; });
+      };
+      if (!list.length) return;
+      if (typeof requestAnimationFrame !== 'function') { done(); return; }
+      requestAnimationFrame(function () { requestAnimationFrame(done); });
+    };
     var paint = function () {
       var model = compDonutModel_(block.rows, compChartUi_.metric);
+      var keep = false;
+      model.items.forEach(function (it) { if (!it.other && it.name === compChartUi_.pick) keep = true; });
+      if (!keep) compChartUi_.pick = '';      // 이 지표에서 '기타'로 묶였거나 rows 에 없는 회사
+      hover = null;
+      ui = register(model);
       body.textContent = '';
-      body.appendChild(buildCompList_(model));
-      body.appendChild(buildCompDonut_(model));
+      side.textContent = '';
+      side.appendChild(buildCompList_(model, ui));
+      side.appendChild(detail);
+      body.appendChild(side);
+      body.appendChild(buildCompDonut_(model, ui));
       summary.textContent = compSummary_(model);
       segBtns.forEach(function (b, i) {
         b.setAttribute('aria-pressed', String(COMP_METRICS_[i] === compChartUi_.metric));
       });
+      sync();
+      reveal(ui.anim);
     };
+    body.addEventListener('click', unpick);    // 빈 곳 — 조각·행·상세 패널은 stop 으로 막는다
+    detail.addEventListener('click', stop);
+    root.addEventListener('keydown', function (e) { if (e && e.key === 'Escape') unpick(); });
     var syncTable = function () {
       tableWrap.hidden = !compChartUi_.table;
       toggle.textContent = compChartUi_.table ? '표 접기' : '표로 보기';
@@ -3372,7 +3548,10 @@
    *  '이번 주' 묶음은 X1(2026-09-17)부터 여기서 그리지 않는다 — 사용자 지시("이번주 카드를
    *  이미지 오른쪽에 배치")로 「이번 주」 블록 안 요일 막대 옆으로 옮겼다(buildWeekTilesGrid_ +
    *  renderView_ 호출부). 그 블록이 막대를 못 그리는 예외(legacy 제목 형식)에서만 renderView_ 가
-   *  이 host 로 도로 떨어뜨린다(X2 — 카드를 잃지 않는다). */
+   *  이 host 로 도로 떨어뜨린다(X2 — 카드를 잃지 않는다).
+   *  v2(2026-10-28) — 정상 경로에서는 이 줄을 그리지 않는다: 협력회사별 그래프의 숫자 탭이 같은 합계를
+   *  보인다. 그래프를 못 그리는 예외(compChartable_ 거짓)에서만 renderView_ 가 부른다(정보 유실 방지).
+   *  캡션은 '조회 기간'만 — 기간 문구 자체는 필터 줄 #dash-range-label 한 곳이 보인다(중복 금지). */
   function renderKpiCards_(data, viewName) {
     var host = el_('dash-summary');
     var rd = rangeKpiData_(data, viewName);
@@ -3382,7 +3561,7 @@
 
     var rcap = document.createElement('p');
     rcap.className = 'dash-kpis-caption';
-    rcap.textContent = (data.range && data.range.label) ? '조회 기간 ' + data.range.label : '조회 기간';
+    rcap.textContent = '조회 기간';
     host.appendChild(rcap);
 
     var rgrid = document.createElement('div');
@@ -3474,18 +3653,24 @@
       return;
     }
     el_('dash-team').disabled = false;
-    renderKpiCards_(data, state.view);
-    /* 협력회사별·공사별 제목에서 걷어낸 괄호 기간(D5)을 여기 한 번만 적는다 — 단 기간 KPI
-       카드 줄(rangeKpiData_)이 이미 같은 문구를 캡션으로 냈으면(R3) 여기서는 비운다(중복
-       제거). 그 카드 줄이 없는 예외(협력회사별 블록을 못 찾은 경우 등)에는 여기가 유일한
-       자리이므로 그대로 채운다 — 기간 정보 자체가 화면에서 사라지면 안 된다. */
-    var rangeShownInKpi = !!rangeKpiData_(data, state.view);
-    rangeLabel.textContent = (!rangeShownInKpi && data.range && data.range.label)
-      ? '조회 기간 ' + data.range.label : '';
-    var od = renderOverdue_(data);             // 밀린 일이 먼저다 — 맨 위에 둔다
-    if (od) root.appendChild(od);
+    /* v2(2026-10-28 사용자 지시) — 협력회사별 그래프(숫자 탭이 기간 합계를 보인다)를 맨 앞에 두고
+       상단 KPI 카드 줄은 그리지 않는다. 그래프를 못 그리는 예외(블록 없음·못 읽는 숫자·SVG 불가)
+       에서만 예전 카드 줄로 떨어뜨린다(D1/B1 — rangeKpiData_ 가 null 이면 카드도 없다). */
+    var compAt = -1;
+    for (var ci = 0; ci < blocks.length; ci++) {
+      if (compChartable_(blocks[ci])) { compAt = ci; break; }
+    }
+    if (compAt < 0) renderKpiCards_(data, state.view);
+    else { chipHost.hidden = true; chipHost.textContent = ''; }
+    /* 조회 기간 문구는 필터 줄 #dash-range-label 한 곳이다(D5 — 제목에서 걷어낸 괄호 기간).
+       폰에서 필터를 접으면 #dash-controls 째 숨고 접힌 줄 요약(updateControlsFoldSummary_)이 같은
+       문구를 보인다 — 둘은 동시에 보이지 않는다(dashboard.html .dash-controls-fold 규칙). */
+    rangeLabel.textContent = (data.range && data.range.label) ? '조회 기간 ' + data.range.label : '';
+    var od = renderOverdue_(data);             // 밀린 일 — 협력회사별 그래프 다음, 다른 블록보다 앞
     var cd = summaryChipData_(data, state.view);   // X1 — '이번 주' 블록 안에 넣을 카드 재료
-    blocks.forEach(function (b) {
+    var rest = blocks.slice();
+    var front = compAt >= 0 ? rest.splice(compAt, 1) : [];
+    var drawBlock = function (b) {
       var isWeek = b.title.indexOf('이번 주') === 0;
       var weekGrid = isWeek ? buildWeekTilesGrid_(cd) : null;
       var sec = renderBlock_(b, data.server_today, weekGrid);
@@ -3516,7 +3701,10 @@
         }
       }
       root.appendChild(sec);
-    });
+    };
+    front.forEach(drawBlock);                  // 협력회사별 그래프 카드 — 원래 자리에는 다시 그리지 않는다
+    if (od) root.appendChild(od);
+    rest.forEach(drawBlock);
     if (data.integrity && data.integrity.block) {
       var ig = renderBlock_(data.integrity.block);
       ig.className += ' dash-integrity';        // 경고 액센트(왼쪽 보더·제목색) — 배경은 그대로

@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="협력회사 SHE 현황 — 관리자 전용 대시보드·협력회사 성적">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-<link rel="stylesheet" href="./styles.css?v=0.5.5-6996a372">
-<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-6996a372">
+<link rel="stylesheet" href="./styles.css?v=0.5.5-12f9be21">
+<link rel="stylesheet" href="./design-kit/tokens.css?v=0.5.5-12f9be21">
 <link rel="preconnect" href="https://api.ynes.app" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
@@ -847,19 +847,34 @@ a.dash-btn[hidden] { display: none; }
 .dash-cc-4 { --cc: var(--chart-4); }
 .dash-cc-5 { --cc: var(--dash-chart-5); }
 .dash-cc-0 { --cc: var(--dash-chart-other); }
-.dash-comp-seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px;
-  overflow: hidden; margin: 0 0 12px; }
-.dash-comp-segbtn { min-height: 44px; min-width: 64px; padding: 0 16px; border: 0;
-  background: var(--surface); color: var(--muted); font: inherit; font-size: 0.875rem; cursor: pointer; }
-.dash-comp-segbtn + .dash-comp-segbtn { border-left: 1px solid var(--border); }
+/* v2 숫자 탭 — 지표 전환 버튼이 기간 합계를 품어 상단 KPI 카드 줄을 대신한다(라벨 + 큰 숫자).
+   눌린 탭은 accent 테두리·옅은 바탕만 — 꽉 찬 accent 바탕이면 부적합 위험색 숫자가 묻힌다.
+   v3 — 폭 상한(600px)을 걷어 카드 내용 폭 전체를 3등분한다(1280px 에서 오른쪽 절반이 비었다). */
+.dash-comp-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
+  margin: 0 0 16px; }
+.dash-comp-segbtn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  min-height: 44px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); color: var(--muted); font: inherit; font-size: 0.85rem; text-align: left;
+  cursor: pointer; transition: border-color 0.15s ease-out, background-color 0.15s ease-out; }
 .dash-comp-segbtn:hover { background: var(--row-hover); }
-.dash-comp-segbtn[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); font-weight: 700; }
-.dash-comp-segbtn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -4px; }
-.dash-comp-segbtn[aria-pressed="true"]:focus-visible { outline-color: var(--on-accent); }
+.dash-comp-segbtn[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface)); color: var(--text); font-weight: 700; }
+.dash-comp-segbtn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.dash-comp-segv { font-family: var(--font-heading); font-size: 1.5rem; line-height: 1.15; color: var(--text);
+  font-variant-numeric: tabular-nums; }
+.dash-comp-segv.dash-danger { color: var(--danger); }
 .dash-comp-body { display: flex; align-items: center; gap: 24px; }
-.dash-comp-list { flex: 1.2 1 0; min-width: 0; margin: 0; padding: 0; list-style: none; }
-.dash-comp-row { margin: 0 0 12px; }
+.dash-comp-side { flex: 1.2 1 0; min-width: 0; }
+.dash-comp-list { margin: 0; padding: 0; list-style: none; }
+/* 강조(data-on, hover·포커스)·고정 선택(aria-selected/aria-pressed) — 조각과 목록 행 양방향(renderCompChart_ sync) */
+.dash-comp-row { margin: 0 0 4px; padding: 6px 8px; border-radius: 8px; cursor: pointer;
+  transition: background-color 0.15s ease-out, opacity 0.15s ease-out; }
 .dash-comp-row:last-child { margin-bottom: 0; }
+.dash-comp-row[data-on="true"] { background: var(--row-hover); }
+.dash-comp-row[aria-selected="true"] { background: var(--row-hover); box-shadow: inset 3px 0 0 var(--cc); }
+.dash-comp[data-hl="true"] .dash-comp-row[data-on="false"] { opacity: 0.45; }
+.dash-comp-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.dash-comp-row[aria-disabled="true"], .dash-comp-slice[aria-disabled="true"] { cursor: default; }
 .dash-comp-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
   font-size: 0.9rem; }
 .dash-comp-name { display: inline-flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
@@ -869,10 +884,17 @@ a.dash-btn[hidden] { display: none; }
 .dash-comp-val small { margin-left: 8px; font-size: 0.8rem; color: var(--muted); }
 .dash-comp-bar { height: 6px; margin-top: 6px; border-radius: 3px;
   background: color-mix(in srgb, var(--border) 60%, transparent); }
+/* v3 — 다크에서 border 60% 트랙이 카드 바탕과 거의 같아 안 보였다 → 도넛 빈 고리와 같은 트랙 토큰 */
+[data-theme="dark"] .dash-comp-bar { background: var(--dash-chart-track); }
 .dash-comp-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--cc); }
 .dash-comp-donut { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; }
-.dash-comp-svg { display: block; width: 180px; height: 180px; max-width: 100%; }
-.dash-comp-slice { stroke: var(--cc); cursor: pointer; }
+.dash-comp-svg { display: block; width: 220px; height: 220px; max-width: 100%; }
+/* 펼침(약 400ms) — dashboard.js 가 인라인 style(길이 0·12시)을 지우면 속성값까지 transition 된다 */
+.dash-comp-slice { stroke: var(--cc); cursor: pointer;
+  transition: stroke-dasharray 0.4s ease-out, stroke-dashoffset 0.4s ease-out,
+    stroke-width 0.15s ease-out, opacity 0.15s ease-out; }
+.dash-comp-slice[data-on="true"], .dash-comp-slice[aria-pressed="true"] { stroke-width: 32px; }
+.dash-comp[data-hl="true"] .dash-comp-slice[data-on="false"] { opacity: 0.3; }
 .dash-comp-track { stroke: var(--dash-chart-track); }
 .dash-comp-total { fill: var(--text); font-family: var(--font-heading); font-size: 34px; font-weight: 700; }
 .dash-comp-unit { fill: var(--muted); font-size: 12px; }
@@ -881,11 +903,31 @@ a.dash-btn[hidden] { display: none; }
   padding-top: 10px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.85rem; }
 .dash-comp-summary { margin: 0; color: var(--text); }
 .dash-comp-tabletoggle { margin-left: auto; padding: 0 14px; font-size: 0.85rem; }
+/* 선택 회사 상세 패널 — 고정 선택(없으면 전체)의 점검·공사·부적합·부적합률 한 줄 */
+.dash-comp-detail { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; margin-top: 14px;
+  padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; color: var(--muted);
+  font-size: 0.875rem; }
+.dash-comp-detail-name { display: inline-flex; align-items: center; gap: 8px; color: var(--text); font-weight: 700; }
+.dash-comp-detail-kv b { font-size: 1rem; color: var(--text); font-variant-numeric: tabular-nums; }
+.dash-comp-detail-kv b.dash-danger { color: var(--danger); }
 /* 휴대폰(폭 480px 미만) — 도넛 위, 목록 아래(설계서). DOM 순서는 목록이 먼저라 화면 읽기 순서는 그대로다. */
 @media (max-width: 479px) {
   .dash-comp-body { flex-direction: column; align-items: stretch; gap: 16px; }
-  .dash-comp-list, .dash-comp-donut { flex: none; }
+  .dash-comp-side, .dash-comp-donut { flex: none; }
   .dash-comp-donut { order: -1; }
+  .dash-comp-svg { width: 240px; height: 240px; }
+}
+/* 데스크톱(폭 900px 이상) — 도넛을 키워 왼쪽, 목록·상세는 오른쪽 열(글자 한 단계 크게) */
+@media (min-width: 900px) {
+  .dash-comp-body { align-items: flex-start; gap: 48px; }
+  .dash-comp-donut { order: -1; flex: 0 0 auto; padding: 0 8px; }
+  .dash-comp-svg { width: 288px; height: 288px; }
+  .dash-comp-top { font-size: 1rem; }
+  .dash-comp-val b { font-size: 1.125rem; }
+  .dash-comp-val small, .dash-comp-cap { font-size: 0.875rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dash-comp-slice, .dash-comp-row, .dash-comp-segbtn { transition: none; }
 }
 </style>
 </head>
@@ -973,8 +1015,8 @@ a.dash-btn[hidden] { display: none; }
   </section>
 </div>
 
-<script src="./config.js?v=0.5.5-6996a372"></script>
-<script src="./move.js?v=0.5.5-6996a372"></script>
-<script src="./dashboard.js?v=0.5.5-6996a372"></script>
+<script src="./config.js?v=0.5.5-12f9be21"></script>
+<script src="./move.js?v=0.5.5-12f9be21"></script>
+<script src="./dashboard.js?v=0.5.5-12f9be21"></script>
 </body>
 </html>
